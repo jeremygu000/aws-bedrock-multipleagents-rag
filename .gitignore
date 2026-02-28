@@ -16,6 +16,8 @@ cdk.out/
 .env
 .env.*
 !.env.example
+.envrc
+.direnv/
 
 # Logs
 *.log
