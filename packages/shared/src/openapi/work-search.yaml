@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Work Search API
+  version: 0.1.0
+paths:
+  /work-search:
+    post:
+      operationId: workSearch
+      summary: Search work items from the MCP-backed system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+              required:
+                - query
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object

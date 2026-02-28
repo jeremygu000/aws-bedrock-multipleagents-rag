@@ -1,0 +1,13 @@
+{
+  "name": "@aws-bedrock-multiagents/tool-rag-search",
+  "private": true,
+  "main": "dist/handler.js",
+  "types": "dist/handler.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aws-bedrock-multiagents/shared": "workspace:*"
+  }
+}

@@ -1,0 +1,34 @@
+openapi: 3.0.3
+info:
+  title: RAG Search API
+  version: 0.1.0
+paths:
+  /rag-search:
+    post:
+      operationId: ragSearch
+      summary: Retrieve documents using BM25 and vector search
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+              required:
+                - query
+      responses:
+        "200":
+          description: Ranked retrieval results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      type: object
