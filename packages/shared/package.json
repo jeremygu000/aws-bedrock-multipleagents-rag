@@ -1,14 +1,22 @@
 {
   "name": "@aws-bedrock-multiagents/shared",
+  "version": "0.0.1",
   "private": true,
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "files": [
-    "dist",
-    "src/openapi"
-  ],
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsgo -p tsconfig.json --noEmit",
+    "typecheck:tsc": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aws-lambda-powertools/logger": "^2.17.0",
+    "@aws-lambda-powertools/metrics": "^2.17.0",
+    "@aws-lambda-powertools/tracer": "^2.17.0"
+  },
+  "devDependencies": {
+    "@typescript/native-preview": "^7.0.0-dev.20250906.1",
+    "typescript": "^5.7.3"
   }
 }

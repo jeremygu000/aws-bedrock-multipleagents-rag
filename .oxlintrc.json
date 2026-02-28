@@ -1,0 +1,50 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "env": {
+    "node": true
+  },
+  "plugins": ["typescript", "unicorn", "oxc", "import", "node"],
+  "ignorePatterns": ["dist/**", "coverage/**", "cdk.out/**"],
+  "rules": {
+    "curly": "error",
+    "eqeqeq": "error",
+    "no-alert": "error",
+    "no-console": "error",
+    "no-debugger": "error",
+    "no-var": "error",
+    "object-shorthand": "error",
+    "prefer-const": "error",
+    "import/no-cycle": "error",
+    "import/no-duplicates": ["error", { "preferInline": true }],
+    "import/no-self-import": "error",
+    "node/no-process-env": [
+      "error",
+      {
+        "allowedVariables": ["CDK_DEFAULT_ACCOUNT", "CDK_DEFAULT_REGION"]
+      }
+    ],
+    "typescript/consistent-type-imports": [
+      "error",
+      {
+        "fixStyle": "inline-type-imports",
+        "prefer": "type-imports"
+      }
+    ],
+    "typescript/no-explicit-any": "error",
+    "typescript/no-import-type-side-effects": "error",
+    "unicorn/error-message": "error",
+    "unicorn/no-array-for-each": "error",
+    "unicorn/no-array-reverse": "error",
+    "unicorn/no-instanceof-array": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "unicorn/throw-new-error": "error"
+  },
+  "overrides": [
+    {
+      "files": ["packages/shared/src/observability.ts"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
+}

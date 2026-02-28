@@ -1,29 +1,30 @@
-import { BedrockActionParameter } from "@aws-bedrock-multiagents/shared";
-
 export interface WorkSearchResult {
-  id: string;
+  winfkey: string;
   title: string;
-  summary: string;
-  source: "mcp";
+  writers: string[];
+  iswc?: string;
+  confidence?: number;
 }
 
-const getParameterValue = (
-  parameters: BedrockActionParameter[] = [],
-  name: string,
-): string | undefined => parameters.find((parameter) => parameter.name === name)?.value;
+export interface WorkSearchInput {
+  title?: string;
+  writer?: string;
+  iswc?: string;
+  isrc?: string;
+  publishers?: string[];
+  topK?: number;
+}
 
-export const searchWork = async (
-  parameters: BedrockActionParameter[] = [],
-): Promise<WorkSearchResult[]> => {
-  const query = getParameterValue(parameters, "query") ?? "empty query";
-
-  // Placeholder for the MCP transport/client integration.
-  return [
+export const callWorkSearchMcp = async (
+  input: WorkSearchInput,
+): Promise<{ results: WorkSearchResult[] }> => ({
+  results: [
     {
-      id: "work-001",
-      title: `Stub work search result for "${query}"`,
-      summary: "Replace this with a real MCP call to your work search backend.",
-      source: "mcp",
+      winfkey: "WINF123456",
+      title: input.title ?? "UNKNOWN",
+      writers: input.writer ? [input.writer] : [],
+      iswc: input.iswc,
+      confidence: 0.42,
     },
-  ];
-};
+  ],
+});

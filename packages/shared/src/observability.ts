@@ -1,16 +1,30 @@
-type LogContext = Record<string, unknown>;
+import { Logger } from "@aws-lambda-powertools/logger";
+import { Metrics } from "@aws-lambda-powertools/metrics";
+import { Tracer } from "@aws-lambda-powertools/tracer";
 
-const formatLog = (level: "INFO" | "ERROR", message: string, context: LogContext) =>
-  JSON.stringify({
-    level,
-    message,
-    ...context,
-  });
+export interface Observability {
+  tracer: Tracer;
+  logger: Logger;
+  metrics: Metrics;
+}
 
-export const logInfo = (message: string, context: LogContext = {}): void => {
-  console.log(formatLog("INFO", message, context));
-};
+export const captureAsync = async <T>(
+  tracer: Tracer,
+  name: string,
+  fn: () => Promise<T>,
+): Promise<T> =>
+  Promise.resolve(tracer.provider.captureAsyncFunc(name, async () => fn()) as Promise<T>);
 
-export const logError = (message: string, context: LogContext = {}): void => {
-  console.error(formatLog("ERROR", message, context));
+export const createObservability = (options?: {
+  serviceName?: string;
+  namespace?: string;
+}): Observability => {
+  const serviceName = options?.serviceName ?? "bedrock-tools";
+  const namespace = options?.namespace ?? "BedrockTools";
+
+  return {
+    tracer: new Tracer({ serviceName }),
+    logger: new Logger({ serviceName }),
+    metrics: new Metrics({ namespace, serviceName }),
+  };
 };

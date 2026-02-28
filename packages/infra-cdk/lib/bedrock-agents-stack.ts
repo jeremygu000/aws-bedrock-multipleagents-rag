@@ -1,0 +1,269 @@
+import * as cdk from "aws-cdk-lib";
+import * as bedrock from "aws-cdk-lib/aws-bedrock";
+import * as iam from "aws-cdk-lib/aws-iam";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as logs from "aws-cdk-lib/aws-logs";
+import type { Construct } from "constructs";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const FOUNDATION_MODEL_ID = "amazon.nova-lite-v1:0";
+
+const readText = (filePath: string): string => fs.readFileSync(filePath, "utf8");
+
+const currentFilePath = fileURLToPath(import.meta.url);
+const currentDir = path.dirname(currentFilePath);
+const infraPackageRoot = path.resolve(currentDir, "../..");
+const workspaceRoot = path.resolve(infraPackageRoot, "../..");
+
+const sharedOpenApiRoot = path.join(workspaceRoot, "packages", "shared", "src", "openapi");
+const toolWorkDist = path.join(workspaceRoot, "packages", "tool-work-search", "dist");
+const toolRagDist = path.join(workspaceRoot, "packages", "tool-rag-search", "dist");
+
+export class BedrockAgentsStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+
+    const workOpenApi = readText(path.join(sharedOpenApiRoot, "work-search.yaml"));
+    const ragOpenApi = readText(path.join(sharedOpenApiRoot, "rag-search.yaml"));
+
+    const workGuardrail = new bedrock.CfnGuardrail(this, "WorkGuardrailLow", {
+      name: "work-guardrail-low",
+      blockedInputMessaging: "Sorry, I can't help with that request.",
+      blockedOutputsMessaging: "Sorry, I can't provide that response.",
+      contentPolicyConfig: {
+        filtersConfig: [
+          { type: "HATE", inputStrength: "MEDIUM", outputStrength: "MEDIUM" },
+          { type: "INSULTS", inputStrength: "MEDIUM", outputStrength: "MEDIUM" },
+          { type: "SEXUAL", inputStrength: "MEDIUM", outputStrength: "MEDIUM" },
+          { type: "VIOLENCE", inputStrength: "MEDIUM", outputStrength: "MEDIUM" },
+          { type: "PROMPT_ATTACK", inputStrength: "HIGH", outputStrength: "HIGH" },
+        ],
+      },
+    });
+
+    const workGuardrailV1 = new bedrock.CfnGuardrailVersion(this, "WorkGuardrailLowV1", {
+      guardrailIdentifier: workGuardrail.attrGuardrailId,
+      description: "v1 low restriction for work search",
+    });
+
+    const qaGuardrail = new bedrock.CfnGuardrail(this, "QaGuardrailStrict", {
+      name: "qa-guardrail-strict",
+      blockedInputMessaging:
+        "Guardrail triggered. I can help with APRA AMCOS licensing, membership, or work registration questions.",
+      blockedOutputsMessaging:
+        "Guardrail triggered. I can only provide APRA AMCOS licensing, membership, or work registration guidance.",
+      contentPolicyConfig: {
+        filtersConfig: [
+          { type: "HATE", inputStrength: "LOW", outputStrength: "LOW" },
+          { type: "INSULTS", inputStrength: "LOW", outputStrength: "LOW" },
+          { type: "SEXUAL", inputStrength: "LOW", outputStrength: "LOW" },
+          { type: "VIOLENCE", inputStrength: "LOW", outputStrength: "LOW" },
+          { type: "MISCONDUCT", inputStrength: "LOW", outputStrength: "LOW" },
+          { type: "PROMPT_ATTACK", inputStrength: "LOW", outputStrength: "LOW" },
+        ],
+      },
+      topicPolicyConfig: {
+        topicsConfig: [
+          {
+            name: "Copyright evasion",
+            type: "DENY",
+            definition: "Requests about bypassing licensing or avoiding royalty payments.",
+            examples: [
+              "How do I avoid music licence fees?",
+              "How can I play music without paying APRA?",
+            ],
+          },
+        ],
+      },
+      sensitiveInformationPolicyConfig: {
+        piiEntitiesConfig: [
+          { type: "EMAIL", action: "BLOCK" },
+          { type: "PHONE", action: "BLOCK" },
+          { type: "CREDIT_DEBIT_CARD_NUMBER", action: "BLOCK" },
+        ],
+      },
+    });
+
+    const qaGuardrailV1 = new bedrock.CfnGuardrailVersion(this, "QaGuardrailStrictV1", {
+      guardrailIdentifier: qaGuardrail.attrGuardrailId,
+      description: "v1 strict for APRA QA",
+    });
+
+    const workSearchLogGroup = new logs.LogGroup(this, "WorkSearchFnLogGroup", {
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const workSearchFn = new lambda.Function(this, "WorkSearchFn", {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "handler.handler",
+      code: lambda.Code.fromAsset(toolWorkDist),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+      tracing: lambda.Tracing.ACTIVE,
+      logGroup: workSearchLogGroup,
+    });
+
+    const ragSearchLogGroup = new logs.LogGroup(this, "RagSearchFnLogGroup", {
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const ragSearchFn = new lambda.Function(this, "RagSearchFn", {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "handler.handler",
+      code: lambda.Code.fromAsset(toolRagDist),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 1024,
+      tracing: lambda.Tracing.ACTIVE,
+      logGroup: ragSearchLogGroup,
+    });
+
+    for (const fn of [workSearchFn, ragSearchFn]) {
+      fn.addPermission(`${fn.node.id}InvokeByBedrock`, {
+        principal: new iam.ServicePrincipal("bedrock.amazonaws.com"),
+        action: "lambda:InvokeFunction",
+      });
+    }
+
+    const createAgentRole = (name: string) =>
+      new iam.Role(this, name, {
+        assumedBy: new iam.ServicePrincipal("bedrock.amazonaws.com"),
+        inlinePolicies: {
+          AgentPolicy: new iam.PolicyDocument({
+            statements: [
+              new iam.PolicyStatement({
+                actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+                resources: ["*"],
+              }),
+              new iam.PolicyStatement({
+                actions: ["lambda:InvokeFunction"],
+                resources: [workSearchFn.functionArn, ragSearchFn.functionArn],
+              }),
+            ],
+          }),
+        },
+      });
+
+    const workAgentRole = createAgentRole("WorkAgentRole");
+    const qaAgentRole = createAgentRole("QaAgentRole");
+    const supervisorRole = createAgentRole("SupervisorRole");
+
+    const workAgent = new bedrock.CfnAgent(this, "WorkAgent", {
+      agentName: "work-search-agent",
+      foundationModel: FOUNDATION_MODEL_ID,
+      agentResourceRoleArn: workAgentRole.roleArn,
+      autoPrepare: true,
+      guardrailConfiguration: {
+        guardrailIdentifier: workGuardrail.attrGuardrailId,
+        guardrailVersion: workGuardrailV1.attrVersion,
+      },
+      instruction: [
+        "You are a Work Search agent.",
+        "Goal: find the correct work using title, writer, ISWC, ISRC, or publishers.",
+        "Ask at most two short clarification questions if needed.",
+        "When ready, call the work_search action.",
+        "Return concise structured results.",
+      ].join("\n"),
+      actionGroups: [
+        {
+          actionGroupName: "work_search",
+          actionGroupState: "ENABLED",
+          actionGroupExecutor: { lambda: workSearchFn.functionArn },
+          apiSchema: { payload: workOpenApi },
+        },
+        {
+          actionGroupName: "UserInput",
+          parentActionGroupSignature: "AMAZON.UserInput",
+          actionGroupState: "ENABLED",
+        },
+      ],
+    });
+
+    const workAlias = new bedrock.CfnAgentAlias(this, "WorkAlias", {
+      agentAliasName: "live",
+      agentId: workAgent.attrAgentId,
+      routingConfiguration: [{ agentVersion: workAgent.attrAgentVersion }],
+    });
+
+    const qaAgent = new bedrock.CfnAgent(this, "QaAgent", {
+      agentName: "apra-qa-agent",
+      foundationModel: FOUNDATION_MODEL_ID,
+      agentResourceRoleArn: qaAgentRole.roleArn,
+      autoPrepare: true,
+      guardrailConfiguration: {
+        guardrailIdentifier: qaGuardrail.attrGuardrailId,
+        guardrailVersion: qaGuardrailV1.attrVersion,
+      },
+      instruction: [
+        "You are an APRA AMCOS domain Q&A agent.",
+        "Only answer APRA AMCOS related questions.",
+        "Always call rag_search to retrieve grounded information.",
+        "If evidence is insufficient, ask for clarification or refuse.",
+        "Always include citations returned from rag_search.",
+      ].join("\n"),
+      actionGroups: [
+        {
+          actionGroupName: "rag_search",
+          actionGroupState: "ENABLED",
+          actionGroupExecutor: { lambda: ragSearchFn.functionArn },
+          apiSchema: { payload: ragOpenApi },
+        },
+        {
+          actionGroupName: "UserInput",
+          parentActionGroupSignature: "AMAZON.UserInput",
+          actionGroupState: "ENABLED",
+        },
+      ],
+    });
+
+    const qaAlias = new bedrock.CfnAgentAlias(this, "QaAlias", {
+      agentAliasName: "live",
+      agentId: qaAgent.attrAgentId,
+      routingConfiguration: [{ agentVersion: qaAgent.attrAgentVersion }],
+    });
+
+    const supervisor = new bedrock.CfnAgent(this, "SupervisorAgent", {
+      agentName: "supervisor-agent",
+      foundationModel: FOUNDATION_MODEL_ID,
+      agentResourceRoleArn: supervisorRole.roleArn,
+      agentCollaboration: "SUPERVISOR_ROUTER",
+      autoPrepare: true,
+      instruction: [
+        "You are a routing supervisor.",
+        "Route work search requests to WorkSearchAgent.",
+        "Route APRA AMCOS domain questions to ApraQaAgent.",
+        "If the request is ambiguous, ask one short clarification question.",
+        "Otherwise refuse politely.",
+      ].join("\n"),
+      agentCollaborators: [
+        {
+          collaboratorName: "WorkSearchAgent",
+          collaborationInstruction:
+            "Handle work search requests and return concise structured matches.",
+          agentDescriptor: { aliasArn: workAlias.attrAgentAliasArn },
+          relayConversationHistory: "TO_COLLABORATOR",
+        },
+        {
+          collaboratorName: "ApraQaAgent",
+          collaborationInstruction:
+            "Handle APRA AMCOS questions with grounded retrieval and returned citations.",
+          agentDescriptor: { aliasArn: qaAlias.attrAgentAliasArn },
+          relayConversationHistory: "TO_COLLABORATOR",
+        },
+      ],
+    });
+
+    const supervisorAlias = new bedrock.CfnAgentAlias(this, "SupervisorAlias", {
+      agentAliasName: "live",
+      agentId: supervisor.attrAgentId,
+      routingConfiguration: [{ agentVersion: supervisor.attrAgentVersion }],
+    });
+
+    new cdk.CfnOutput(this, "SupervisorAliasArn", { value: supervisorAlias.attrAgentAliasArn });
+    new cdk.CfnOutput(this, "WorkAliasArn", { value: workAlias.attrAgentAliasArn });
+    new cdk.CfnOutput(this, "QaAliasArn", { value: qaAlias.attrAgentAliasArn });
+  }
+}

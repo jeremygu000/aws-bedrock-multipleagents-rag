@@ -1,34 +1,29 @@
-openapi: 3.0.3
+openapi: 3.0.1
 info:
-  title: RAG Search API
-  version: 0.1.0
+  title: apra-rag
+  version: 1.0.0
 paths:
-  /rag-search:
+  /rag_search:
     post:
       operationId: ragSearch
-      summary: Retrieve documents using BM25 and vector search
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - query
               properties:
                 query:
                   type: string
-              required:
-                - query
+                topK:
+                  type: integer
+                  default: 5
+                filters:
+                  type: object
+                conversationId:
+                  type: string
       responses:
         "200":
-          description: Ranked retrieval results
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  query:
-                    type: string
-                  results:
-                    type: array
-                    items:
-                      type: object
+          description: OK

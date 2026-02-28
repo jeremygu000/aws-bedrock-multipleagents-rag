@@ -1,37 +1,64 @@
 import {
-  BedrockActionEvent,
-  BedrockActionResponse,
+  captureAsync,
+  createObservability,
   createJsonResponse,
-  logInfo,
+  getJsonProps,
+  type BedrockActionEvent,
+  type BedrockActionResponse,
 } from "@aws-bedrock-multiagents/shared";
+import { MetricUnit } from "@aws-lambda-powertools/metrics";
 
-import { mergeAndRerank } from "./mergeRerank";
-import { bm25Search } from "./opensearch";
-import { vectorSearch } from "./pgvector";
+import { runEnterpriseRag } from "./ragClient";
 
-const getQuery = (event: BedrockActionEvent): string =>
-  event.parameters?.find((parameter) => parameter.name === "query")?.value ?? "empty query";
+interface RagSearchRequestBody {
+  query?: string;
+  topK?: number;
+  filters?: Record<string, unknown>;
+  conversationId?: string;
+}
+
+interface LambdaContext {
+  awsRequestId: string;
+}
+
+const { tracer, logger, metrics } = createObservability({
+  serviceName: "rag-search-tool",
+});
 
 export const handler = async (
   event: BedrockActionEvent,
-): Promise<BedrockActionResponse> => {
-  const query = getQuery(event);
+  context: LambdaContext,
+): Promise<BedrockActionResponse> =>
+  captureAsync(tracer, "handler.rag_search", async () => {
+    tracer.annotateColdStart();
+    tracer.addServiceNameAnnotation();
 
-  logInfo("rag_search invoked", {
-    actionGroup: event.actionGroup,
-    apiPath: event.apiPath,
-    query,
+    const props = getJsonProps<RagSearchRequestBody>(event);
+    const conversationId = String(props.conversationId ?? "unknown");
+    const query = String(props.query ?? "");
+    const topK = Number(props.topK ?? 5);
+
+    logger.appendKeys({
+      conversationId,
+      agentName: "apra-qa-agent",
+      actionGroup: event.actionGroup,
+      apiPath: event.apiPath,
+      requestId: context.awsRequestId,
+    });
+
+    metrics.addMetric("RagSearchInvocations", MetricUnit.Count, 1);
+    logger.info("rag_search invoked", { query, topK });
+
+    const data = await captureAsync(tracer, "action.rag_search.compose_answer", async () =>
+      runEnterpriseRag({
+        query,
+        topK,
+        filters: props.filters,
+      }),
+    );
+
+    metrics.addMetric("RagSearchSuccess", MetricUnit.Count, 1);
+    metrics.publishStoredMetrics();
+
+    return createJsonResponse(event, data, 200);
   });
-
-  const [bm25Results, vectorResults] = await Promise.all([
-    bm25Search(query),
-    vectorSearch(query),
-  ]);
-
-  const results = mergeAndRerank(bm25Results, vectorResults);
-
-  return createJsonResponse(event, {
-    query,
-    results,
-  });
-};

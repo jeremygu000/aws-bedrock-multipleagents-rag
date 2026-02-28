@@ -1,15 +1,25 @@
 {
   "name": "aws-bedrock-multiagents",
   "private": true,
-  "packageManager": "pnpm@10.6.4",
+  "packageManager": "pnpm@10.30.3+sha512.c961d1e0a2d8e354ecaa5166b822516668b7f44cb5bd95122d590dd81922f606f5473b6d23ec4a5be05e7fcd18e8488d47d978bbe981872f1145d06e9a740017",
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "clean": "pnpm -r exec rm -rf dist cdk.out"
+    "typecheck:tsc": "pnpm -r typecheck:tsc",
+    "clean": "pnpm -r exec rm -rf dist cdk.out",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "oxlint --tsconfig tsconfig.base.json .",
+    "lint:fix": "oxlint --tsconfig tsconfig.base.json --fix .",
+    "synth": "pnpm --filter @aws-bedrock-multiagents/infra-cdk synth",
+    "diff": "pnpm --filter @aws-bedrock-multiagents/infra-cdk diff",
+    "deploy": "pnpm --filter @aws-bedrock-multiagents/infra-cdk deploy",
+    "bootstrap": "pnpm --filter @aws-bedrock-multiagents/infra-cdk bootstrap"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.152",
     "@types/node": "^22.13.10",
+    "oxlint": "^1.14.0",
+    "prettier": "^3.5.3",
     "typescript": "^5.7.3"
   }
 }

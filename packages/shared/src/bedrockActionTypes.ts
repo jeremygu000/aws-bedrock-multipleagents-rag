@@ -1,27 +1,26 @@
-export interface BedrockActionParameter {
-  name: string;
-  type?: string;
-  value: string;
-}
-
 export interface BedrockActionEvent {
-  messageVersion: string;
+  actionGroup: string;
+  apiPath: string;
+  httpMethod: string;
   inputText?: string;
-  apiPath?: string;
-  actionGroup?: string;
-  httpMethod?: string;
-  parameters?: BedrockActionParameter[];
+  messageVersion?: string;
   sessionAttributes?: Record<string, string>;
   promptSessionAttributes?: Record<string, string>;
-  requestBody?: unknown;
+  requestBody?: {
+    content?: {
+      "application/json"?: {
+        properties?: Record<string, unknown>;
+      };
+    };
+  };
 }
 
 export interface BedrockActionResponse {
   messageVersion: string;
   response: {
-    actionGroup?: string;
-    apiPath?: string;
-    httpMethod?: string;
+    actionGroup: string;
+    apiPath: string;
+    httpMethod: string;
     httpStatusCode: number;
     responseBody: {
       "application/json": {
@@ -32,6 +31,10 @@ export interface BedrockActionResponse {
   sessionAttributes?: Record<string, string>;
   promptSessionAttributes?: Record<string, string>;
 }
+
+export const getJsonProps = <T extends object = Record<string, unknown>>(
+  event: BedrockActionEvent,
+): T => (event.requestBody?.content?.["application/json"]?.properties ?? {}) as T;
 
 export const createJsonResponse = (
   event: BedrockActionEvent,

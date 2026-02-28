@@ -1,12 +1,11 @@
-openapi: 3.0.3
+openapi: 3.0.1
 info:
-  title: Work Search API
-  version: 0.1.0
+  title: work-search
+  version: 1.0.0
 paths:
-  /work-search:
+  /work_search:
     post:
       operationId: workSearch
-      summary: Search work items from the MCP-backed system
       requestBody:
         required: true
         content:
@@ -14,19 +13,23 @@ paths:
             schema:
               type: object
               properties:
-                query:
+                title:
                   type: string
-              required:
-                - query
+                writer:
+                  type: string
+                iswc:
+                  type: string
+                isrc:
+                  type: string
+                publishers:
+                  type: array
+                  items:
+                    type: string
+                topK:
+                  type: integer
+                  default: 5
+                conversationId:
+                  type: string
       responses:
         "200":
-          description: Search results
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  results:
-                    type: array
-                    items:
-                      type: object
+          description: OK
