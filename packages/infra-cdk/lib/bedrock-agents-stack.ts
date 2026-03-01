@@ -102,7 +102,7 @@ export class BedrockAgentsStack extends cdk.Stack {
     });
 
     const workSearchFn = new lambda.Function(this, "WorkSearchFn", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler.handler",
       code: lambda.Code.fromAsset(toolWorkDist),
       timeout: cdk.Duration.seconds(30),
@@ -117,7 +117,7 @@ export class BedrockAgentsStack extends cdk.Stack {
     });
 
     const ragSearchFn = new lambda.Function(this, "RagSearchFn", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler.handler",
       code: lambda.Code.fromAsset(toolRagDist),
       timeout: cdk.Duration.seconds(30),
@@ -132,7 +132,7 @@ export class BedrockAgentsStack extends cdk.Stack {
     });
 
     const supervisorToolFn = new lambda.Function(this, "SupervisorToolFn", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler.handler",
       code: lambda.Code.fromAsset(toolSupervisorDist),
       timeout: cdk.Duration.seconds(30),
