@@ -48,6 +48,7 @@ export const generateClarification = async (tracer: Tracer, inputText: string): 
       }
       throw new Error("Empty response from model");
     } catch (error) {
+      tracer.addErrorAsMetadata(error as Error);
       // Fallback if LLM fails
       return "I'm not quite sure what you mean. Are you trying to search for a specific music work, or do you have a question about APRA AMCOS policies and licensing?";
     }

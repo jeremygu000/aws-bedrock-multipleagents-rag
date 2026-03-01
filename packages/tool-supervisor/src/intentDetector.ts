@@ -73,6 +73,7 @@ export const detectIntent = async (
 
       throw new Error(`Invalid intent returned by model: ${parsed.intent}`);
     } catch (error) {
+      tracer.addErrorAsMetadata(error as Error);
       // Fallback to OUT_OF_SCOPE if model fails or returns invalid JSON
       return {
         intent: IntentType.OUT_OF_SCOPE,
