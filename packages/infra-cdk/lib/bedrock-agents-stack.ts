@@ -30,15 +30,16 @@ export class BedrockAgentsStack extends cdk.Stack {
 
     const workGuardrail = new bedrock.CfnGuardrail(this, "WorkGuardrailLow", {
       name: "work-guardrail-low",
-      blockedInputMessaging: "Sorry, I can't help with that request.",
-      blockedOutputsMessaging: "Sorry, I can't provide that response.",
+      blockedInputMessaging: "[work-guardrail-low][input-block] Sorry, I can't help with that request.",
+      blockedOutputsMessaging:
+        "[work-guardrail-low][output-block] Sorry, I can't provide that response.",
       contentPolicyConfig: {
         filtersConfig: [
           { type: "HATE", inputStrength: "MEDIUM", outputStrength: "MEDIUM" },
           { type: "INSULTS", inputStrength: "MEDIUM", outputStrength: "MEDIUM" },
           { type: "SEXUAL", inputStrength: "MEDIUM", outputStrength: "MEDIUM" },
           { type: "VIOLENCE", inputStrength: "MEDIUM", outputStrength: "MEDIUM" },
-          { type: "PROMPT_ATTACK", inputStrength: "HIGH", outputStrength: "HIGH" },
+          { type: "PROMPT_ATTACK", inputStrength: "HIGH", outputStrength: "NONE" },
         ],
       },
     });
@@ -51,9 +52,9 @@ export class BedrockAgentsStack extends cdk.Stack {
     const qaGuardrail = new bedrock.CfnGuardrail(this, "QaGuardrailStrict", {
       name: "qa-guardrail-strict",
       blockedInputMessaging:
-        "Guardrail triggered. I can help with APRA AMCOS licensing, membership, or work registration questions.",
+        "[qa-guardrail-strict][input-block] Guardrail triggered. I can help with APRA AMCOS licensing, membership, or work registration questions.",
       blockedOutputsMessaging:
-        "Guardrail triggered. I can only provide APRA AMCOS licensing, membership, or work registration guidance.",
+        "[qa-guardrail-strict][output-block] Guardrail triggered. I can only provide APRA AMCOS licensing, membership, or work registration guidance.",
       contentPolicyConfig: {
         filtersConfig: [
           { type: "HATE", inputStrength: "LOW", outputStrength: "LOW" },
@@ -61,7 +62,7 @@ export class BedrockAgentsStack extends cdk.Stack {
           { type: "SEXUAL", inputStrength: "LOW", outputStrength: "LOW" },
           { type: "VIOLENCE", inputStrength: "LOW", outputStrength: "LOW" },
           { type: "MISCONDUCT", inputStrength: "LOW", outputStrength: "LOW" },
-          { type: "PROMPT_ATTACK", inputStrength: "LOW", outputStrength: "LOW" },
+          { type: "PROMPT_ATTACK", inputStrength: "LOW", outputStrength: "NONE" },
         ],
       },
       topicPolicyConfig: {
