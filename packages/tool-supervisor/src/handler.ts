@@ -8,6 +8,7 @@ import { MetricUnit } from "@aws-lambda-powertools/metrics";
 
 import { detectIntent } from "./intentDetector";
 import { rewriteQuery } from "./queryRewriter";
+import { generateClarification } from "./clarifier";
 import { invokeBedrockAgent, rerankResults } from "./reranker";
 
 // eslint-disable-next-line node/no-process-env -- Lambda env vars injected by CDK
@@ -30,7 +31,7 @@ interface GatewayResponse {
     confidence: number;
     reasoning: string;
   };
-  queryRewrite: {
+  queryRewrite?: {
     original: string;
     rewritten: string;
   };
@@ -82,13 +83,34 @@ export const handler = async (
     logger.info("intent detected", { intentResult });
     metrics.addMetric(`Intent_${intentResult.intent}`, MetricUnit.Count, 1);
 
-    // Step 2: Query Rewrite
+    // Step 2: Handle AMBIGUOUS intent early
+    if (intentResult.intent === "AMBIGUOUS") {
+      const clarification = await generateClarification(tracer, prompt);
+
+      logger.info("ambiguous intent, returning clarification", { clarification });
+      metrics.addMetric("ClarificationsGenerated", MetricUnit.Count, 1);
+      metrics.addMetric("GatewaySuccess", MetricUnit.Count, 1);
+      metrics.publishStoredMetrics();
+
+      return {
+        sessionId,
+        traceId: process.env["_X_AMZN_TRACE_ID"]?.match(/Root=([^;]+)/)?.[1],
+        intent: {
+          type: intentResult.intent,
+          confidence: intentResult.confidence,
+          reasoning: intentResult.reasoning,
+        },
+        completion: clarification,
+      };
+    }
+
+    // Step 3: Query Rewrite (for distinct intents)
     const rewriteResult = await rewriteQuery(tracer, prompt, intentResult.intent);
 
     logger.info("query rewritten", { rewriteResult });
     metrics.addMetric("QueryRewrites", MetricUnit.Count, 1);
 
-    // Step 3: Invoke Supervisor Agent (with rewritten query)
+    // Step 4: Invoke Supervisor Agent (with rewritten query)
     const agentResult = await invokeBedrockAgent(tracer, {
       agentId: SUPERVISOR_AGENT_ID,
       agentAliasId: SUPERVISOR_ALIAS_ID,
@@ -100,7 +122,7 @@ export const handler = async (
       completionLength: agentResult.completion.length,
     });
 
-    // Step 3: Rerank (if enabled and completion has content)
+    // Step 5: Rerank (if enabled and completion has content)
     let reranked: GatewayResponse["reranked"];
     if (enableRerank && agentResult.completion.length > 0) {
       try {
