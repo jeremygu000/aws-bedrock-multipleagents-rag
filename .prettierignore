@@ -4,3 +4,4 @@ coverage/
 cdk.out/
 .pnpm-store/
 pnpm-lock.yaml
+bedrock-eval/
