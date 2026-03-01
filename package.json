@@ -4,6 +4,9 @@
   "packageManager": "pnpm@10.30.3+sha512.c961d1e0a2d8e354ecaa5166b822516668b7f44cb5bd95122d590dd81922f606f5473b6d23ec4a5be05e7fcd18e8488d47d978bbe981872f1145d06e9a740017",
   "scripts": {
     "build": "pnpm -r build",
+    "build:shared": "pnpm --filter @aws-bedrock-multiagents/shared run build",
+    "build:lambdas": "pnpm --filter @aws-bedrock-multiagents/tool-work-search run build && pnpm --filter @aws-bedrock-multiagents/tool-rag-search run build",
+    "build:infra": "pnpm --filter @aws-bedrock-multiagents/infra-cdk run build",
     "typecheck": "pnpm -r typecheck",
     "typecheck:tsc": "pnpm -r typecheck:tsc",
     "clean": "pnpm -r exec rm -rf dist cdk.out",
@@ -11,9 +14,13 @@
     "format:check": "prettier --check .",
     "lint": "oxlint --tsconfig tsconfig.base.json .",
     "lint:fix": "oxlint --tsconfig tsconfig.base.json --fix .",
+    "presynth": "pnpm build",
     "synth": "pnpm --filter @aws-bedrock-multiagents/infra-cdk synth",
+    "prediff": "pnpm build",
     "diff": "pnpm --filter @aws-bedrock-multiagents/infra-cdk diff",
+    "predeploy": "pnpm build",
     "deploy": "pnpm --filter @aws-bedrock-multiagents/infra-cdk run deploy",
+    "precdk:deploy": "pnpm build",
     "cdk:deploy": "pnpm --filter @aws-bedrock-multiagents/infra-cdk run deploy",
     "bootstrap": "pnpm --filter @aws-bedrock-multiagents/infra-cdk bootstrap",
     "destroy": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk destroy BedrockAgentsStack --force"

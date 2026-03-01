@@ -294,7 +294,16 @@ These are loaded by the CDK stack at synth/deploy time.
 
 ### Tool Lambda Packaging
 
-Both tool Lambdas are bundled with `tsup` and emitted to `dist/` as CommonJS output for the Lambda runtime.
+Both tool Lambdas are bundled with `esbuild` and emitted to `dist/` as single-file CommonJS output for the Lambda runtime.
+
+Useful build commands:
+
+- `pnpm build`
+  - build every workspace package
+- `pnpm build:lambdas`
+  - rebuild only the two tool Lambda bundles
+- `pnpm build:infra`
+  - rebuild only the CDK app output under `packages/infra-cdk/dist`
 
 ## What Still Needs Real Implementation
 

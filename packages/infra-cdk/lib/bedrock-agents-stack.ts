@@ -137,7 +137,11 @@ export class BedrockAgentsStack extends cdk.Stack {
           AgentPolicy: new iam.PolicyDocument({
             statements: [
               new iam.PolicyStatement({
-                actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+                actions: [
+                  "bedrock:InvokeModel",
+                  "bedrock:InvokeModelWithResponseStream",
+                  "bedrock:ApplyGuardrail",
+                ],
                 resources: ["*"],
               }),
               new iam.PolicyStatement({
