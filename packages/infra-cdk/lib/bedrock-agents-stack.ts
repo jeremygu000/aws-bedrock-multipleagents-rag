@@ -150,6 +150,7 @@ export class BedrockAgentsStack extends cdk.Stack {
         RERANK_MODEL_ARN: "arn:aws:bedrock:us-west-2::foundation-model/amazon.rerank-v1:0",
         RERANK_REGION: "us-west-2",
         MEMORY_TABLE_NAME: memoryTable.tableName,
+        DEPLOY_TIMESTAMP: Date.now().toString(),
       },
     });
 

@@ -14,7 +14,62 @@ The repository currently includes:
 
 ## Architecture
 
-The current stack provisions three Bedrock agents:
+### Gateway Request Flow
+
+The architecture routes all requests through the `tool-supervisor` Lambda, which acts as a Gateway. It handles LLM-based intent classification, DynamoDB memory, standard Bedrock agent routing, and optional Bedrock reranking.
+
+```mermaid
+sequenceDiagram
+    actor User as User
+    participant GW as Gateway Lambda
+    participant ID as Intent Detector (Nova Lite)
+    participant DB as DynamoDB (MemoryTable)
+    participant CL as Clarifier (Nova Lite)
+    participant QR as Query Rewriter (Nova Lite)
+    participant BR as Bedrock Supervisor (Router)
+    participant RR as Reranker (Bedrock API)
+
+    User->>GW: POST /invoke (prompt, sessionId)
+
+    %% Intent Detection
+    GW->>ID: Classify Intent
+    ID-->>GW: { intent, confidence, reasoning }
+
+    %% Memory Fetching
+    GW->>DB: GetSessionMemory (sessionId)
+    DB-->>GW: { summary, recentMessages[] }
+
+    alt Intent == AMBIGUOUS
+        %% Early Clarification Flow
+        GW->>CL: Generate Clarification Question
+        CL-->>GW: Clarifying Question
+        GW->>DB: Append (User Prompt + Clarification Question)
+        GW-->>User: Return Clarifying Question
+
+    else Intent == WORK_SEARCH or APRA_QA
+        %% Standard Routing Flow
+        GW->>QR: Rewrite Query
+        QR-->>GW: Rewritten Query
+
+        GW->>BR: Invoke Agent \n [System: Memory Summary] \n [Recent Context] \n [Rewritten Query]
+        BR-->>GW: Agent Response (from Sub-Agents)
+
+        GW->>DB: Append (User Prompt + Agent Response)
+
+        opt Rerank Enabled AND Results Exist
+            GW->>RR: Rerank Results
+            RR-->>GW: Sorted Results (Scores)
+        end
+
+        GW-->>User: Return Agent Response + Reranked Snippets
+
+    else Intent == OUT_OF_SCOPE
+        GW->>DB: Append (User Prompt + "Out of scope response")
+        GW-->>User: Return "I cannot assist with that."
+    end
+```
+
+### Bedrock Resources
 
 - `work-search-agent`
 - `apra-qa-agent`
@@ -416,6 +471,36 @@ Supported environment variables:
 - `CDK_DEFAULT_ACCOUNT` and `CDK_DEFAULT_REGION` resolve correctly
 - the target region supports the Bedrock resources and foundation model you plan to use
 - your account has the required Bedrock and Lambda permissions
+
+## Test Gateway (Conversational Memory)
+
+We provide a script to test the **Gateway Lambda**, which orchestrates intent detection, custom DynamoDB memory, Bedrock Agent invocations, and result reranking.
+
+Invoke the gateway with a prompt. The gateway automatically detects intent (e.g., `WORK_SEARCH`, `APRA_QA`, `AMBIGUOUS`):
+
+```bash
+pnpm test:gateway -- --prompt "who is APRA AMCOS"
+```
+
+### Testing Multi-Turn Memory
+
+The Gateway supports LLM-based rolling memory. To test multi-turn conversations, provide the same `--session-id` across requests:
+
+**Turn 1 (Ambiguous Intent):**
+
+```bash
+pnpm test:gateway -- --session-id "my-test-session-123" --prompt "I need help with my song"
+```
+
+_The intent detector should classify this as `AMBIGUOUS` and immediately return a clarifying question without calling Bedrock agents._
+
+**Turn 2 (Follow-up Context):**
+
+```bash
+pnpm test:gateway -- --session-id "my-test-session-123" --prompt "Yes, I am looking for Bohemian Rhapsody"
+```
+
+_The gateway fetches "I need help with my song" from DynamoDB, realizes you are doing a `WORK_SEARCH`, rewrites the query, and invokes the underlying agent._
 
 ## Evaluator Runner
 
