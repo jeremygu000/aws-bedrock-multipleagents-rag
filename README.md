@@ -171,10 +171,10 @@ pnpm bootstrap
 Deploy:
 
 ```bash
-pnpm deploy
+pnpm cdk:deploy
 ```
 
-Important: `packages/infra-cdk` deploys Lambda code from the built `dist/` folders in the tool packages. Run `pnpm build` before `pnpm synth`, `pnpm diff`, or `pnpm deploy`.
+Important: `packages/infra-cdk` deploys Lambda code from the built `dist/` folders in the tool packages. Run `pnpm build` before `pnpm synth`, `pnpm diff`, or `pnpm cdk:deploy`.
 
 ## Environment Variables
 
