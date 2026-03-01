@@ -305,6 +305,22 @@ Useful build commands:
 - `pnpm build:infra`
   - rebuild only the CDK app output under `packages/infra-cdk/dist`
 
+## Git Hooks
+
+Git hooks are configured with `husky`.
+
+After `pnpm install`, the `prepare` script enables the repository hooks automatically.
+
+Hook behavior:
+
+- `pre-commit`
+  - runs `lint-staged`
+  - formats staged files with `prettier`
+  - runs `oxlint --fix` on staged JavaScript and TypeScript files
+- `pre-push`
+  - runs `pnpm check`
+  - this executes `pnpm typecheck`, `pnpm lint`, and `pnpm format:check`
+
 ## What Still Needs Real Implementation
 
 The repository is scaffolded and type-checked, but some parts are still placeholders:
@@ -323,6 +339,69 @@ Before deployment, make sure:
 - your AWS credentials are configured locally
 - `AWS_PROFILE` or AWS credentials resolve to the intended AWS account
 - `AWS_DEFAULT_REGION` matches your target deployment region
+
+## Test Client
+
+A TypeScript CLI test client is included at `scripts/test-agent.ts`.
+
+Install dependencies first:
+
+```bash
+pnpm install
+```
+
+Invoke an agent by alias ARN:
+
+```bash
+pnpm test:agent -- \
+  --alias-arn arn:aws:bedrock:ap-southeast-2:123456789012:agent-alias/AGENT_ID/ALIAS_ID \
+  --prompt "who is APRA AMCOS"
+```
+
+Or use a named shortcut after exporting the matching alias ARN:
+
+```bash
+pnpm test:agent -- --agent supervisor --prompt "who is APRA AMCOS"
+pnpm test:agent -- --agent qa --prompt "who is APRA AMCOS"
+pnpm test:agent -- --agent work --prompt "find a work titled Hello by Adele"
+```
+
+Enable trace output and save the full response as JSON:
+
+```bash
+pnpm test:agent -- \
+  --alias-arn arn:aws:bedrock:ap-southeast-2:123456789012:agent-alias/AGENT_ID/ALIAS_ID \
+  --prompt "who is APRA AMCOS" \
+  --trace \
+  --output tmp/apra-who-is.json \
+  --json
+```
+
+You can also pass IDs directly:
+
+```bash
+pnpm test:agent -- \
+  --agent-id SHWNEKC9MO \
+  --alias-id 8VQRTZW7A6 \
+  --prompt "who is APRA AMCOS"
+```
+
+Supported environment variables:
+
+- `BEDROCK_SUPERVISOR_ALIAS_ARN`
+- `BEDROCK_SUPERVISOR_AGENT_ID`
+- `BEDROCK_SUPERVISOR_ALIAS_ID`
+- `BEDROCK_QA_ALIAS_ARN`
+- `BEDROCK_QA_AGENT_ID`
+- `BEDROCK_QA_ALIAS_ID`
+- `BEDROCK_WORK_ALIAS_ARN`
+- `BEDROCK_WORK_AGENT_ID`
+- `BEDROCK_WORK_ALIAS_ID`
+- `BEDROCK_AGENT_ALIAS_ARN`
+- `BEDROCK_AGENT_ID`
+- `BEDROCK_AGENT_ALIAS_ID`
+- `BEDROCK_AGENT_REGION`
+- `BEDROCK_AGENT_SESSION_ID`
 - `CDK_DEFAULT_ACCOUNT` and `CDK_DEFAULT_REGION` resolve correctly
 - the target region supports the Bedrock resources and foundation model you plan to use
 - your account has the required Bedrock and Lambda permissions

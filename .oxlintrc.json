@@ -45,6 +45,12 @@
       "rules": {
         "no-console": "off"
       }
+    },
+    {
+      "files": ["scripts/test-agent.ts"],
+      "rules": {
+        "node/no-process-env": "off"
+      }
     }
   ]
 }

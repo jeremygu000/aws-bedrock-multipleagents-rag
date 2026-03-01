@@ -31,7 +31,8 @@ export class BedrockAgentsStack extends cdk.Stack {
 
     const workGuardrail = new bedrock.CfnGuardrail(this, "WorkGuardrailLow", {
       name: "work-guardrail-low",
-      blockedInputMessaging: "[work-guardrail-low][input-block] Sorry, I can't help with that request.",
+      blockedInputMessaging:
+        "[work-guardrail-low][input-block] Sorry, I can't help with that request.",
       blockedOutputsMessaging:
         "[work-guardrail-low][output-block] Sorry, I can't provide that response.",
       contentPolicyConfig: {

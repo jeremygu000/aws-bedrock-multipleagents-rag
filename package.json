@@ -9,11 +9,15 @@
     "build:infra": "pnpm --filter @aws-bedrock-multiagents/infra-cdk run build",
     "typecheck": "pnpm -r typecheck",
     "typecheck:tsc": "pnpm -r typecheck:tsc",
+    "test:agent": "tsx scripts/test-agent.ts",
     "clean": "pnpm -r exec rm -rf dist cdk.out",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "oxlint --tsconfig tsconfig.base.json .",
     "lint:fix": "oxlint --tsconfig tsconfig.base.json --fix .",
+    "lint:staged": "lint-staged",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check",
+    "prepare": "husky",
     "presynth": "pnpm build",
     "synth": "pnpm --filter @aws-bedrock-multiagents/infra-cdk synth",
     "prediff": "pnpm build",
@@ -26,9 +30,13 @@
     "destroy": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk destroy BedrockAgentsStack --force"
   },
   "devDependencies": {
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.884.0",
     "@types/node": "^22.13.10",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.6",
     "oxlint": "^1.14.0",
     "prettier": "^3.5.3",
+    "tsx": "^4.20.5",
     "typescript": "^5.7.3"
   }
 }
