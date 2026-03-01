@@ -7,6 +7,7 @@ import {
 import { MetricUnit } from "@aws-lambda-powertools/metrics";
 
 import { detectIntent } from "./intentDetector";
+import { rewriteQuery } from "./queryRewriter";
 import { invokeBedrockAgent, rerankResults } from "./reranker";
 
 // eslint-disable-next-line node/no-process-env -- Lambda env vars injected by CDK
@@ -27,6 +28,10 @@ interface GatewayResponse {
     type: string;
     confidence: number;
     reasoning: string;
+  };
+  queryRewrite: {
+    original: string;
+    rewritten: string;
   };
   completion: string;
   reranked?: {
@@ -76,12 +81,18 @@ export const handler = async (
     logger.info("intent detected", { intentResult });
     metrics.addMetric(`Intent_${intentResult.intent}`, MetricUnit.Count, 1);
 
-    // Step 2: Invoke Supervisor Agent
+    // Step 2: Query Rewrite
+    const rewriteResult = await rewriteQuery(tracer, prompt, intentResult.intent);
+
+    logger.info("query rewritten", { rewriteResult });
+    metrics.addMetric("QueryRewrites", MetricUnit.Count, 1);
+
+    // Step 3: Invoke Supervisor Agent (with rewritten query)
     const agentResult = await invokeBedrockAgent(tracer, {
       agentId: SUPERVISOR_AGENT_ID,
       agentAliasId: SUPERVISOR_ALIAS_ID,
       sessionId,
-      prompt,
+      prompt: rewriteResult.rewritten,
     });
 
     logger.info("supervisor response received", {
@@ -91,21 +102,28 @@ export const handler = async (
     // Step 3: Rerank (if enabled and completion has content)
     let reranked: GatewayResponse["reranked"];
     if (enableRerank && agentResult.completion.length > 0) {
-      const items: RerankItem[] = [
-        {
-          id: "completion-0",
-          text: agentResult.completion,
-        },
-      ];
+      try {
+        const items: RerankItem[] = [
+          {
+            id: "completion-0",
+            text: agentResult.completion,
+          },
+        ];
 
-      const ranked = await rerankResults(tracer, {
-        query: prompt,
-        items,
-        topK: rerankTopK,
-      });
+        const ranked = await rerankResults(tracer, {
+          query: prompt,
+          items,
+          topK: rerankTopK,
+        });
 
-      reranked = { results: ranked };
-      metrics.addMetric("RerankInvocations", MetricUnit.Count, 1);
+        reranked = { results: ranked };
+        metrics.addMetric("RerankInvocations", MetricUnit.Count, 1);
+      } catch (rerankError) {
+        logger.warn("rerank failed, returning unranked results", {
+          error: rerankError instanceof Error ? rerankError.message : String(rerankError),
+        });
+        metrics.addMetric("RerankFailed", MetricUnit.Count, 1);
+      }
     }
 
     metrics.addMetric("GatewaySuccess", MetricUnit.Count, 1);
@@ -117,6 +135,10 @@ export const handler = async (
         type: intentResult.intent,
         confidence: intentResult.confidence,
         reasoning: intentResult.reasoning,
+      },
+      queryRewrite: {
+        original: rewriteResult.original,
+        rewritten: rewriteResult.rewritten,
       },
       completion: agentResult.completion,
       reranked,

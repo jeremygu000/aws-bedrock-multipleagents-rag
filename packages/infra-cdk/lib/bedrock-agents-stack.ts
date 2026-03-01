@@ -139,13 +139,21 @@ export class BedrockAgentsStack extends cdk.Stack {
       tracing: lambda.Tracing.ACTIVE,
       logGroup: supervisorToolLogGroup,
       environment: {
-        RERANK_MODEL_ARN: `arn:aws:bedrock:${this.region}::foundation-model/amazon.rerank-v1:0`,
+        RERANK_MODEL_ARN: "arn:aws:bedrock:us-west-2::foundation-model/amazon.rerank-v1:0",
+        RERANK_REGION: "us-west-2",
       },
     });
 
     gatewayFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["bedrock-agent-runtime:Rerank"],
+        actions: ["bedrock:Rerank", "bedrock-agent-runtime:Rerank", "bedrock-agent-runtime:*"],
+        resources: ["*"],
+      }),
+    );
+
+    gatewayFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock:InvokeModel"],
         resources: ["*"],
       }),
     );

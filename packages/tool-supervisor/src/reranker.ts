@@ -13,8 +13,11 @@ import {
 
 // eslint-disable-next-line node/no-process-env -- Lambda env var injected by CDK
 const RERANK_MODEL_ARN = String(process.env["RERANK_MODEL_ARN"] ?? "");
+// eslint-disable-next-line node/no-process-env -- Lambda env var injected by CDK
+const RERANK_REGION = String(process.env["RERANK_REGION"] ?? "us-west-2");
 
-const client = new BedrockAgentRuntimeClient({});
+const rerankClient = new BedrockAgentRuntimeClient({ region: RERANK_REGION });
+const agentClient = new BedrockAgentRuntimeClient({});
 
 export interface RerankInput {
   query: string;
@@ -48,12 +51,12 @@ export const rerankResults = async (
           modelConfiguration: {
             modelArn: RERANK_MODEL_ARN,
           },
-          numberOfResults: topK ?? items.length,
+          numberOfResults: Math.min(topK ?? items.length, items.length),
         },
       },
     };
 
-    const response = await client.send(new RerankCommand(commandInput));
+    const response = await rerankClient.send(new RerankCommand(commandInput));
 
     return (response.results ?? []).map((result) => {
       const originalIndex = result.index ?? 0;
@@ -93,7 +96,7 @@ export const invokeBedrockAgent = async (
       enableTrace: true,
     });
 
-    const response = await client.send(command);
+    const response = await agentClient.send(command);
 
     const parts: string[] = [];
     for await (const event of response.completion ?? []) {

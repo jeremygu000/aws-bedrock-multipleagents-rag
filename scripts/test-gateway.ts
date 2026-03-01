@@ -92,6 +92,13 @@ const main = async (): Promise<void> => {
     `intent: ${result.intent?.type} (confidence: ${result.intent?.confidence})\n`,
   );
   process.stdout.write(`reasoning: ${result.intent?.reasoning}\n\n`);
+
+  if (result.queryRewrite) {
+    process.stdout.write(`query rewrite:\n`);
+    process.stdout.write(`  original:  ${result.queryRewrite.original}\n`);
+    process.stdout.write(`  rewritten: ${result.queryRewrite.rewritten}\n\n`);
+  }
+
   process.stdout.write(`completion:\n${result.completion}\n`);
 
   if (result.reranked) {
