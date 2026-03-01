@@ -14,7 +14,8 @@
     "synth": "pnpm --filter @aws-bedrock-multiagents/infra-cdk synth",
     "diff": "pnpm --filter @aws-bedrock-multiagents/infra-cdk diff",
     "deploy": "pnpm --filter @aws-bedrock-multiagents/infra-cdk deploy",
-    "bootstrap": "pnpm --filter @aws-bedrock-multiagents/infra-cdk bootstrap"
+    "bootstrap": "pnpm --filter @aws-bedrock-multiagents/infra-cdk bootstrap",
+    "destroy": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk destroy BedrockAgentsStack --force"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
