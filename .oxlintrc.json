@@ -9,7 +9,6 @@
     "curly": "error",
     "eqeqeq": "error",
     "no-alert": "error",
-    "no-console": "error",
     "no-debugger": "error",
     "no-var": "error",
     "object-shorthand": "error",

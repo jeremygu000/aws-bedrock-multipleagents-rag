@@ -9,6 +9,7 @@ import { MetricUnit } from "@aws-lambda-powertools/metrics";
 import { detectIntent } from "./intentDetector";
 import { rewriteQuery } from "./queryRewriter";
 import { generateClarification } from "./clarifier";
+import { getSessionMemory, appendToMemory } from "./memoryManager";
 import { invokeBedrockAgent, rerankResults } from "./reranker";
 
 // eslint-disable-next-line node/no-process-env -- Lambda env vars injected by CDK
@@ -83,7 +84,14 @@ export const handler = async (
     logger.info("intent detected", { intentResult });
     metrics.addMetric(`Intent_${intentResult.intent}`, MetricUnit.Count, 1);
 
-    // Step 2: Handle AMBIGUOUS intent early
+    // Step 2: Fetch Conversation Memory
+    const memory = await getSessionMemory(tracer, sessionId);
+    logger.info("memory fetched", { previousMessageCount: memory.messages.length });
+
+    // Format conversation history for injection
+    const historyText = memory.messages.map((m) => `${m.role.toUpperCase()}: ${m.text}`).join("\n");
+
+    // Step 3: Handle AMBIGUOUS intent early
     if (intentResult.intent === "AMBIGUOUS") {
       const clarification = await generateClarification(tracer, prompt);
 
@@ -91,6 +99,8 @@ export const handler = async (
       metrics.addMetric("ClarificationsGenerated", MetricUnit.Count, 1);
       metrics.addMetric("GatewaySuccess", MetricUnit.Count, 1);
       metrics.publishStoredMetrics();
+
+      await appendToMemory(tracer, memory, prompt, clarification);
 
       return {
         sessionId,
@@ -104,25 +114,33 @@ export const handler = async (
       };
     }
 
-    // Step 3: Query Rewrite (for distinct intents)
+    // Step 4: Query Rewrite (for distinct intents)
     const rewriteResult = await rewriteQuery(tracer, prompt, intentResult.intent);
 
     logger.info("query rewritten", { rewriteResult });
     metrics.addMetric("QueryRewrites", MetricUnit.Count, 1);
 
-    // Step 4: Invoke Supervisor Agent (with rewritten query)
+    // Compose prompt with memory context
+    let agentPrompt = rewriteResult.rewritten;
+    if (memory.summary || historyText) {
+      agentPrompt = `[System: Context Summary]\n${memory.summary || "None"}\n\n[Recent Conversation]\n${historyText || "None"}\n\n[Current User Input]\n${rewriteResult.rewritten}`;
+    }
+
+    // Step 5: Invoke Supervisor Agent (with contextual prompt)
     const agentResult = await invokeBedrockAgent(tracer, {
       agentId: SUPERVISOR_AGENT_ID,
       agentAliasId: SUPERVISOR_ALIAS_ID,
       sessionId,
-      prompt: rewriteResult.rewritten,
+      prompt: agentPrompt,
     });
 
     logger.info("supervisor response received", {
       completionLength: agentResult.completion.length,
     });
 
-    // Step 5: Rerank (if enabled and completion has content)
+    await appendToMemory(tracer, memory, prompt, agentResult.completion);
+
+    // Step 6: Rerank (if enabled and completion has content)
     let reranked: GatewayResponse["reranked"];
     if (enableRerank && agentResult.completion.length > 0) {
       try {

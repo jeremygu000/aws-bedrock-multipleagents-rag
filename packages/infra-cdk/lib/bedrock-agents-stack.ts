@@ -3,6 +3,7 @@ import * as bedrock from "aws-cdk-lib/aws-bedrock";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as cr from "aws-cdk-lib/custom-resources";
 import type { Construct } from "constructs";
 import * as fs from "node:fs";
@@ -130,6 +131,13 @@ export class BedrockAgentsStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    const memoryTable = new dynamodb.Table(this, "SupervisorMemoryTable", {
+      partitionKey: { name: "sessionId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      timeToLiveAttribute: "ttl",
+    });
+
     const gatewayFn = new lambda.Function(this, "SupervisorGatewayFn", {
       runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler.handler",
@@ -141,8 +149,11 @@ export class BedrockAgentsStack extends cdk.Stack {
       environment: {
         RERANK_MODEL_ARN: "arn:aws:bedrock:us-west-2::foundation-model/amazon.rerank-v1:0",
         RERANK_REGION: "us-west-2",
+        MEMORY_TABLE_NAME: memoryTable.tableName,
       },
     });
+
+    memoryTable.grantReadWriteData(gatewayFn);
 
     gatewayFn.addToRolePolicy(
       new iam.PolicyStatement({

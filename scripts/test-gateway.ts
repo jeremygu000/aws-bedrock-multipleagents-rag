@@ -89,7 +89,7 @@ const main = async (): Promise<void> => {
 
   const result = response.Payload ? JSON.parse(new TextDecoder().decode(response.Payload)) : {};
 
-  process.stdout.write(chalk.dim(`sessionId: ${result.sessionId}\n`));
+  process.stdout.write(chalk.magenta(`sessionId: ${result.sessionId}\n`));
   if (result.traceId) {
     process.stdout.write(chalk.cyan(`traceId:   ${result.traceId}\n`));
   }
