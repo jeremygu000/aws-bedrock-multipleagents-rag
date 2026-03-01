@@ -10,6 +10,7 @@
     "typecheck": "pnpm -r typecheck",
     "typecheck:tsc": "pnpm -r typecheck:tsc",
     "test:agent": "tsx scripts/test-agent.ts",
+    "test:gateway": "tsx scripts/test-gateway.ts",
     "eval:agent": "tsx scripts/eval-agent.ts",
     "eval:work-search": "tsx scripts/eval-work-search.ts",
     "eval:ragas": "python3 scripts/ragas_eval.py",
@@ -34,6 +35,7 @@
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock-agent-runtime": "^3.884.0",
+    "@aws-sdk/client-lambda": "^3.884.0",
     "@types/node": "^22.13.10",
     "chalk": "^5.4.1",
     "husky": "^9.1.7",

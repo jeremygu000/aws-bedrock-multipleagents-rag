@@ -29,7 +29,6 @@ export class BedrockAgentsStack extends cdk.Stack {
 
     const workOpenApi = readText(path.join(sharedOpenApiRoot, "work-search.yaml"));
     const ragOpenApi = readText(path.join(sharedOpenApiRoot, "rag-search.yaml"));
-    const supervisorOpenApi = readText(path.join(sharedOpenApiRoot, "supervisor.yaml"));
 
     const workGuardrail = new bedrock.CfnGuardrail(this, "WorkGuardrailLow", {
       name: "work-guardrail-low",
@@ -131,11 +130,11 @@ export class BedrockAgentsStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    const supervisorToolFn = new lambda.Function(this, "SupervisorToolFn", {
+    const gatewayFn = new lambda.Function(this, "SupervisorGatewayFn", {
       runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler.handler",
       code: lambda.Code.fromAsset(toolSupervisorDist),
-      timeout: cdk.Duration.seconds(30),
+      timeout: cdk.Duration.seconds(120),
       memorySize: 512,
       tracing: lambda.Tracing.ACTIVE,
       logGroup: supervisorToolLogGroup,
@@ -144,14 +143,14 @@ export class BedrockAgentsStack extends cdk.Stack {
       },
     });
 
-    supervisorToolFn.addToRolePolicy(
+    gatewayFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["bedrock:Rerank"],
         resources: ["*"],
       }),
     );
 
-    for (const fn of [workSearchFn, ragSearchFn, supervisorToolFn]) {
+    for (const fn of [workSearchFn, ragSearchFn]) {
       fn.addPermission(`${fn.node.id}InvokeByBedrock`, {
         principal: new iam.ServicePrincipal("bedrock.amazonaws.com"),
         action: "lambda:InvokeFunction",
@@ -174,11 +173,7 @@ export class BedrockAgentsStack extends cdk.Stack {
               }),
               new iam.PolicyStatement({
                 actions: ["lambda:InvokeFunction"],
-                resources: [
-                  workSearchFn.functionArn,
-                  ragSearchFn.functionArn,
-                  supervisorToolFn.functionArn,
-                ],
+                resources: [workSearchFn.functionArn, ragSearchFn.functionArn],
               }),
             ],
           }),
@@ -273,26 +268,16 @@ export class BedrockAgentsStack extends cdk.Stack {
       agentName: "supervisor-agent",
       foundationModel: FOUNDATION_MODEL_ID,
       agentResourceRoleArn: supervisorRole.roleArn,
-      agentCollaboration: "SUPERVISOR",
+      agentCollaboration: "SUPERVISOR_ROUTER",
       // Multi-agent setup must add collaborators to the DRAFT first, then prepare or deploy it.
       autoPrepare: false,
       instruction: [
         "You are a routing supervisor.",
-        "First call detect_intent to classify the user request.",
-        "If intent is WORK_SEARCH, route to WorkSearchAgent.",
-        "If intent is APRA_QA, route to ApraQaAgent.",
-        "If intent is AMBIGUOUS, ask one short clarification question.",
-        "If intent is OUT_OF_SCOPE, refuse politely.",
-        "After receiving results from a collaborator, call rerank_results to reorder them by relevance before returning to the user.",
+        "Route work search requests to WorkSearchAgent.",
+        "Route APRA AMCOS domain questions to ApraQaAgent.",
+        "If the request is ambiguous, ask one short clarification question.",
+        "Otherwise refuse politely.",
       ].join("\n"),
-      actionGroups: [
-        {
-          actionGroupName: "supervisor_tools",
-          actionGroupState: "ENABLED",
-          actionGroupExecutor: { lambda: supervisorToolFn.functionArn },
-          apiSchema: { payload: supervisorOpenApi },
-        },
-      ],
     });
 
     const workCollaborator = new cr.AwsCustomResource(this, "AssociateWorkCollaborator", {
@@ -370,8 +355,24 @@ export class BedrockAgentsStack extends cdk.Stack {
     supervisorAlias.node.addDependency(workCollaborator);
     supervisorAlias.node.addDependency(qaCollaborator);
 
+    // Gateway Lambda: grant InvokeAgent permission for supervisor and inject agent IDs.
+    gatewayFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock:InvokeAgent"],
+        resources: [supervisorAlias.attrAgentAliasArn],
+      }),
+    );
+    gatewayFn.addEnvironment("SUPERVISOR_AGENT_ID", supervisor.attrAgentId);
+    gatewayFn.addEnvironment("SUPERVISOR_ALIAS_ID", supervisorAlias.attrAgentAliasId);
+
+    const gatewayUrl = gatewayFn.addFunctionUrl({
+      authType: lambda.FunctionUrlAuthType.AWS_IAM,
+    });
+
     new cdk.CfnOutput(this, "SupervisorAliasArn", { value: supervisorAlias.attrAgentAliasArn });
     new cdk.CfnOutput(this, "WorkAliasArn", { value: workAlias.attrAgentAliasArn });
     new cdk.CfnOutput(this, "QaAliasArn", { value: qaAlias.attrAgentAliasArn });
+    new cdk.CfnOutput(this, "GatewayFunctionUrl", { value: gatewayUrl.url });
+    new cdk.CfnOutput(this, "GatewayFunctionName", { value: gatewayFn.functionName });
   }
 }

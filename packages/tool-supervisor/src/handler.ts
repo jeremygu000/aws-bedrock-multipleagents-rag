@@ -1,26 +1,42 @@
+import { randomUUID } from "node:crypto";
 import {
   captureAsync,
   createObservability,
-  createJsonResponse,
-  getJsonProps,
-  type BedrockActionEvent,
-  type BedrockActionResponse,
   type RerankItem,
 } from "@aws-bedrock-multiagents/shared";
 import { MetricUnit } from "@aws-lambda-powertools/metrics";
 
 import { detectIntent } from "./intentDetector";
-import { rerankResults } from "./reranker";
+import { invokeBedrockAgent, rerankResults } from "./reranker";
 
-interface DetectIntentBody {
-  inputText?: string;
+// eslint-disable-next-line node/no-process-env -- Lambda env vars injected by CDK
+const SUPERVISOR_AGENT_ID = String(process.env["SUPERVISOR_AGENT_ID"] ?? "");
+// eslint-disable-next-line node/no-process-env -- Lambda env vars injected by CDK
+const SUPERVISOR_ALIAS_ID = String(process.env["SUPERVISOR_ALIAS_ID"] ?? "");
+
+interface GatewayEvent {
+  prompt: string;
   sessionId?: string;
+  enableRerank?: boolean;
+  rerankTopK?: number;
 }
 
-interface RerankResultsBody {
-  query?: string;
-  results?: RerankItem[];
-  topK?: number;
+interface GatewayResponse {
+  sessionId: string;
+  intent: {
+    type: string;
+    confidence: number;
+    reasoning: string;
+  };
+  completion: string;
+  reranked?: {
+    results: Array<{
+      id: string;
+      text: string;
+      relevanceScore: number;
+      originalIndex: number;
+    }>;
+  };
 }
 
 interface LambdaContext {
@@ -28,76 +44,81 @@ interface LambdaContext {
 }
 
 const { tracer, logger, metrics } = createObservability({
-  serviceName: "supervisor-tool",
-  namespace: "SupervisorAgent",
+  serviceName: "supervisor-gateway",
+  namespace: "SupervisorGateway",
 });
 
 export const handler = async (
-  event: BedrockActionEvent,
+  event: GatewayEvent,
   context: LambdaContext,
-): Promise<BedrockActionResponse> => {
-  const apiPath = event.apiPath;
+): Promise<GatewayResponse> =>
+  captureAsync(tracer, "handler.gateway", async () => {
+    tracer.annotateColdStart();
+    tracer.addServiceNameAnnotation();
 
-  if (apiPath === "/detect_intent") {
-    return captureAsync(tracer, "handler.detect_intent", async () => {
-      tracer.annotateColdStart();
-      tracer.addServiceNameAnnotation();
+    const prompt = event.prompt;
+    const sessionId = event.sessionId ?? randomUUID();
+    const enableRerank = event.enableRerank ?? true;
+    const rerankTopK = event.rerankTopK ?? 5;
 
-      const props = getJsonProps<DetectIntentBody>(event);
-      const inputText = String(props.inputText ?? "");
-      const sessionId = String(props.sessionId ?? "unknown");
-
-      logger.appendKeys({
-        sessionId,
-        agentName: "supervisor-agent",
-        actionGroup: event.actionGroup,
-        apiPath: event.apiPath,
-        requestId: context.awsRequestId,
-      });
-
-      metrics.addMetric("IntentDetections", MetricUnit.Count, 1);
-      logger.info("detect_intent invoked", { inputText, sessionId });
-
-      const result = await detectIntent(tracer, inputText);
-
-      logger.info("detect_intent result", { result });
-      metrics.addMetric(`Intent_${result.intent}`, MetricUnit.Count, 1);
-      metrics.publishStoredMetrics();
-
-      return createJsonResponse(event, result, 200);
+    logger.appendKeys({
+      sessionId,
+      agentName: "supervisor-gateway",
+      requestId: context.awsRequestId,
     });
-  }
 
-  if (apiPath === "/rerank_results") {
-    return captureAsync(tracer, "handler.rerank_results", async () => {
-      tracer.annotateColdStart();
-      tracer.addServiceNameAnnotation();
+    logger.info("gateway invoked", { prompt, sessionId, enableRerank });
+    metrics.addMetric("GatewayInvocations", MetricUnit.Count, 1);
 
-      const props = getJsonProps<RerankResultsBody>(event);
-      const query = String(props.query ?? "");
-      const items = props.results ?? [];
-      const topK = Number(props.topK ?? items.length);
+    // Step 1: Intent Detection
+    const intentResult = await detectIntent(tracer, prompt);
 
-      logger.appendKeys({
-        agentName: "supervisor-agent",
-        actionGroup: event.actionGroup,
-        apiPath: event.apiPath,
-        requestId: context.awsRequestId,
+    logger.info("intent detected", { intentResult });
+    metrics.addMetric(`Intent_${intentResult.intent}`, MetricUnit.Count, 1);
+
+    // Step 2: Invoke Supervisor Agent
+    const agentResult = await invokeBedrockAgent(tracer, {
+      agentId: SUPERVISOR_AGENT_ID,
+      agentAliasId: SUPERVISOR_ALIAS_ID,
+      sessionId,
+      prompt,
+    });
+
+    logger.info("supervisor response received", {
+      completionLength: agentResult.completion.length,
+    });
+
+    // Step 3: Rerank (if enabled and completion has content)
+    let reranked: GatewayResponse["reranked"];
+    if (enableRerank && agentResult.completion.length > 0) {
+      const items: RerankItem[] = [
+        {
+          id: "completion-0",
+          text: agentResult.completion,
+        },
+      ];
+
+      const ranked = await rerankResults(tracer, {
+        query: prompt,
+        items,
+        topK: rerankTopK,
       });
 
+      reranked = { results: ranked };
       metrics.addMetric("RerankInvocations", MetricUnit.Count, 1);
-      logger.info("rerank_results invoked", { query, itemCount: items.length, topK });
+    }
 
-      const ranked = await rerankResults(tracer, { query, items, topK });
+    metrics.addMetric("GatewaySuccess", MetricUnit.Count, 1);
+    metrics.publishStoredMetrics();
 
-      logger.info("rerank_results completed", { resultCount: ranked.length });
-      metrics.addMetric("RerankResultCount", MetricUnit.Count, ranked.length);
-      metrics.publishStoredMetrics();
-
-      return createJsonResponse(event, { results: ranked }, 200);
-    });
-  }
-
-  logger.warn("Unknown apiPath", { apiPath });
-  return createJsonResponse(event, { error: `Unknown path: ${apiPath}` }, 400);
-};
+    return {
+      sessionId,
+      intent: {
+        type: intentResult.intent,
+        confidence: intentResult.confidence,
+        reasoning: intentResult.reasoning,
+      },
+      completion: agentResult.completion,
+      reranked,
+    };
+  });

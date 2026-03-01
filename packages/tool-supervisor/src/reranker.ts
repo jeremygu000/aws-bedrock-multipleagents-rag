@@ -1,6 +1,7 @@
 import type { Tracer } from "@aws-lambda-powertools/tracer";
 import {
   BedrockAgentRuntimeClient,
+  InvokeAgentCommand,
   RerankCommand,
   type RerankCommandInput,
 } from "@aws-sdk/client-bedrock-agent-runtime";
@@ -10,7 +11,8 @@ import {
   type RerankResultItem,
 } from "@aws-bedrock-multiagents/shared";
 
-const RERANK_MODEL_ARN = `arn:aws:bedrock:${process.env.AWS_REGION ?? "us-east-1"}::foundation-model/amazon.rerank-v1:0`;
+// eslint-disable-next-line node/no-process-env -- Lambda env var injected by CDK
+const RERANK_MODEL_ARN = String(process.env["RERANK_MODEL_ARN"] ?? "");
 
 const client = new BedrockAgentRuntimeClient({});
 
@@ -64,4 +66,47 @@ export const rerankResults = async (
         metadata: originalItem?.metadata,
       };
     });
+  });
+
+export interface InvokeAgentInput {
+  agentId: string;
+  agentAliasId: string;
+  sessionId: string;
+  prompt: string;
+}
+
+export interface InvokeAgentOutput {
+  completion: string;
+  sessionId: string;
+}
+
+export const invokeBedrockAgent = async (
+  tracer: Tracer,
+  input: InvokeAgentInput,
+): Promise<InvokeAgentOutput> =>
+  captureAsync(tracer, "action.gateway.invoke_supervisor", async () => {
+    const command = new InvokeAgentCommand({
+      agentId: input.agentId,
+      agentAliasId: input.agentAliasId,
+      sessionId: input.sessionId,
+      inputText: input.prompt,
+      enableTrace: true,
+    });
+
+    const response = await client.send(command);
+
+    const parts: string[] = [];
+    for await (const event of response.completion ?? []) {
+      const chunk = event as unknown as Record<string, unknown>;
+      const chunkData = chunk.chunk as Record<string, unknown> | undefined;
+      const bytes = chunkData?.bytes;
+      if (bytes instanceof Uint8Array) {
+        parts.push(new TextDecoder("utf-8").decode(bytes));
+      }
+    }
+
+    return {
+      completion: parts.join(""),
+      sessionId: input.sessionId,
+    };
   });
