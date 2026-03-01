@@ -1,6 +1,8 @@
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { parseArgs } from "node:util";
 
+import chalk from "chalk";
+
 const HELP_TEXT = `
 Usage:
   pnpm test:gateway -- --prompt "Find the work titled Bohemian Rhapsody"
@@ -65,8 +67,8 @@ const main = async (): Promise<void> => {
     rerankTopK: values["rerank-top-k"] ? Number.parseInt(values["rerank-top-k"] as string, 10) : 5,
   };
 
-  process.stdout.write(`Invoking gateway: ${functionName}\n`);
-  process.stdout.write(`Prompt: ${prompt}\n\n`);
+  process.stdout.write(chalk.gray(`Invoking gateway: ${functionName}\n`));
+  process.stdout.write(chalk.bold(`Prompt: ${prompt}\n\n`));
 
   const response = await client.send(
     new InvokeCommand({
@@ -79,33 +81,43 @@ const main = async (): Promise<void> => {
     const errorPayload = response.Payload
       ? JSON.parse(new TextDecoder().decode(response.Payload))
       : {};
-    process.stderr.write(`Lambda error: ${response.FunctionError}\n`);
-    process.stderr.write(`${JSON.stringify(errorPayload, null, 2)}\n`);
+    process.stderr.write(chalk.red(`Lambda error: ${response.FunctionError}\n`));
+    process.stderr.write(chalk.red(`${JSON.stringify(errorPayload, null, 2)}\n`));
     process.exitCode = 1;
     return;
   }
 
   const result = response.Payload ? JSON.parse(new TextDecoder().decode(response.Payload)) : {};
 
-  process.stdout.write(`sessionId: ${result.sessionId}\n`);
+  process.stdout.write(chalk.dim(`sessionId: ${result.sessionId}\n`));
+  if (result.traceId) {
+    process.stdout.write(chalk.cyan(`traceId:   ${result.traceId}\n`));
+  }
   process.stdout.write(
-    `intent: ${result.intent?.type} (confidence: ${result.intent?.confidence})\n`,
+    chalk.green.bold(
+      `intent:    ${result.intent?.type} (confidence: ${result.intent?.confidence})\n`,
+    ),
   );
-  process.stdout.write(`reasoning: ${result.intent?.reasoning}\n\n`);
+  process.stdout.write(chalk.green(`reasoning: ${result.intent?.reasoning}\n\n`));
 
   if (result.queryRewrite) {
-    process.stdout.write(`query rewrite:\n`);
-    process.stdout.write(`  original:  ${result.queryRewrite.original}\n`);
-    process.stdout.write(`  rewritten: ${result.queryRewrite.rewritten}\n\n`);
+    process.stdout.write(chalk.yellow(`query rewrite:\n`));
+    process.stdout.write(chalk.yellow(`  original:  ${result.queryRewrite.original}\n`));
+    process.stdout.write(chalk.yellow.bold(`  rewritten: ${result.queryRewrite.rewritten}\n\n`));
   }
 
-  process.stdout.write(`completion:\n${result.completion}\n`);
+  process.stdout.write(chalk.blue(`completion:\n${result.completion}\n`));
 
   if (result.reranked) {
-    process.stdout.write(`\nreranked results: ${result.reranked.results?.length ?? 0}\n`);
+    process.stdout.write(
+      chalk.magenta(`\nreranked results: ${result.reranked.results?.length ?? 0}\n`),
+    );
     for (const item of result.reranked.results ?? []) {
+      const scoreStr = item.relevanceScore.toFixed(4);
       process.stdout.write(
-        `  [${item.originalIndex}] score=${item.relevanceScore.toFixed(4)} ${item.text.slice(0, 100)}\n`,
+        chalk.gray(`  [${item.originalIndex}] `) +
+          chalk.magenta(`score=${scoreStr} `) +
+          `${item.text.slice(0, 100)}\n`,
       );
     }
   }

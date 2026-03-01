@@ -24,6 +24,7 @@ interface GatewayEvent {
 
 interface GatewayResponse {
   sessionId: string;
+  traceId?: string;
   intent: {
     type: string;
     confidence: number;
@@ -131,6 +132,7 @@ export const handler = async (
 
     return {
       sessionId,
+      traceId: process.env["_X_AMZN_TRACE_ID"]?.match(/Root=([^;]+)/)?.[1],
       intent: {
         type: intentResult.intent,
         confidence: intentResult.confidence,

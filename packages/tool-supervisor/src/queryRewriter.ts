@@ -8,20 +8,24 @@ const MODEL_ID = "amazon.nova-lite-v1:0";
 const SYSTEM_PROMPTS: Record<string, string> = {
   WORK_SEARCH: [
     "You are a query rewriter for a music work search system.",
-    "Rewrite the user query to be more effective for searching a music works database.",
-    "Extract and emphasise: title, writer/composer names, ISWC, ISRC, publisher.",
-    "Output ONLY the rewritten query, nothing else. No explanation.",
+    "Rewrite the user query as a clear, natural-language sentence that is optimised for searching a music works database.",
+    "Keep the query as a complete sentence — do NOT reduce it to bare keywords.",
+    "Preserve action verbs like 'find', 'search for', 'look up'.",
+    "Mention any specific details the user provided: title, writer/composer names, ISWC, ISRC, publisher.",
+    "Output ONLY the rewritten query sentence, nothing else.",
   ].join(" "),
   APRA_QA: [
     "You are a query rewriter for an APRA AMCOS knowledge base.",
-    "Rewrite the user query to be a clear, specific question about APRA AMCOS policies, licensing, royalties, or membership.",
-    "Output ONLY the rewritten query, nothing else. No explanation.",
+    "Rewrite the user query as a clear, natural-language question about APRA AMCOS policies, licensing, royalties, or membership.",
+    "Keep the query as a complete sentence — do NOT reduce it to bare keywords.",
+    "Output ONLY the rewritten question, nothing else.",
   ].join(" "),
 };
 
 const DEFAULT_SYSTEM_PROMPT = [
   "You are a query rewriter.",
-  "Rewrite the user query to be clearer and more specific.",
+  "Rewrite the user query as a clearer, more specific natural-language sentence.",
+  "Keep the query as a complete sentence — do NOT reduce it to bare keywords.",
   "Output ONLY the rewritten query, nothing else.",
 ].join(" ");
 
