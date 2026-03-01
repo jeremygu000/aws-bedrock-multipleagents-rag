@@ -51,6 +51,12 @@
       "rules": {
         "node/no-process-env": "off"
       }
+    },
+    {
+      "files": ["scripts/lib/bedrock-agent-client.ts"],
+      "rules": {
+        "node/no-process-env": "off"
+      }
     }
   ]
 }

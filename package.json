@@ -10,6 +10,7 @@
     "typecheck": "pnpm -r typecheck",
     "typecheck:tsc": "pnpm -r typecheck:tsc",
     "test:agent": "tsx scripts/test-agent.ts",
+    "eval:agent": "tsx scripts/eval-agent.ts",
     "clean": "pnpm -r exec rm -rf dist cdk.out",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@aws-sdk/client-bedrock-agent-runtime": "^3.884.0",
     "@types/node": "^22.13.10",
+    "chalk": "^5.4.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.6",
     "oxlint": "^1.14.0",

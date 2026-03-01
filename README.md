@@ -366,6 +366,17 @@ pnpm test:agent -- --agent qa --prompt "who is APRA AMCOS"
 pnpm test:agent -- --agent work --prompt "find a work titled Hello by Adele"
 ```
 
+Show a condensed trace summary in the terminal:
+
+```bash
+pnpm test:agent -- \
+  --agent supervisor \
+  --prompt "who is APRA AMCOS" \
+  --trace-summary
+```
+
+The terminal summary is rendered as a colored overview plus timeline, with route conclusion, action-group results, final answer, step type, relative timing, collaborator hops, and selected details such as model usage and failures.
+
 Enable trace output and save the full response as JSON:
 
 ```bash
@@ -405,6 +416,47 @@ Supported environment variables:
 - `CDK_DEFAULT_ACCOUNT` and `CDK_DEFAULT_REGION` resolve correctly
 - the target region supports the Bedrock resources and foundation model you plan to use
 - your account has the required Bedrock and Lambda permissions
+
+## Evaluator Runner
+
+A batch evaluator runner is included at `scripts/eval-agent.ts`.
+
+Example input dataset:
+
+- `scripts/examples/agent-eval.example.jsonl`
+
+Run it against a named agent:
+
+```bash
+pnpm eval:agent -- \
+  --agent supervisor \
+  --input scripts/examples/agent-eval.example.jsonl \
+  --output tmp/evals/supervisor.jsonl
+```
+
+Useful options:
+
+- `--trace-summary`
+  - prints the condensed trace summary for each row while the run is in progress
+- `--format json`
+  - writes one JSON array instead of JSONL
+- `--shared-session`
+  - reuses one Bedrock session across all rows
+- `--fail-fast`
+  - aborts on the first failing example
+
+Output records include:
+
+- `prompt`
+- `question`
+- `answer`
+- `reference`
+- `ground_truth`
+- `traceSummary`
+- `traces`
+- `metadata`
+
+This shape is intended to be easy to transform into a later RAGAS evaluation dataset.
 
 ## Useful Files
 

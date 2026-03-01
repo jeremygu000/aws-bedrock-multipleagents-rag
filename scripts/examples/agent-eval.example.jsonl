@@ -1,0 +1,2 @@
+{"id":"qa-1","prompt":"who is APRA AMCOS","reference":"APRA AMCOS is the Australian collecting society representing songwriters, composers, and music publishers.","metadata":{"category":"qa"}}
+{"id":"work-1","prompt":"find a work titled Hello by Adele","reference":"Should return a structured work match.","metadata":{"category":"work-search"}}
