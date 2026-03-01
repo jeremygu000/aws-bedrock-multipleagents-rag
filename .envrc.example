@@ -16,6 +16,10 @@ export FOUNDATION_MODEL_ID="amazon.nova-lite-v1:0"
 # export BEDROCK_QA_ALIAS_ARN="arn:aws:bedrock:ap-southeast-2:123456789012:agent-alias/AGENT_ID/ALIAS_ID"
 # export BEDROCK_WORK_ALIAS_ARN="arn:aws:bedrock:ap-southeast-2:123456789012:agent-alias/AGENT_ID/ALIAS_ID"
 
+# Optional RAGAS evaluator models.
+# export RAGAS_EVAL_LLM_MODEL="anthropic.claude-3-5-haiku-20241022-v1:0"
+# export RAGAS_EVAL_EMBEDDING_MODEL="amazon.titan-embed-text-v2:0"
+
 # Optional fallback for temporary credentials.
 # Prefer AWS_PROFILE over putting credentials in project-local files.
 # export AWS_ACCESS_KEY_ID="replace-me"

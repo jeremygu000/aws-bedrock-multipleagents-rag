@@ -440,6 +440,8 @@ Useful options:
   - prints the condensed trace summary for each row while the run is in progress
 - `--format json`
   - writes one JSON array instead of JSONL
+- `--output-format ragas`
+  - writes a RAGAS-shaped dataset with `user_input`, `response`, `reference`, and optional context hints
 - `--shared-session`
   - reuses one Bedrock session across all rows
 - `--fail-fast`
@@ -457,6 +459,179 @@ Output records include:
 - `metadata`
 
 This shape is intended to be easy to transform into a later RAGAS evaluation dataset.
+
+If you want a directly RAGAS-shaped output:
+
+```bash
+pnpm eval:agent -- \
+  --agent supervisor \
+  --input scripts/examples/agent-eval.example.jsonl \
+  --output tmp/evals/supervisor-ragas.jsonl \
+  --output-format ragas
+```
+
+## RAGAS Evaluation
+
+RAGAS support is included via `scripts/ragas_eval.py`. It consumes the output from `pnpm eval:agent -- --output-format ragas` and runs evaluator metrics against Bedrock-hosted judge models.
+
+Recommended setup:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-ragas.txt
+```
+
+Set evaluator models in `.envrc` or pass them on the command line:
+
+```bash
+export RAGAS_EVAL_LLM_MODEL="anthropic.claude-3-5-haiku-20241022-v1:0"
+export RAGAS_EVAL_EMBEDDING_MODEL="amazon.titan-embed-text-v2:0"
+```
+
+Typical flow:
+
+```bash
+pnpm eval:agent -- \
+  --agent supervisor \
+  --input scripts/examples/agent-eval.example.jsonl \
+  --output tmp/evals/supervisor-ragas.jsonl \
+  --output-format ragas
+
+pnpm eval:ragas -- \
+  --input tmp/evals/supervisor-ragas.jsonl \
+  --output tmp/evals/supervisor-ragas-results.json
+```
+
+You can override the evaluator models explicitly:
+
+```bash
+pnpm eval:ragas -- \
+  --input tmp/evals/supervisor-ragas.jsonl \
+  --output tmp/evals/supervisor-ragas-results.json \
+  --llm-model anthropic.claude-3-5-haiku-20241022-v1:0 \
+  --embedding-model amazon.titan-embed-text-v2:0
+```
+
+The runner auto-selects metrics from the fields present in every row:
+
+- `response_relevancy`
+  - requires `user_input` and `response`
+- `factual_correctness`
+  - requires `user_input`, `response`, and `reference`
+- `semantic_similarity`
+  - requires `response` and `reference`
+- `faithfulness`
+  - requires `user_input`, `response`, and `retrieved_contexts`
+- `context_recall`
+  - requires `user_input`, `reference`, and `retrieved_contexts`
+
+Default metric selection is category-aware when `--metrics` is omitted:
+
+- `qa`
+  - defaults to `semantic_similarity,factual_correctness`
+- `work-search`
+  - defaults to `semantic_similarity`
+- other categories
+  - fall back to all metrics whose required fields are present
+
+You can also force a metric subset:
+
+```bash
+pnpm eval:ragas -- \
+  --input tmp/evals/supervisor-ragas.jsonl \
+  --output tmp/evals/supervisor-ragas-results.json \
+  --metrics response_relevancy,factual_correctness
+```
+
+By default the RAGAS runner groups rows by `category` before scoring. `eval-agent -- --output-format ragas` preserves `metadata.category` as a top-level `category`, so QA and work-search examples do not have to share one metric set.
+
+If you want the old single-batch behavior:
+
+```bash
+pnpm eval:ragas -- \
+  --input tmp/evals/supervisor-ragas.jsonl \
+  --output tmp/evals/supervisor-ragas-results.json \
+  --group-by none
+```
+
+The results file contains:
+
+- evaluator config
+- `group_by` and per-group results under `groups`
+- selected metrics per group
+- metric averages per group under `summary_by_group`
+- per-metric exceptions per group under `metric_failures_by_group`
+- per-row RAGAS scores under `rows`
+
+## Work Search Rule Evaluation
+
+`work-search` examples are usually not a good fit for generic RAGAS metrics because they often return clarification questions or structured match results instead of freeform grounded answers.
+
+A separate rule-based evaluator is included at `scripts/eval-work-search.ts`.
+
+Supported rule location:
+
+- `metadata.work_search_eval`
+- `metadata.workSearchEval`
+
+Supported rules:
+
+- `expected_mode`
+  - `clarify` or `match`
+- `expected_title_contains`
+- `expected_writer_contains`
+- `expected_winfkey`
+- `require_prompt_title_echo`
+- `require_prompt_writer_echo`
+- `require_winfkey_for_match`
+- `require_prompt_overlap`
+- `required_substrings`
+- `forbidden_substrings`
+
+Default automatic checks:
+
+- `clarify` mode
+  - expects a clarification-style response
+  - echoes extracted prompt title when available
+  - echoes extracted prompt writer when available
+- `match` mode
+  - expects a non-clarification response
+  - requires a `WINF...` identifier unless `expected_winfkey` or `require_winfkey_for_match: false` says otherwise
+- all work-search rows
+  - require some lexical overlap with the original prompt unless `require_prompt_overlap: false`
+
+Example dataset entry:
+
+```json
+{
+  "id": "work-1",
+  "prompt": "find a work titled Hello by Adele",
+  "metadata": {
+    "category": "work-search",
+    "work_search_eval": {
+      "expected_mode": "clarify",
+      "expected_title_contains": ["Hello"],
+      "expected_writer_contains": ["Adele"]
+    }
+  }
+}
+```
+
+Typical flow:
+
+```bash
+pnpm eval:agent -- \
+  --agent supervisor \
+  --input scripts/examples/agent-eval.example.jsonl \
+  --output tmp/evals/supervisor-native.jsonl
+
+pnpm eval:work-search -- \
+  --input tmp/evals/supervisor-native.jsonl \
+  --output tmp/evals/work-search-rules.json
+```
+
+The rule evaluator also works on ragas-shaped output as long as `metadata` is preserved.
 
 ## Useful Files
 

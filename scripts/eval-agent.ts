@@ -17,6 +17,9 @@ interface EvalInputRow {
   reference?: string;
   groundTruth?: string;
   ground_truth?: string;
+  retrieved_contexts?: string[];
+  reference_contexts?: string[];
+  rubric?: Record<string, string>;
   metadata?: Record<string, unknown>;
 }
 
@@ -42,6 +45,19 @@ interface EvalOutputRow {
   fileEvents: unknown[];
 }
 
+interface RagasOutputRow {
+  user_input: string;
+  response: string;
+  reference?: string;
+  category?: string;
+  retrieved_contexts?: string[];
+  reference_contexts?: string[];
+  rubric?: Record<string, string>;
+  metadata?: Record<string, unknown>;
+}
+
+type OutputFormat = "native" | "ragas";
+
 const HELP_TEXT = `
 Usage:
   pnpm eval:agent -- --agent supervisor --input evals/prompts.jsonl --output tmp/evals/supervisor.jsonl
@@ -57,6 +73,9 @@ Supported input fields:
   - reference
   - groundTruth
   - ground_truth
+  - retrieved_contexts
+  - reference_contexts
+  - rubric
   - metadata
 
 Options:
@@ -68,6 +87,7 @@ Options:
   --input <path>             Required. Path to a JSON or JSONL evaluation dataset.
   --output <path>            Required. Path to the output JSON or JSONL file.
   --format <json|jsonl>      Output format. Defaults to jsonl.
+  --output-format <type>     Semantic output shape. Use native or ragas. Defaults to native.
   --trace-summary            Include trace summary in terminal progress output.
   --fail-fast                Stop on the first failing row.
   --shared-session           Reuse one session ID for all rows.
@@ -109,12 +129,44 @@ const getPrompt = (row: EvalInputRow): string => {
 const getReference = (row: EvalInputRow): string | undefined =>
   row.reference ?? row.groundTruth ?? row.ground_truth;
 
-const serializeResults = (results: EvalOutputRow[], format: string): string => {
+const getCategory = (row: EvalInputRow): string | undefined => {
+  const category = row.metadata?.category;
+  return typeof category === "string" && category.trim().length > 0 ? category : undefined;
+};
+
+const toRagasRow = (row: EvalOutputRow, input: EvalInputRow): RagasOutputRow => ({
+  user_input: row.question,
+  response: row.answer,
+  ...(row.reference ? { reference: row.reference } : {}),
+  ...(getCategory(input) ? { category: getCategory(input) } : {}),
+  ...(input.metadata ? { metadata: input.metadata } : {}),
+});
+
+const applyRagasInputHints = (row: RagasOutputRow, input: EvalInputRow): RagasOutputRow => ({
+  ...row,
+  ...(input.retrieved_contexts ? { retrieved_contexts: input.retrieved_contexts } : {}),
+  ...(input.reference_contexts ? { reference_contexts: input.reference_contexts } : {}),
+  ...(input.rubric ? { rubric: input.rubric } : {}),
+});
+
+const serializeResults = (
+  results: EvalOutputRow[],
+  inputs: EvalInputRow[],
+  format: string,
+  outputFormat: OutputFormat,
+): string => {
+  const serializable =
+    outputFormat === "ragas"
+      ? results.map((row, index) =>
+          applyRagasInputHints(toRagasRow(row, inputs[index] ?? {}), inputs[index] ?? {}),
+        )
+      : results;
+
   if (format === "json") {
-    return `${JSON.stringify(results, null, 2)}\n`;
+    return `${JSON.stringify(serializable, null, 2)}\n`;
   }
 
-  return `${results.map((row) => JSON.stringify(row)).join("\n")}\n`;
+  return `${serializable.map((row) => JSON.stringify(row)).join("\n")}\n`;
 };
 
 const main = async (): Promise<void> => {
@@ -132,6 +184,7 @@ const main = async (): Promise<void> => {
       input: { type: "string" },
       output: { type: "string" },
       format: { type: "string" },
+      "output-format": { type: "string" },
       "trace-summary": { type: "boolean", default: false },
       "fail-fast": { type: "boolean", default: false },
       "shared-session": { type: "boolean", default: false },
@@ -147,6 +200,8 @@ const main = async (): Promise<void> => {
   const inputPath = values.input as string | undefined;
   const outputPath = values.output as string | undefined;
   const format = (values.format as string | undefined) ?? "jsonl";
+  const outputFormat = ((values["output-format"] as string | undefined) ??
+    "native") as OutputFormat;
 
   if (!inputPath) {
     throw new Error("Missing required --input path.");
@@ -156,6 +211,9 @@ const main = async (): Promise<void> => {
   }
   if (!["json", "jsonl"].includes(format)) {
     throw new Error("--format must be either json or jsonl.");
+  }
+  if (!["native", "ragas"].includes(outputFormat)) {
+    throw new Error("--output-format must be either native or ragas.");
   }
 
   const target = resolveTarget(values);
@@ -219,7 +277,7 @@ const main = async (): Promise<void> => {
   }
 
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, serializeResults(results, format), "utf8");
+  await writeFile(outputPath, serializeResults(results, rows, format, outputFormat), "utf8");
   process.stdout.write(`saved: ${outputPath}\n`);
   process.stdout.write(`rows: ${results.length}\n`);
 };

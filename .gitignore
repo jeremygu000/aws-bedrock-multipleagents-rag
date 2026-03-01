@@ -8,6 +8,8 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+__pycache__/
+*.pyc
 
 # AWS CDK
 cdk.out/
@@ -26,6 +28,7 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 tmp/
+.venv/
 
 # OS / editor files
 .DS_Store
