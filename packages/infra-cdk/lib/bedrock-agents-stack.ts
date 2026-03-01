@@ -186,7 +186,6 @@ export class BedrockAgentsStack extends cdk.Stack {
     const workAlias = new bedrock.CfnAgentAlias(this, "WorkAlias", {
       agentAliasName: "live",
       agentId: workAgent.attrAgentId,
-      routingConfiguration: [{ agentVersion: workAgent.attrAgentVersion }],
     });
 
     const qaAgent = new bedrock.CfnAgent(this, "QaAgent", {
@@ -223,7 +222,6 @@ export class BedrockAgentsStack extends cdk.Stack {
     const qaAlias = new bedrock.CfnAgentAlias(this, "QaAlias", {
       agentAliasName: "live",
       agentId: qaAgent.attrAgentId,
-      routingConfiguration: [{ agentVersion: qaAgent.attrAgentVersion }],
     });
 
     const supervisor = new bedrock.CfnAgent(this, "SupervisorAgent", {
@@ -260,7 +258,6 @@ export class BedrockAgentsStack extends cdk.Stack {
     const supervisorAlias = new bedrock.CfnAgentAlias(this, "SupervisorAlias", {
       agentAliasName: "live",
       agentId: supervisor.attrAgentId,
-      routingConfiguration: [{ agentVersion: supervisor.attrAgentVersion }],
     });
 
     new cdk.CfnOutput(this, "SupervisorAliasArn", { value: supervisorAlias.attrAgentAliasArn });
