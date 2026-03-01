@@ -1,11 +1,14 @@
-openapi: 3.0.1
+openapi: 3.0.0
 info:
   title: work-search
   version: 1.0.0
+  description: Search for a work by title, writer, ISWC, ISRC, or publisher metadata.
 paths:
   /work_search:
     post:
-      operationId: workSearch
+      summary: Search for a matching work
+      description: Find likely matching works and return concise structured results.
+      operationId: work_search
       requestBody:
         required: true
         content:
@@ -32,4 +35,26 @@ paths:
                   type: string
       responses:
         "200":
-          description: OK
+          description: Matching work search results.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        winfkey:
+                          type: string
+                        title:
+                          type: string
+                        writers:
+                          type: array
+                          items:
+                            type: string
+                        iswc:
+                          type: string
+                        confidence:
+                          type: number

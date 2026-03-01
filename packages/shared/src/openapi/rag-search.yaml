@@ -1,11 +1,14 @@
-openapi: 3.0.1
+openapi: 3.0.0
 info:
   title: apra-rag
   version: 1.0.0
+  description: Retrieve grounded APRA AMCOS information and supporting citations.
 paths:
   /rag_search:
     post:
-      operationId: ragSearch
+      summary: Retrieve grounded APRA AMCOS information
+      description: Run retrieval and return an answer with citations.
+      operationId: rag_search
       requestBody:
         required: true
         content:
@@ -26,4 +29,24 @@ paths:
                   type: string
       responses:
         "200":
-          description: OK
+          description: Grounded answer with citations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  answer:
+                    type: string
+                  citations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        sourceId:
+                          type: string
+                        title:
+                          type: string
+                        url:
+                          type: string
+                        snippet:
+                          type: string
