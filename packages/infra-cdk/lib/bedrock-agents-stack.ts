@@ -3,6 +3,7 @@ import * as bedrock from "aws-cdk-lib/aws-bedrock";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as cr from "aws-cdk-lib/custom-resources";
 import type { Construct } from "constructs";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -237,7 +238,8 @@ export class BedrockAgentsStack extends cdk.Stack {
       foundationModel: FOUNDATION_MODEL_ID,
       agentResourceRoleArn: supervisorRole.roleArn,
       agentCollaboration: "SUPERVISOR_ROUTER",
-      autoPrepare: true,
+      // Multi-agent setup must add collaborators to the DRAFT first, then prepare or deploy it.
+      autoPrepare: false,
       instruction: [
         "You are a routing supervisor.",
         "Route work search requests to WorkSearchAgent.",
@@ -245,28 +247,82 @@ export class BedrockAgentsStack extends cdk.Stack {
         "If the request is ambiguous, ask one short clarification question.",
         "Otherwise refuse politely.",
       ].join("\n"),
-      agentCollaborators: [
-        {
+    });
+
+    const workCollaborator = new cr.AwsCustomResource(this, "AssociateWorkCollaborator", {
+      installLatestAwsSdk: true,
+      onCreate: {
+        service: "BedrockAgent",
+        action: "associateAgentCollaborator",
+        parameters: {
+          agentId: supervisor.attrAgentId,
+          agentVersion: "DRAFT",
           collaboratorName: "WorkSearchAgent",
           collaborationInstruction:
             "Handle work search requests and return concise structured matches.",
-          agentDescriptor: { aliasArn: workAlias.attrAgentAliasArn },
           relayConversationHistory: "TO_COLLABORATOR",
+          agentDescriptor: {
+            aliasArn: workAlias.attrAgentAliasArn,
+          },
         },
-        {
+        physicalResourceId: cr.PhysicalResourceId.of("WorkSearchAgentCollaborator"),
+      },
+      onDelete: {
+        service: "BedrockAgent",
+        action: "disassociateAgentCollaborator",
+        parameters: {
+          agentId: supervisor.attrAgentId,
+          agentVersion: "DRAFT",
+          collaboratorName: "WorkSearchAgent",
+        },
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+      }),
+    });
+    workCollaborator.node.addDependency(supervisor);
+    workCollaborator.node.addDependency(workAlias);
+
+    const qaCollaborator = new cr.AwsCustomResource(this, "AssociateQaCollaborator", {
+      installLatestAwsSdk: true,
+      onCreate: {
+        service: "BedrockAgent",
+        action: "associateAgentCollaborator",
+        parameters: {
+          agentId: supervisor.attrAgentId,
+          agentVersion: "DRAFT",
           collaboratorName: "ApraQaAgent",
           collaborationInstruction:
             "Handle APRA AMCOS questions with grounded retrieval and returned citations.",
-          agentDescriptor: { aliasArn: qaAlias.attrAgentAliasArn },
           relayConversationHistory: "TO_COLLABORATOR",
+          agentDescriptor: {
+            aliasArn: qaAlias.attrAgentAliasArn,
+          },
         },
-      ],
+        physicalResourceId: cr.PhysicalResourceId.of("ApraQaAgentCollaborator"),
+      },
+      onDelete: {
+        service: "BedrockAgent",
+        action: "disassociateAgentCollaborator",
+        parameters: {
+          agentId: supervisor.attrAgentId,
+          agentVersion: "DRAFT",
+          collaboratorName: "ApraQaAgent",
+        },
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+      }),
     });
+    qaCollaborator.node.addDependency(supervisor);
+    qaCollaborator.node.addDependency(qaAlias);
 
     const supervisorAlias = new bedrock.CfnAgentAlias(this, "SupervisorAlias", {
       agentAliasName: "live",
       agentId: supervisor.attrAgentId,
     });
+    supervisorAlias.node.addDependency(workCollaborator);
+    supervisorAlias.node.addDependency(qaCollaborator);
 
     new cdk.CfnOutput(this, "SupervisorAliasArn", { value: supervisorAlias.attrAgentAliasArn });
     new cdk.CfnOutput(this, "WorkAliasArn", { value: workAlias.attrAgentAliasArn });
