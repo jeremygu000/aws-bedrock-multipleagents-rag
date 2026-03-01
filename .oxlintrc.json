@@ -63,6 +63,12 @@
       "rules": {
         "node/no-process-env": "off"
       }
+    },
+    {
+      "files": ["scripts/test-gateway.ts"],
+      "rules": {
+        "node/no-process-env": "off"
+      }
     }
   ]
 }

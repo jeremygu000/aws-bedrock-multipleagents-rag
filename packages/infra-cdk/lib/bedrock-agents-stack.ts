@@ -145,7 +145,7 @@ export class BedrockAgentsStack extends cdk.Stack {
 
     gatewayFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["bedrock:Rerank"],
+        actions: ["bedrock-agent-runtime:Rerank"],
         resources: ["*"],
       }),
     );
@@ -269,6 +269,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       foundationModel: FOUNDATION_MODEL_ID,
       agentResourceRoleArn: supervisorRole.roleArn,
       agentCollaboration: "SUPERVISOR_ROUTER",
+      skipResourceInUseCheckOnDelete: true,
       // Multi-agent setup must add collaborators to the DRAFT first, then prepare or deploy it.
       autoPrepare: false,
       instruction: [
