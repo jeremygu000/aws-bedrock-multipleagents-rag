@@ -21,6 +21,7 @@ const workspaceRoot = path.resolve(infraPackageRoot, "../..");
 const sharedOpenApiRoot = path.join(workspaceRoot, "packages", "shared", "src", "openapi");
 const toolWorkDist = path.join(workspaceRoot, "packages", "tool-work-search", "dist");
 const toolRagDist = path.join(workspaceRoot, "packages", "tool-rag-search", "dist");
+const toolSupervisorDist = path.join(workspaceRoot, "packages", "tool-supervisor", "dist");
 
 export class BedrockAgentsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -28,6 +29,7 @@ export class BedrockAgentsStack extends cdk.Stack {
 
     const workOpenApi = readText(path.join(sharedOpenApiRoot, "work-search.yaml"));
     const ragOpenApi = readText(path.join(sharedOpenApiRoot, "rag-search.yaml"));
+    const supervisorOpenApi = readText(path.join(sharedOpenApiRoot, "supervisor.yaml"));
 
     const workGuardrail = new bedrock.CfnGuardrail(this, "WorkGuardrailLow", {
       name: "work-guardrail-low",
@@ -124,7 +126,32 @@ export class BedrockAgentsStack extends cdk.Stack {
       logGroup: ragSearchLogGroup,
     });
 
-    for (const fn of [workSearchFn, ragSearchFn]) {
+    const supervisorToolLogGroup = new logs.LogGroup(this, "SupervisorToolFnLogGroup", {
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const supervisorToolFn = new lambda.Function(this, "SupervisorToolFn", {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "handler.handler",
+      code: lambda.Code.fromAsset(toolSupervisorDist),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+      tracing: lambda.Tracing.ACTIVE,
+      logGroup: supervisorToolLogGroup,
+      environment: {
+        RERANK_MODEL_ARN: `arn:aws:bedrock:${this.region}::foundation-model/amazon.rerank-v1:0`,
+      },
+    });
+
+    supervisorToolFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock:Rerank"],
+        resources: ["*"],
+      }),
+    );
+
+    for (const fn of [workSearchFn, ragSearchFn, supervisorToolFn]) {
       fn.addPermission(`${fn.node.id}InvokeByBedrock`, {
         principal: new iam.ServicePrincipal("bedrock.amazonaws.com"),
         action: "lambda:InvokeFunction",
@@ -147,7 +174,11 @@ export class BedrockAgentsStack extends cdk.Stack {
               }),
               new iam.PolicyStatement({
                 actions: ["lambda:InvokeFunction"],
-                resources: [workSearchFn.functionArn, ragSearchFn.functionArn],
+                resources: [
+                  workSearchFn.functionArn,
+                  ragSearchFn.functionArn,
+                  supervisorToolFn.functionArn,
+                ],
               }),
             ],
           }),
@@ -242,16 +273,26 @@ export class BedrockAgentsStack extends cdk.Stack {
       agentName: "supervisor-agent",
       foundationModel: FOUNDATION_MODEL_ID,
       agentResourceRoleArn: supervisorRole.roleArn,
-      agentCollaboration: "SUPERVISOR_ROUTER",
+      agentCollaboration: "SUPERVISOR",
       // Multi-agent setup must add collaborators to the DRAFT first, then prepare or deploy it.
       autoPrepare: false,
       instruction: [
         "You are a routing supervisor.",
-        "Route work search requests to WorkSearchAgent.",
-        "Route APRA AMCOS domain questions to ApraQaAgent.",
-        "If the request is ambiguous, ask one short clarification question.",
-        "Otherwise refuse politely.",
+        "First call detect_intent to classify the user request.",
+        "If intent is WORK_SEARCH, route to WorkSearchAgent.",
+        "If intent is APRA_QA, route to ApraQaAgent.",
+        "If intent is AMBIGUOUS, ask one short clarification question.",
+        "If intent is OUT_OF_SCOPE, refuse politely.",
+        "After receiving results from a collaborator, call rerank_results to reorder them by relevance before returning to the user.",
       ].join("\n"),
+      actionGroups: [
+        {
+          actionGroupName: "supervisor_tools",
+          actionGroupState: "ENABLED",
+          actionGroupExecutor: { lambda: supervisorToolFn.functionArn },
+          apiSchema: { payload: supervisorOpenApi },
+        },
+      ],
     });
 
     const workCollaborator = new cr.AwsCustomResource(this, "AssociateWorkCollaborator", {

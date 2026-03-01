@@ -57,6 +57,12 @@
       "rules": {
         "node/no-process-env": "off"
       }
+    },
+    {
+      "files": ["packages/tool-supervisor/src/reranker.ts"],
+      "rules": {
+        "node/no-process-env": "off"
+      }
     }
   ]
 }

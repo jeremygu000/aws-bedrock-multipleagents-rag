@@ -1,0 +1,24 @@
+{
+  "name": "@aws-bedrock-multiagents/tool-supervisor",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/handler.cjs",
+  "scripts": {
+    "build": "rm -rf dist && esbuild src/handler.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/handler.cjs --sourcemap",
+    "typecheck": "tsgo -p tsconfig.json --noEmit",
+    "typecheck:tsc": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aws-bedrock-multiagents/shared": "workspace:*",
+    "@aws-lambda-powertools/logger": "^2.17.0",
+    "@aws-lambda-powertools/metrics": "^2.17.0",
+    "@aws-lambda-powertools/tracer": "^2.17.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.884.0"
+  },
+  "devDependencies": {
+    "@typescript/native-preview": "^7.0.0-dev.20250906.1",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3"
+  }
+}

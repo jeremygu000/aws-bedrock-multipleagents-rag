@@ -5,7 +5,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "build:shared": "pnpm --filter @aws-bedrock-multiagents/shared run build",
-    "build:lambdas": "pnpm --filter @aws-bedrock-multiagents/tool-work-search run build && pnpm --filter @aws-bedrock-multiagents/tool-rag-search run build",
+    "build:lambdas": "pnpm --filter @aws-bedrock-multiagents/tool-work-search run build && pnpm --filter @aws-bedrock-multiagents/tool-rag-search run build && pnpm --filter @aws-bedrock-multiagents/tool-supervisor run build",
     "build:infra": "pnpm --filter @aws-bedrock-multiagents/infra-cdk run build",
     "typecheck": "pnpm -r typecheck",
     "typecheck:tsc": "pnpm -r typecheck:tsc",

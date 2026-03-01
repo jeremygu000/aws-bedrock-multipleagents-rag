@@ -1,0 +1,104 @@
+openapi: 3.0.0
+info:
+  title: supervisor-tools
+  version: 1.0.0
+  description: Supervisor agent tools for intent detection and result reranking.
+paths:
+  /detect_intent:
+    post:
+      summary: Detect user intent and route accordingly
+      description: Classify user input into an intent category with confidence score.
+      operationId: detect_intent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - inputText
+              properties:
+                inputText:
+                  type: string
+                  description: The user's raw input text to classify.
+                sessionId:
+                  type: string
+                  description: Session identifier for tracing.
+      responses:
+        "200":
+          description: Intent detection result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intent:
+                    type: string
+                    enum:
+                      - WORK_SEARCH
+                      - APRA_QA
+                      - AMBIGUOUS
+                      - OUT_OF_SCOPE
+                  confidence:
+                    type: number
+                  reasoning:
+                    type: string
+  /rerank_results:
+    post:
+      summary: Rerank retrieval results by relevance
+      description: Reorder results using Amazon Bedrock Rerank API for better relevance.
+      operationId: rerank_results
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query
+                - results
+              properties:
+                query:
+                  type: string
+                  description: The original user query.
+                results:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - id
+                      - text
+                    properties:
+                      id:
+                        type: string
+                      text:
+                        type: string
+                      metadata:
+                        type: object
+                topK:
+                  type: integer
+                  default: 5
+                  description: Maximum number of results to return after reranking.
+      responses:
+        "200":
+          description: Reranked results sorted by relevance.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        text:
+                          type: string
+                        relevanceScore:
+                          type: number
+                        originalIndex:
+                          type: integer
+                        metadata:
+                          type: object

@@ -99,6 +99,34 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  packages/tool-supervisor:
+    dependencies:
+      '@aws-bedrock-multiagents/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@aws-lambda-powertools/logger':
+        specifier: ^2.17.0
+        version: 2.31.0
+      '@aws-lambda-powertools/metrics':
+        specifier: ^2.17.0
+        version: 2.31.0
+      '@aws-lambda-powertools/tracer':
+        specifier: ^2.17.0
+        version: 2.31.0
+      '@aws-sdk/client-bedrock-agent-runtime':
+        specifier: ^3.884.0
+        version: 3.1000.0
+    devDependencies:
+      '@typescript/native-preview':
+        specifier: ^7.0.0-dev.20250906.1
+        version: 7.0.0-dev.20260228.1
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   packages/tool-work-search:
     dependencies:
       '@aws-bedrock-multiagents/shared':
