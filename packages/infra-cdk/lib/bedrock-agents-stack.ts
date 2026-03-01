@@ -224,6 +224,14 @@ export class BedrockAgentsStack extends cdk.Stack {
       agentId: qaAgent.attrAgentId,
     });
 
+    // Multi-agent collaboration requires the supervisor service role to read and invoke collaborator aliases.
+    supervisorRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock:GetAgentAlias", "bedrock:InvokeAgent"],
+        resources: [workAlias.attrAgentAliasArn, qaAlias.attrAgentAliasArn],
+      }),
+    );
+
     const supervisor = new bedrock.CfnAgent(this, "SupervisorAgent", {
       agentName: "supervisor-agent",
       foundationModel: FOUNDATION_MODEL_ID,
