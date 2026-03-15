@@ -94,7 +94,9 @@ The supervisor agent is configured as a `SUPERVISOR_ROUTER` and routes requests 
 └── packages
     ├── infra-cdk
     │   ├── bin/app.ts
-    │   └── lib/bedrock-agents-stack.ts
+    │   └── lib
+    │       ├── bedrock-agents-stack.ts
+    │       └── neo4j-data-stack.ts
     ├── shared
     │   └── src
     │       ├── bedrockActionTypes.ts
@@ -119,9 +121,11 @@ CDK app and stack definitions.
 Key file:
 
 - `packages/infra-cdk/lib/bedrock-agents-stack.ts`
+- `packages/infra-cdk/lib/neo4j-data-stack.ts`
 
 Responsibilities:
 
+- define a standalone Neo4j data stack (`Neo4jDataStack`) with EC2 + EBS + Secrets Manager
 - define Bedrock Guardrails
 - define Bedrock Agents and aliases
 - define Lambda functions for action groups
@@ -226,10 +230,61 @@ pnpm bootstrap
 Deploy:
 
 ```bash
-pnpm cdk:deploy
+pnpm deploy:data   # Neo4j data layer only
+pnpm deploy:app    # application layer only
 ```
 
-Important: `packages/infra-cdk` deploys Lambda code from the built `dist/` folders in the tool packages. Run `pnpm build` before `pnpm synth`, `pnpm diff`, or `pnpm cdk:deploy`.
+`Neo4jDataStack` defaults:
+
+- `instanceType=t3.micro` (free-tier-friendly default)
+- `rootVolumeSizeGiB=8`
+- `volumeSizeGiB=20`
+- `allowedIngressCidr=0.0.0.0/0` (lock this down for non-PoC environments)
+- `retainDataOnDelete=true` (EBS volume + Neo4j secret are retained on stack delete)
+
+Override Neo4j sizing/networking with CDK context:
+
+```bash
+pnpm deploy:data -- \
+  --context neo4jInstanceType=t3.large \
+  --context neo4jRootVolumeSizeGiB=16 \
+  --context neo4jVolumeSizeGiB=100 \
+  --context neo4jAllowedIngressCidr=1.2.3.4/32 \
+  --context neo4jRetainDataOnDelete=true
+```
+
+If your account only allows specific free-tier instance types, switch explicitly (example):
+
+```bash
+pnpm deploy:data -- --context neo4jInstanceType=t2.micro
+```
+
+Destroy only the application layer (keep Neo4j data stack):
+
+```bash
+pnpm destroy:app
+```
+
+Destroy only the data layer:
+
+```bash
+pnpm destroy:data
+```
+
+If you want `destroy:data` to also delete EBS + secret, deploy with:
+
+```bash
+pnpm deploy:data -- --context neo4jRetainDataOnDelete=false
+```
+
+Deploy or destroy both stacks together:
+
+```bash
+pnpm deploy:all
+pnpm destroy:all
+```
+
+Important: `packages/infra-cdk` deploys Lambda code from the built `dist/` folders in the tool packages. Run `pnpm build` before `pnpm synth`, `pnpm diff`, or deployment commands.
 
 ## Environment Variables
 

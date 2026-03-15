@@ -27,11 +27,17 @@
     "prediff": "pnpm build",
     "diff": "pnpm --filter @aws-bedrock-multiagents/infra-cdk diff",
     "predeploy": "pnpm build",
-    "deploy": "pnpm --filter @aws-bedrock-multiagents/infra-cdk run deploy",
+    "deploy": "pnpm run deploy:app",
+    "deploy:app": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk deploy --progress events BedrockAgentsStack",
+    "deploy:data": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk deploy --progress events Neo4jDataStack",
+    "deploy:all": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk deploy --progress events Neo4jDataStack BedrockAgentsStack",
     "precdk:deploy": "pnpm build",
-    "cdk:deploy": "pnpm --filter @aws-bedrock-multiagents/infra-cdk run deploy",
+    "cdk:deploy": "pnpm run deploy:app",
     "bootstrap": "pnpm --filter @aws-bedrock-multiagents/infra-cdk bootstrap",
-    "destroy": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk destroy BedrockAgentsStack --force"
+    "destroy": "pnpm run destroy:app",
+    "destroy:app": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk destroy BedrockAgentsStack --force",
+    "destroy:data": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk destroy Neo4jDataStack --force",
+    "destroy:all": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk destroy BedrockAgentsStack Neo4jDataStack --force"
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock-agent-runtime": "^3.884.0",

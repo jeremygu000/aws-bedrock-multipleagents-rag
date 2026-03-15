@@ -9,7 +9,7 @@
     "typecheck:tsc": "tsc -p tsconfig.json --noEmit",
     "synth": "cdk synth",
     "diff": "cdk diff",
-    "deploy": "cdk deploy",
+    "deploy": "cdk deploy --progress events",
     "bootstrap": "cdk bootstrap"
   },
   "dependencies": {
