@@ -3,10 +3,12 @@ import * as cdk from "aws-cdk-lib";
 
 // Node ESM requires the emitted .js extension here, or `cdk synth` cannot resolve dist imports.
 import { BedrockAgentsStack } from "../lib/bedrock-agents-stack.js";
+import { MonitoringEc2Stack } from "../lib/monitoring-ec2-stack.js";
 import { Neo4jDataStack } from "../lib/neo4j-data-stack.js";
 
 const app = new cdk.App();
 
+// Neo4j stack context values (optional).
 const neo4jInstanceType = app.node.tryGetContext("neo4jInstanceType") as string | undefined;
 const neo4jAllowedIngressCidr = app.node.tryGetContext("neo4jAllowedIngressCidr") as
   | string
@@ -32,6 +34,31 @@ const neo4jRetainDataOnDelete =
     ? undefined
     : String(neo4jRetainDataContext).toLowerCase() === "true";
 
+// Monitoring stack context values (optional).
+const monitoringInstanceType = app.node.tryGetContext("monitoringInstanceType") as
+  | string
+  | undefined;
+const monitoringAllowedIngressCidr = app.node.tryGetContext("monitoringAllowedIngressCidr") as
+  | string
+  | undefined;
+const monitoringRootVolumeSizeContext = app.node.tryGetContext("monitoringRootVolumeSizeGiB") as
+  | string
+  | number
+  | undefined;
+const monitoringRootVolumeSizeGiB =
+  monitoringRootVolumeSizeContext === undefined
+    ? undefined
+    : Number(monitoringRootVolumeSizeContext);
+const monitoringRetainDataContext = app.node.tryGetContext("monitoringRetainDataOnDelete") as
+  | string
+  | boolean
+  | undefined;
+const monitoringRetainDataOnDelete =
+  monitoringRetainDataContext === undefined
+    ? undefined
+    : String(monitoringRetainDataContext).toLowerCase() === "true";
+
+// Standalone data stack for Neo4j persistence and access endpoints.
 new Neo4jDataStack(app, "Neo4jDataStack", {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -50,6 +77,22 @@ new Neo4jDataStack(app, "Neo4jDataStack", {
   retainDataOnDelete: neo4jRetainDataOnDelete,
 });
 
+// Dedicated monitoring stack so Grafana lifecycle/cost can be controlled independently.
+new MonitoringEc2Stack(app, "MonitoringEc2Stack", {
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION,
+  },
+  instanceType: monitoringInstanceType,
+  allowedIngressCidr: monitoringAllowedIngressCidr,
+  rootVolumeSizeGiB:
+    monitoringRootVolumeSizeGiB !== undefined && Number.isFinite(monitoringRootVolumeSizeGiB)
+      ? monitoringRootVolumeSizeGiB
+      : undefined,
+  retainDataOnDelete: monitoringRetainDataOnDelete,
+});
+
+// Application layer stack (Bedrock agents and Lambda tools).
 new BedrockAgentsStack(app, "BedrockAgentsStack", {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,

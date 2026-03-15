@@ -96,6 +96,7 @@ The supervisor agent is configured as a `SUPERVISOR_ROUTER` and routes requests 
     │   ├── bin/app.ts
     │   └── lib
     │       ├── bedrock-agents-stack.ts
+    │       ├── monitoring-ec2-stack.ts
     │       └── neo4j-data-stack.ts
     ├── shared
     │   └── src
@@ -121,11 +122,13 @@ CDK app and stack definitions.
 Key file:
 
 - `packages/infra-cdk/lib/bedrock-agents-stack.ts`
+- `packages/infra-cdk/lib/monitoring-ec2-stack.ts`
 - `packages/infra-cdk/lib/neo4j-data-stack.ts`
 
 Responsibilities:
 
 - define a standalone Neo4j data stack (`Neo4jDataStack`) with EC2 + EBS + Secrets Manager
+- define a standalone monitoring stack (`MonitoringEc2Stack`) with EC2 + Grafana + CloudWatch data source
 - define Bedrock Guardrails
 - define Bedrock Agents and aliases
 - define Lambda functions for action groups
@@ -231,6 +234,7 @@ Deploy:
 
 ```bash
 pnpm deploy:data   # Neo4j data layer only
+pnpm deploy:monitoring # Grafana (CloudWatch datasource) on dedicated EC2
 pnpm deploy:app    # application layer only
 ```
 
@@ -242,6 +246,13 @@ pnpm deploy:app    # application layer only
 - `allowedIngressCidr=0.0.0.0/0` (lock this down for non-PoC environments)
 - `retainDataOnDelete=true` (EBS volume + Neo4j secret are retained on stack delete)
 
+`MonitoringEc2Stack` defaults:
+
+- `instanceType=t3.micro`
+- `rootVolumeSizeGiB=8`
+- `allowedIngressCidr=0.0.0.0/0` (lock this down for non-PoC environments)
+- `retainDataOnDelete=true` (Grafana admin secret is retained on stack delete)
+
 Override Neo4j sizing/networking with CDK context:
 
 ```bash
@@ -251,6 +262,28 @@ pnpm deploy:data -- \
   --context neo4jVolumeSizeGiB=100 \
   --context neo4jAllowedIngressCidr=1.2.3.4/32 \
   --context neo4jRetainDataOnDelete=true
+```
+
+Override monitoring sizing/networking with CDK context:
+
+```bash
+pnpm deploy:monitoring -- \
+  --context monitoringInstanceType=t3.micro \
+  --context monitoringRootVolumeSizeGiB=8 \
+  --context monitoringAllowedIngressCidr=1.2.3.4/32 \
+  --context monitoringRetainDataOnDelete=true
+```
+
+Start/stop Neo4j and Grafana EC2 instances quickly:
+
+```bash
+pnpm instance:status
+pnpm instance:stop:neo4j
+pnpm instance:start:neo4j
+pnpm instance:stop:grafana
+pnpm instance:start:grafana
+pnpm instance:stop:all
+pnpm instance:start:all
 ```
 
 If your account only allows specific free-tier instance types, switch explicitly (example):
@@ -271,13 +304,19 @@ Destroy only the data layer:
 pnpm destroy:data
 ```
 
+Destroy only the monitoring layer:
+
+```bash
+pnpm destroy:monitoring
+```
+
 If you want `destroy:data` to also delete EBS + secret, deploy with:
 
 ```bash
 pnpm deploy:data -- --context neo4jRetainDataOnDelete=false
 ```
 
-Deploy or destroy both stacks together:
+Deploy or destroy all stacks together:
 
 ```bash
 pnpm deploy:all
