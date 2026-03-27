@@ -11,6 +11,7 @@ from .config import Settings
 from .models import RetrieveRequest
 from .query_processing import QueryProcessor
 from .repository import PostgresRepository
+from .reranker import LLMReranker
 
 
 class RagWorkflowState(TypedDict, total=False):
@@ -21,9 +22,13 @@ class RagWorkflowState(TypedDict, total=False):
     filters: dict[str, Any]
     intent: str
     complexity: str
+    hl_keywords: list[str]
+    ll_keywords: list[str]
     rewritten_query: str
+    query_embedding: list[float] | None
     request: RetrieveRequest
     hits: list[dict[str, Any]]
+    reranked_hits: list[dict[str, Any]]
     citations: list[dict[str, Any]]
     preferred_model: ModelRoute
     answer_model: ModelRoute
@@ -39,44 +44,39 @@ class RagWorkflow:
         repository: PostgresRepository,
         query_processor: QueryProcessor,
         answer_generator: RoutedAnswerGenerator,
+        reranker: LLMReranker,
     ) -> None:
         """Create and compile graph with injected services."""
 
-        # Persist service dependencies used by node handlers.
         self._settings = settings
         self._repository = repository
         self._query_processor = query_processor
         self._answer_generator = answer_generator
+        self._reranker = reranker
 
-        # Initialize typed graph state.
         graph = StateGraph(RagWorkflowState)
 
-        # Step 1: detect intent + complexity (prefer Qwen).
         graph.add_node("detect_intent", self._node_detect_intent)
-        # Step 2: rewrite query for retrieval (prefer Qwen, fallback pass-through).
+        graph.add_node("extract_keywords", self._node_extract_keywords)
         graph.add_node("rewrite_query", self._node_rewrite_query)
-        # Step 3: build retrieval request from processed query.
         graph.add_node("build_request", self._node_build_request)
-        # Step 4: retrieve evidence from PostgreSQL.
         graph.add_node("retrieve", self._node_retrieve)
-        # Step 5: normalize citations for action response payload.
+        graph.add_node("rerank", self._node_rerank)
         graph.add_node("build_citations", self._node_build_citations)
-        # Step 6: choose answer model (Nova default, Qwen for complex/weak evidence).
         graph.add_node("choose_model", self._node_choose_model)
-        # Step 7: generate final answer from evidence using routed model.
         graph.add_node("generate_answer", self._node_generate_answer)
 
-        # Define deterministic execution order.
         graph.add_edge(START, "detect_intent")
-        graph.add_edge("detect_intent", "rewrite_query")
+        graph.add_edge("detect_intent", "extract_keywords")
+        graph.add_edge("extract_keywords", "rewrite_query")
         graph.add_edge("rewrite_query", "build_request")
         graph.add_edge("build_request", "retrieve")
-        graph.add_edge("retrieve", "build_citations")
+        graph.add_edge("retrieve", "rerank")
+        graph.add_edge("rerank", "build_citations")
         graph.add_edge("build_citations", "choose_model")
         graph.add_edge("choose_model", "generate_answer")
         graph.add_edge("generate_answer", END)
 
-        # Compile once; runtime only invokes prepared graph.
         self._graph = graph.compile()
 
     def run(self, query: str, top_k: int, filters: dict[str, Any]) -> RagWorkflowState:
@@ -90,47 +90,54 @@ class RagWorkflow:
         return self._graph.invoke(initial_state)
 
     def _node_detect_intent(self, state: RagWorkflowState) -> RagWorkflowState:
-        """Detect query intent/complexity for rewrite and model routing."""
-
         detection = self._query_processor.detect_intent(state["query"])
         return {
             "intent": str(detection.get("intent", "factual")),
             "complexity": str(detection.get("complexity", "medium")),
         }
 
-    def _node_rewrite_query(self, state: RagWorkflowState) -> RagWorkflowState:
-        """Rewrite query to improve retrieval quality while preserving constraints."""
+    def _node_extract_keywords(self, state: RagWorkflowState) -> RagWorkflowState:
+        result = self._query_processor.extract_keywords(state["query"])
+        return {"hl_keywords": result.hl_keywords, "ll_keywords": result.ll_keywords}
 
+    def _node_rewrite_query(self, state: RagWorkflowState) -> RagWorkflowState:
         rewritten = self._query_processor.rewrite_query(
             query=state["query"],
             intent=state.get("intent", "factual"),
             complexity=state.get("complexity", "medium"),
+            ll_keywords=state.get("ll_keywords", []),
         )
         return {"rewritten_query": rewritten}
 
     def _node_build_request(self, state: RagWorkflowState) -> RagWorkflowState:
-        """Build internal retrieval request payload."""
-
         top_k = state["top_k"]
         retrieval_query = state.get("rewritten_query") or state["query"]
+        query_embedding = self._query_processor.build_query_embedding(retrieval_query)
         request = RetrieveRequest(
             query=retrieval_query,
-            # Over-fetch sparse candidates so final top-k quality is more stable.
+            query_embedding=query_embedding,
             k_sparse=max(top_k * 4, 20),
+            k_dense=max(top_k * 4, 20),
             k_final=top_k,
             filters=state["filters"],
         )
-        return {"request": request}
+        return {"request": request, "query_embedding": query_embedding}
 
     def _node_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
-        """Execute retrieval against PostgreSQL repository."""
-
         hits = self._repository.retrieve(state["request"])
         return {"hits": hits}
 
-    def _node_build_citations(self, state: RagWorkflowState) -> RagWorkflowState:
-        """Map retrieval hits to compact citation objects for API responses."""
+    def _node_rerank(self, state: RagWorkflowState) -> RagWorkflowState:
+        hits = state.get("hits", [])
+        top_k = state.get("top_k", 8)
+        reranked = self._reranker.rerank(
+            query=state.get("rewritten_query") or state["query"],
+            hits=hits,
+            top_k=top_k,
+        )
+        return {"reranked_hits": reranked}
 
+    def _node_build_citations(self, state: RagWorkflowState) -> RagWorkflowState:
         citations = [
             {
                 "sourceId": hit["chunk_id"],
@@ -138,14 +145,12 @@ class RagWorkflow:
                 "url": hit["citation"]["url"],
                 "snippet": hit["chunk_text"][:280],
             }
-            for hit in state.get("hits", [])
+            for hit in state.get("reranked_hits") or state.get("hits", [])
         ]
         return {"citations": citations}
 
     def _node_choose_model(self, state: RagWorkflowState) -> RagWorkflowState:
-        """Choose answer model based on complexity and retrieval confidence."""
-
-        hits = state.get("hits", [])
+        hits = state.get("reranked_hits") or state.get("hits", [])
         top_score = float(hits[0]["score"]) if hits else 0.0
         complexity = state.get("complexity", "medium")
         token_count = len((state.get("rewritten_query") or state["query"]).split())
@@ -156,18 +161,15 @@ class RagWorkflow:
             token_count >= self._settings.route_complex_query_token_threshold
         )
 
-        # Route hard/uncertain cases to Qwen Plus; keep Nova Lite as default.
         preferred_model: ModelRoute = (
             "qwen-plus" if (complex_query or weak_evidence) else "nova-lite"
         )
         return {"preferred_model": preferred_model}
 
     def _node_generate_answer(self, state: RagWorkflowState) -> RagWorkflowState:
-        """Generate final answer using routed model selection."""
-
         answer, used_model = self._answer_generator.generate(
             query=state["query"],
-            hits=state.get("hits", []),
+            hits=state.get("reranked_hits") or state.get("hits", []),
             preferred_model=state.get("preferred_model", "nova-lite"),
         )
         return {"answer": answer, "answer_model": used_model}

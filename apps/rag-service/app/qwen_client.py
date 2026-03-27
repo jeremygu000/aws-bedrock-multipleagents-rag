@@ -70,6 +70,44 @@ class QwenClient:
         parsed = json.loads(raw)
         return self._extract_text(parsed)
 
+    def embedding(self, text: str) -> list[float]:
+        """Call Qwen embeddings API and return a single embedding vector."""
+
+        if not self.is_configured():
+            raise ValueError("Qwen API key is not configured.")
+        api_key = self._get_api_key()
+
+        base_url = self._settings.qwen_base_url.rstrip("/")
+        url = f"{base_url}/embeddings"
+        payload = {
+            "model": self._settings.qwen_embedding_model_id,
+            "input": text,
+        }
+        body = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            url=url,
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+        )
+        try:
+            with request.urlopen(req, timeout=30) as response:
+                raw = response.read().decode("utf-8")
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ValueError(f"Qwen embeddings API HTTP error: {exc.code} {detail}") from exc
+        except error.URLError as exc:
+            raise ValueError(f"Qwen embeddings API connection error: {exc}") from exc
+
+        parsed = json.loads(raw)
+        embedding = self._extract_embedding(parsed)
+        if not embedding:
+            raise ValueError("Qwen embeddings API returned empty embedding.")
+        return embedding
+
     def _get_api_key(self) -> str:
         """Resolve Qwen API key from env or Secrets Manager."""
 
@@ -94,3 +132,22 @@ class QwenClient:
                         parts.append(text_value.strip())
             return "\n".join(parts).strip()
         return ""
+
+    def _extract_embedding(self, payload: dict[str, Any]) -> list[float]:
+        """Extract embedding vector from OpenAI-compatible embeddings payload."""
+
+        data = payload.get("data")
+        if not isinstance(data, list) or not data:
+            return []
+        first = data[0]
+        if not isinstance(first, dict):
+            return []
+        vector = first.get("embedding")
+        if not isinstance(vector, list):
+            return []
+
+        normalized: list[float] = []
+        for value in vector:
+            if isinstance(value, (int, float)):
+                normalized.append(float(value))
+        return normalized

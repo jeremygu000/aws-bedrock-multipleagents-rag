@@ -2,7 +2,7 @@
 
 This service is the Python runtime for the hybrid RAG path:
 
-- sparse retrieval on PostgreSQL full-text (`tsvector`)
+- sparse retrieval on OpenSearch (BM25)
 - dense retrieval on `pgvector`
 - weighted reciprocal rank fusion (RRF)
 - strict citation payload in every returned hit
@@ -20,8 +20,8 @@ Current `rag_search` runtime flow:
 4. Workflow nodes:
    - `detect_intent`: classify intent/complexity (Qwen preferred, heuristic fallback)
    - `rewrite_query`: retrieval rewrite (Qwen preferred, pass-through fallback)
-   - `build_request`: normalize query/topK/filters into `RetrieveRequest`
-   - `retrieve`: fetch strict-citation hits from PostgreSQL (`sparse` now, `hybrid` ready)
+   - `build_request`: normalize query/topK/filters and build query embedding when available
+   - `retrieve`: fetch strict-citation hits from PostgreSQL (`hybrid` by default, sparse fallback)
    - `build_citations`: map hits to compact citation payload
    - `choose_model`: route default `nova-lite` vs `qwen-plus` for hard/low-confidence cases
    - `generate_answer`: synthesize answer via routed model
@@ -56,6 +56,10 @@ The service reads `RAG_*` variables first, then falls back to existing `RDS_*` v
 - `RAG_DB_PASSWORD` (local fallback only)
 - `RAG_DB_SSLMODE` (default: `require`)
 - `RAG_EMBED_DIM` (default: `1024`)
+- `RAG_SPARSE_BACKEND` (`opensearch` or `postgres`, default: `opensearch`)
+- `RAG_OPENSEARCH_ENDPOINT` (required when `RAG_SPARSE_BACKEND=opensearch`)
+- `RAG_OPENSEARCH_INDEX` (default: `kb_chunks`)
+- `RAG_OPENSEARCH_TIMEOUT_S` (default: `10`)
 - `RAG_ANSWER_MODEL_ID` (default: `amazon.nova-lite-v1:0`)
 - `RAG_ANSWER_MAX_TOKENS` (default: `500`)
 - `RAG_ANSWER_TEMPERATURE` (default: `0.05`)
@@ -64,6 +68,7 @@ The service reads `RAG_*` variables first, then falls back to existing `RDS_*` v
 - `QWEN_API_KEY_SECRET_KEY` (default: `DASHSCOPE_API_KEY`)
 - `QWEN_API_KEY` (local fallback, fallback alias: `DASHSCOPE_API_KEY`)
 - `QWEN_MODEL_ID` (fallback: `LLM_MODEL`, default: `qwen-plus`)
+- `QWEN_EMBEDDING_MODEL_ID` (default: `text-embedding-v3`)
 - `QWEN_BASE_URL` (default: `https://dashscope.aliyuncs.com/compatible-mode/v1`)
 - `QWEN_MAX_TOKENS` (default: `500`)
 - `QWEN_TEMPERATURE` (default: `0.0`)
@@ -71,6 +76,7 @@ The service reads `RAG_*` variables first, then falls back to existing `RDS_*` v
 - `RAG_ROUTE_TOP_SCORE_THRESHOLD` (default: `0.015`)
 - `RAG_ROUTE_COMPLEX_QUERY_TOKEN_THRESHOLD` (default: `18`)
 - `RAG_ENABLE_QUERY_REWRITE` (default: `true`)
+- `RAG_ENABLE_HYBRID_RETRIEVAL` (default: `true`)
 
 For Bedrock Action Group Lambda execution, the same variables are used via Lambda environment config.
 
@@ -101,8 +107,11 @@ curl -X POST http://127.0.0.1:8080/retrieve \
   }'
 ```
 
-Hybrid retrieval requires `query_embedding` length = `RAG_EMBED_DIM` (default `1024`).
-If the embedding length is wrong, the API returns `400`.
+For workflow and Bedrock action paths, query embedding is generated automatically
+through Qwen embeddings when configured and dimensions match `RAG_EMBED_DIM`.
+When `RAG_SPARSE_BACKEND=opensearch`, sparse candidates come from OpenSearch BM25 and are fused
+with PostgreSQL dense candidates. If OpenSearch is unavailable, the service falls back to
+PostgreSQL sparse retrieval to keep runtime resilient.
 
 ## 5. Lambda Entry
 

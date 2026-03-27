@@ -89,3 +89,54 @@ def test_chat_http_error(monkeypatch) -> None:
     monkeypatch.setattr("app.qwen_client.request.urlopen", fake_urlopen)
     with pytest.raises(ValueError, match="Qwen API HTTP error"):
         client.chat("sys", "usr")
+
+
+def test_extract_embedding() -> None:
+    client = QwenClient(Settings())
+    payload = {"data": [{"embedding": [0.1, 2, 3.5]}]}
+    assert client._extract_embedding(payload) == [0.1, 2.0, 3.5]
+
+
+def test_embedding_success(monkeypatch) -> None:
+    settings = Settings(
+        QWEN_API_KEY="secret",
+        QWEN_BASE_URL="https://example.com/v1",
+        QWEN_EMBEDDING_MODEL_ID="text-embedding-v3",
+    )
+    client = QwenClient(settings)
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"data": [{"embedding": [0.1, 0.2]}]}).encode("utf-8")
+
+    def fake_urlopen(req, timeout: int):
+        assert req.full_url == "https://example.com/v1/embeddings"
+        assert timeout == 30
+        return FakeResponse()
+
+    monkeypatch.setattr("app.qwen_client.request.urlopen", fake_urlopen)
+    assert client.embedding("hello") == [0.1, 0.2]
+
+
+def test_embedding_http_error(monkeypatch) -> None:
+    settings = Settings(QWEN_API_KEY="secret")
+    client = QwenClient(settings)
+
+    def fake_urlopen(_req, timeout: int):
+        raise error.HTTPError(
+            url="https://x",
+            code=500,
+            msg="Server Error",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":"boom"}'),
+        )
+
+    monkeypatch.setattr("app.qwen_client.request.urlopen", fake_urlopen)
+    with pytest.raises(ValueError, match="Qwen embeddings API HTTP error"):
+        client.embedding("hello")

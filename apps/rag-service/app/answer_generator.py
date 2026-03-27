@@ -32,9 +32,10 @@ class BedrockConverseAnswerGenerator:
         context_block = _build_context_block(hits)
         system_prompt = (
             "You are a grounded enterprise RAG assistant. "
-            "Answer only using the provided evidence snippets. "
-            "Do not invent facts. "
-            "Use citation markers like [1], [2] that map to evidence entries."
+            "Answer ONLY using the provided evidence. "
+            "Do NOT fabricate facts or add information beyond what is given. "
+            "Use citation markers [1], [2], ... that map to evidence entries. "
+            "Structure your response: first summarize the key finding, then provide supporting details with citations."
         )
         user_prompt = (
             f"User query:\n{query}\n\n"
@@ -99,9 +100,10 @@ class QwenAnswerGenerator:
         context_block = _build_context_block(hits)
         system_prompt = (
             "You are a grounded enterprise RAG assistant. "
-            "Answer only using provided evidence snippets. "
-            "Do not fabricate facts. "
-            "Use citation markers [1], [2], ... that map to evidence."
+            "Answer ONLY using the provided evidence. "
+            "Do NOT fabricate facts or add information beyond what is given. "
+            "Use citation markers [1], [2], ... that map to evidence entries. "
+            "Structure your response: first summarize the key finding, then provide supporting details with citations."
         )
         user_prompt = (
             f"User query:\n{query}\n\n"
@@ -160,22 +162,18 @@ class RoutedAnswerGenerator:
 
 
 def _build_context_block(hits: list[dict[str, Any]]) -> str:
-    """Create deterministic evidence block for grounded generation."""
-
-    lines: list[str] = []
+    sections: list[str] = []
     for index, hit in enumerate(hits, start=1):
         citation = hit["citation"]
-        lines.append(
-            "\n".join(
-                [
-                    f"[{index}] title: {citation['title']}",
-                    f"[{index}] url: {citation['url']}",
-                    f"[{index}] date: {citation['year']}-{citation['month']:02d}",
-                    f"[{index}] snippet: {hit['chunk_text'][:800]}",
-                ]
-            )
+        section = (
+            f"--- Evidence [{index}] ---\n"
+            f"Title: {citation['title']}\n"
+            f"URL: {citation['url']}\n"
+            f"Date: {citation['year']}-{citation['month']:02d}\n"
+            f"Content:\n{hit['chunk_text'][:800]}"
         )
-    return "\n\n".join(lines)
+        sections.append(section)
+    return "\n\n".join(sections)
 
 
 def _extract_bedrock_text(response: dict[str, Any]) -> str:

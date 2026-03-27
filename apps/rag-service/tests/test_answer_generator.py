@@ -28,9 +28,9 @@ def _sample_hits() -> list[dict]:
 
 def test_build_context_block_contains_citation_fields() -> None:
     block = _build_context_block(_sample_hits())
-    assert "[1] title: Doc A" in block
-    assert "[1] url: https://example.com/a" in block
-    assert "[1] date: 2025-04" in block
+    assert "Title: Doc A" in block
+    assert "URL: https://example.com/a" in block
+    assert "Date: 2025-04" in block
 
 
 def test_extract_bedrock_text_happy_path() -> None:

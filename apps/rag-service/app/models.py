@@ -80,3 +80,10 @@ class RetrieveResponse(BaseModel):
     mode: Literal["sparse", "hybrid"]
     hit_count: int
     hits: list[RetrievalHit]
+
+
+class KeywordResult(BaseModel):
+    """Dual-level keyword extraction result inspired by LightRAG."""
+
+    hl_keywords: list[str] = Field(default_factory=list, description="High-level thematic keywords")
+    ll_keywords: list[str] = Field(default_factory=list, description="Low-level specific entities/terms")

@@ -7,6 +7,7 @@ It supports both local development defaults and cloud runtime fallbacks.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 from urllib.parse import quote_plus
 
 from pydantic import AliasChoices, Field
@@ -63,6 +64,13 @@ class Settings(BaseSettings):
     )
 
     embedding_dimensions: int = Field(default=1024, validation_alias="RAG_EMBED_DIM")
+    sparse_backend: Literal["opensearch", "postgres"] = Field(
+        default="opensearch",
+        validation_alias="RAG_SPARSE_BACKEND",
+    )
+    opensearch_endpoint: str = Field(default="", validation_alias="RAG_OPENSEARCH_ENDPOINT")
+    opensearch_index: str = Field(default="kb_chunks", validation_alias="RAG_OPENSEARCH_INDEX")
+    opensearch_timeout_s: int = Field(default=10, validation_alias="RAG_OPENSEARCH_TIMEOUT_S")
     default_rrf_k: int = Field(default=60, validation_alias="RAG_RRF_K")
     answer_model_id: str = Field(
         default="amazon.nova-lite-v1:0",
@@ -87,6 +95,10 @@ class Settings(BaseSettings):
         default="qwen-plus",
         validation_alias=AliasChoices("QWEN_MODEL_ID", "LLM_MODEL"),
     )
+    qwen_embedding_model_id: str = Field(
+        default="text-embedding-v3",
+        validation_alias="QWEN_EMBEDDING_MODEL_ID",
+    )
     qwen_base_url: str = Field(
         default="https://dashscope.aliyuncs.com/compatible-mode/v1",
         validation_alias="QWEN_BASE_URL",
@@ -106,6 +118,29 @@ class Settings(BaseSettings):
     enable_query_rewrite: bool = Field(
         default=True,
         validation_alias="RAG_ENABLE_QUERY_REWRITE",
+    )
+    enable_hybrid_retrieval: bool = Field(
+        default=True,
+        validation_alias="RAG_ENABLE_HYBRID_RETRIEVAL",
+    )
+    enable_keyword_extraction: bool = Field(
+        default=True,
+        validation_alias="RAG_ENABLE_KEYWORD_EXTRACTION",
+    )
+    enable_reranking: bool = Field(
+        default=True,
+        validation_alias="RAG_ENABLE_RERANKING",
+    )
+    rerank_candidate_count: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        validation_alias="RAG_RERANK_CANDIDATE_COUNT",
+    )
+    rerank_max_tokens: int = Field(
+        default=30000,
+        ge=1000,
+        validation_alias="RAG_RERANK_MAX_TOKENS",
     )
 
     model_config = SettingsConfigDict(

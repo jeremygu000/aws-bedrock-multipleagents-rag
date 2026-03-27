@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from .config import Settings
+from .models import KeywordResult
 from .qwen_client import QwenClient
 
 
@@ -50,7 +51,7 @@ class QueryProcessor:
 
         return self._heuristic_intent(query)
 
-    def rewrite_query(self, query: str, intent: str, complexity: str) -> str:
+    def rewrite_query(self, query: str, intent: str, complexity: str, ll_keywords: list[str] | None = None) -> str:
         """Rewrite query for retrieval quality while preserving user intent."""
 
         if not self._settings.enable_query_rewrite:
@@ -64,9 +65,13 @@ class QueryProcessor:
             "Preserve entities, years, and constraints. "
             "Return one line only."
         )
+        keyword_line = ""
+        if ll_keywords:
+            keyword_line = f"Key entities and terms: {', '.join(ll_keywords)}\n"
         user_prompt = (
             f"Intent: {intent}\n"
             f"Complexity: {complexity}\n"
+            f"{keyword_line}"
             f"Original query: {query}\n"
             "Rewrite:"
         )
@@ -77,6 +82,56 @@ class QueryProcessor:
         except Exception:
             return query
         return query
+
+    def extract_keywords(self, query: str) -> KeywordResult:
+        """Extract dual-level keywords (high-level themes + low-level entities)."""
+
+        if not self._settings.enable_keyword_extraction:
+            return KeywordResult()
+        if not self._qwen.is_configured():
+            return KeywordResult()
+
+        system_prompt = "You are a keyword extraction engine for enterprise search. Return valid JSON only."
+        user_prompt = (
+            "Extract two levels of keywords from this query:\n"
+            "- high_level_keywords: broad topics, themes, concepts\n"
+            "- low_level_keywords: specific entities, names, dates, numbers, acronyms\n\n"
+            'Return JSON: {"hl_keywords": [...], "ll_keywords": [...]}\n\n'
+            f"Query: {query}"
+        )
+        try:
+            raw = self._qwen.chat(system_prompt, user_prompt)
+            parsed = _safe_json(raw)
+            hl = parsed.get("hl_keywords", [])
+            ll = parsed.get("ll_keywords", [])
+            if not isinstance(hl, list) or not isinstance(ll, list):
+                return KeywordResult()
+            return KeywordResult(
+                hl_keywords=[str(k) for k in hl[:5]],
+                ll_keywords=[str(k) for k in ll[:5]],
+            )
+        except Exception:
+            return KeywordResult()
+
+    def build_query_embedding(self, query: str) -> list[float] | None:
+        """Build query embedding for hybrid retrieval using Qwen embeddings API.
+
+        Returns:
+            A dense vector when hybrid retrieval is enabled and embedding generation succeeds.
+            `None` when disabled, unavailable, or dimension validation fails.
+        """
+
+        if not self._settings.enable_hybrid_retrieval:
+            return None
+        if not self._qwen.is_configured():
+            return None
+        try:
+            embedding = self._qwen.embedding(query)
+        except Exception:
+            return None
+        if len(embedding) != self._settings.embedding_dimensions:
+            return None
+        return embedding
 
     def _heuristic_intent(self, query: str) -> dict[str, Any]:
         """Fallback intent/complexity classifier based on simple lexical cues."""

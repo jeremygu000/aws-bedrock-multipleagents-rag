@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
+import boto3
+from opensearchpy import AWSV4SignerAuth, OpenSearch, RequestsHttpConnection
 from sqlalchemy import (
     JSON,
     Column,
@@ -159,14 +162,83 @@ class PostgresRepository:
 
         self._settings = settings
         self._engine: Engine | None = None
+        self._opensearch_client: OpenSearch | None = None
 
     def retrieve(self, request: RetrieveRequest) -> list[dict[str, Any]]:
         """Dispatch retrieval to sparse-only or hybrid mode based on request payload."""
 
         filter_clauses, filter_params = _build_filters(request)
+        if self._should_use_opensearch():
+            try:
+                if request.query_embedding:
+                    return self._retrieve_hybrid_with_opensearch(
+                        request, filter_clauses, filter_params
+                    )
+                sparse_hits = self._retrieve_sparse_opensearch(request)
+                if sparse_hits:
+                    return sparse_hits
+            except Exception:
+                # Keep service resilient by falling back to PostgreSQL retrieval path.
+                pass
+
         if request.query_embedding:
             return self._retrieve_hybrid(request, filter_clauses, filter_params)
         return self._retrieve_sparse(request, filter_clauses, filter_params)
+
+    def _should_use_opensearch(self) -> bool:
+        """Return whether OpenSearch sparse retrieval should be used."""
+
+        return self._settings.sparse_backend == "opensearch" and bool(
+            self._settings.opensearch_endpoint.strip()
+        )
+
+    def _retrieve_sparse_opensearch(self, request: RetrieveRequest) -> list[dict[str, Any]]:
+        """Run sparse retrieval on OpenSearch (BM25) with strict-citation normalization."""
+
+        candidates = self._retrieve_sparse_opensearch_candidates(request)
+        return candidates[: request.k_final]
+
+    def _retrieve_sparse_opensearch_candidates(
+        self, request: RetrieveRequest
+    ) -> list[dict[str, Any]]:
+        """Fetch sparse candidate hits from OpenSearch with rank-based scoring."""
+
+        client = self._get_opensearch_client()
+        body = self._build_opensearch_query(request, size=request.k_sparse)
+        response = client.search(index=self._settings.opensearch_index, body=body)
+        response_hits = response.get("hits", {}).get("hits", [])
+        if not isinstance(response_hits, list):
+            return []
+
+        rrf_k = request.rrf_k or self._settings.default_rrf_k
+        normalized: list[dict[str, Any]] = []
+        for rank, hit in enumerate(response_hits, start=1):
+            mapped = _normalize_opensearch_hit(hit, request.require_strict_citation)
+            if not mapped:
+                continue
+            mapped["score"] = 1.0 / (rrf_k + rank)
+            normalized.append(mapped)
+        return normalized
+
+    def _retrieve_hybrid_with_opensearch(
+        self,
+        request: RetrieveRequest,
+        filter_clauses: list[Any],
+        filter_params: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Fuse OpenSearch sparse ranks with PostgreSQL dense ranks using RRF."""
+
+        sparse_hits = self._retrieve_sparse_opensearch_candidates(request)
+        dense_hits = self._retrieve_dense_only(request, filter_clauses, filter_params)
+        fused_hits = self._fuse_ranked_hits(
+            sparse_hits=sparse_hits,
+            dense_hits=dense_hits,
+            k_final=request.k_final,
+            rrf_k=request.rrf_k or self._settings.default_rrf_k,
+        )
+        if fused_hits:
+            return fused_hits
+        return sparse_hits[: request.k_final]
 
     def _retrieve_sparse(
         self,
@@ -358,6 +430,143 @@ class PostgresRepository:
         }
         return self._run_statement(statement, params)
 
+    def _retrieve_dense_only(
+        self,
+        request: RetrieveRequest,
+        filter_clauses: list[Any],
+        filter_params: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Run dense-only retrieval on PostgreSQL for OpenSearch hybrid fusion."""
+
+        if not request.query_embedding:
+            raise ValueError("query_embedding is required for dense retrieval")
+        if len(request.query_embedding) != self._settings.embedding_dimensions:
+            raise ValueError(
+                "query_embedding length mismatch: "
+                f"expected {self._settings.embedding_dimensions}, got {len(request.query_embedding)}"
+            )
+
+        vector_literal = _to_vector_literal(request.query_embedding)
+        query_vector = text("(:query_vector)::vector")
+        dense_distance = kb_chunks.c.embedding.op("<=>")(query_vector)
+        dense_rank = func.row_number().over(order_by=dense_distance)
+
+        dense_candidates = (
+            select(
+                kb_chunks.c.chunk_id,
+                dense_rank.label("dense_rank"),
+            )
+            .select_from(kb_chunks.join(kb_documents, kb_documents.c.doc_id == kb_chunks.c.doc_id))
+            .where(*filter_clauses)
+            .order_by(dense_distance)
+            .limit(bindparam("k_dense"))
+            .cte("dense_candidates")
+        )
+
+        score = (literal(1.0) / (bindparam("rrf_k") + dense_candidates.c.dense_rank)).label("score")
+        statement = (
+            select(
+                kb_chunks.c.chunk_id,
+                kb_chunks.c.doc_id,
+                kb_chunks.c.chunk_text,
+                score,
+                kb_documents.c.category,
+                kb_documents.c.lang,
+                kb_documents.c.source_type,
+                kb_chunks.c.metadata,
+                kb_chunks.c.citation_url,
+                kb_chunks.c.citation_title,
+                kb_chunks.c.citation_year,
+                kb_chunks.c.citation_month,
+                kb_chunks.c.page_start,
+                kb_chunks.c.page_end,
+                kb_chunks.c.section_id,
+                kb_chunks.c.anchor_id,
+            )
+            .select_from(
+                dense_candidates.join(
+                    kb_chunks, kb_chunks.c.chunk_id == dense_candidates.c.chunk_id
+                ).join(kb_documents, kb_documents.c.doc_id == kb_chunks.c.doc_id)
+            )
+            .order_by(score.desc())
+            .limit(bindparam("k_dense"))
+        )
+
+        rrf_k = request.rrf_k or self._settings.default_rrf_k
+        params: dict[str, Any] = {
+            "query_vector": vector_literal,
+            "k_dense": request.k_dense,
+            "rrf_k": rrf_k,
+            **filter_params,
+        }
+        return self._run_statement(statement, params)
+
+    def _fuse_ranked_hits(
+        self,
+        sparse_hits: list[dict[str, Any]],
+        dense_hits: list[dict[str, Any]],
+        k_final: int,
+        rrf_k: int,
+    ) -> list[dict[str, Any]]:
+        """Fuse sparse and dense ranked hits with reciprocal-rank fusion in Python."""
+
+        sparse_rank = {hit["chunk_id"]: index for index, hit in enumerate(sparse_hits, start=1)}
+        dense_rank = {hit["chunk_id"]: index for index, hit in enumerate(dense_hits, start=1)}
+
+        payload_by_chunk: dict[str, dict[str, Any]] = {}
+        for hit in dense_hits:
+            payload_by_chunk[hit["chunk_id"]] = _copy_hit(hit)
+        for hit in sparse_hits:
+            existing = payload_by_chunk.get(hit["chunk_id"])
+            if existing is None:
+                payload_by_chunk[hit["chunk_id"]] = _copy_hit(hit)
+                continue
+            if not existing.get("chunk_text"):
+                existing["chunk_text"] = hit.get("chunk_text", "")
+
+        scored: list[dict[str, Any]] = []
+        for chunk_id, payload in payload_by_chunk.items():
+            score = 0.0
+            sparse_position = sparse_rank.get(chunk_id)
+            dense_position = dense_rank.get(chunk_id)
+            if sparse_position is not None:
+                score += 1.0 / (rrf_k + sparse_position)
+            if dense_position is not None:
+                score += 1.0 / (rrf_k + dense_position)
+            payload["score"] = score
+            scored.append(payload)
+
+        scored.sort(key=lambda item: float(item.get("score", 0.0)), reverse=True)
+        return scored[:k_final]
+
+    def _build_opensearch_query(self, request: RetrieveRequest, size: int) -> dict[str, Any]:
+        """Build OpenSearch BM25 query with metadata filters and strict citation constraints."""
+
+        filters = _build_opensearch_filters(request)
+        bool_query: dict[str, Any] = {
+            "must": [
+                {
+                    "multi_match": {
+                        "query": request.query,
+                        "fields": [
+                            "chunk_text^3",
+                            "citation.title^2",
+                            "citation_title^2",
+                            "metadata.title",
+                        ],
+                        "operator": "or",
+                    }
+                }
+            ]
+        }
+        if filters:
+            bool_query["filter"] = filters
+
+        return {
+            "size": size,
+            "query": {"bool": bool_query},
+        }
+
     def _run_statement(self, statement: Any, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Execute a SQLAlchemy statement and map rows to API response structure."""
 
@@ -393,6 +602,39 @@ class PostgresRepository:
             )
         return normalized
 
+    def _get_opensearch_client(self) -> OpenSearch:
+        """Lazily construct and cache OpenSearch client with SigV4 auth."""
+
+        if self._opensearch_client is not None:
+            return self._opensearch_client
+        if not self._settings.opensearch_endpoint.strip():
+            raise ValueError("RAG_OPENSEARCH_ENDPOINT is not configured.")
+        if not self._settings.aws_region:
+            raise ValueError(
+                "AWS region is not configured. Set RAG_AWS_REGION, AWS_REGION, or AWS_DEFAULT_REGION."
+            )
+
+        endpoint = self._settings.opensearch_endpoint.strip()
+        parsed = urlparse(endpoint if "://" in endpoint else f"https://{endpoint}")
+        if not parsed.hostname:
+            raise ValueError("Invalid OpenSearch endpoint.")
+
+        session = boto3.Session()
+        credentials = session.get_credentials()
+        if credentials is None:
+            raise ValueError("AWS credentials are not available for OpenSearch access.")
+
+        auth = AWSV4SignerAuth(credentials, self._settings.aws_region, "es")
+        self._opensearch_client = OpenSearch(
+            hosts=[{"host": parsed.hostname, "port": parsed.port or 443}],
+            http_auth=auth,
+            use_ssl=(parsed.scheme != "http"),
+            verify_certs=True,
+            timeout=self._settings.opensearch_timeout_s,
+            connection_class=RequestsHttpConnection,
+        )
+        return self._opensearch_client
+
     def _get_engine(self) -> Engine:
         """Lazily construct and cache SQLAlchemy engine for connection reuse."""
 
@@ -421,3 +663,221 @@ def _normalize_uuid(value: Any) -> UUID:
     if isinstance(value, UUID):
         return value
     return UUID(str(value))
+
+
+def _normalize_opensearch_hit(
+    hit: Any,
+    require_strict_citation: bool,
+) -> dict[str, Any] | None:
+    """Normalize one OpenSearch hit into retrieval payload schema."""
+
+    if not isinstance(hit, dict):
+        return None
+    source = hit.get("_source", {})
+    if not isinstance(source, dict):
+        return None
+
+    citation_object = source.get("citation")
+    citation_nested = citation_object if isinstance(citation_object, dict) else {}
+
+    citation_url = citation_nested.get("url") or source.get("citation_url")
+    citation_title = citation_nested.get("title") or source.get("citation_title")
+    citation_year = _to_int(citation_nested.get("year") or source.get("citation_year"))
+    citation_month = _to_int(citation_nested.get("month") or source.get("citation_month"))
+    page_start = _to_int(citation_nested.get("page_start") or source.get("page_start"))
+    page_end = _to_int(citation_nested.get("page_end") or source.get("page_end"))
+    section_id = citation_nested.get("section_id") or source.get("section_id")
+    anchor_id = citation_nested.get("anchor_id") or source.get("anchor_id")
+
+    if require_strict_citation:
+        if (
+            not citation_url
+            or not citation_title
+            or citation_year is None
+            or citation_month is None
+        ):
+            return None
+        if page_start is None and section_id is None and anchor_id is None:
+            return None
+
+    metadata = source.get("metadata")
+    metadata_dict = metadata if isinstance(metadata, dict) else {}
+    chunk_id = str(source.get("chunk_id") or hit.get("_id") or "")
+    doc_id = str(source.get("doc_id") or metadata_dict.get("doc_id") or chunk_id)
+    if not chunk_id:
+        return None
+
+    return {
+        "chunk_id": chunk_id,
+        "doc_id": doc_id,
+        "chunk_text": str(source.get("chunk_text") or ""),
+        "score": float(hit.get("_score") or 0.0),
+        "category": str(source.get("category") or metadata_dict.get("category") or "unknown"),
+        "lang": str(source.get("lang") or metadata_dict.get("lang") or "unknown"),
+        "source_type": str(
+            source.get("source_type") or metadata_dict.get("source_type") or "crawler"
+        ),
+        "metadata": metadata_dict,
+        "citation": {
+            "url": citation_url,
+            "title": citation_title,
+            "year": citation_year if citation_year is not None else 1970,
+            "month": citation_month if citation_month is not None else 1,
+            "page_start": page_start,
+            "page_end": page_end,
+            "section_id": section_id,
+            "anchor_id": anchor_id,
+        },
+    }
+
+
+def _build_opensearch_filters(request: RetrieveRequest) -> list[dict[str, Any]]:
+    """Build OpenSearch bool filters aligned with retrieval request filters."""
+
+    filters: list[dict[str, Any]] = []
+    request_filters = request.filters
+
+    if request.require_strict_citation:
+        filters.extend(
+            [
+                {
+                    "bool": {
+                        "should": [
+                            {"exists": {"field": "citation.url"}},
+                            {"exists": {"field": "citation_url"}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                },
+                {
+                    "bool": {
+                        "should": [
+                            {"exists": {"field": "citation.title"}},
+                            {"exists": {"field": "citation_title"}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                },
+                {
+                    "bool": {
+                        "should": [
+                            {"exists": {"field": "citation.year"}},
+                            {"exists": {"field": "citation_year"}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                },
+                {
+                    "bool": {
+                        "should": [
+                            {"exists": {"field": "citation.month"}},
+                            {"exists": {"field": "citation_month"}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                },
+            ]
+        )
+
+    if request_filters.category:
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        {"term": {"category.keyword": request_filters.category}},
+                        {"term": {"category": request_filters.category}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        )
+
+    if request_filters.lang:
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        {"term": {"lang.keyword": request_filters.lang}},
+                        {"term": {"lang": request_filters.lang}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        )
+
+    if request_filters.source_type:
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        {"term": {"source_type.keyword": request_filters.source_type}},
+                        {"term": {"source_type": request_filters.source_type}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        )
+
+    if request_filters.citation_year_from is not None:
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        {"range": {"citation.year": {"gte": request_filters.citation_year_from}}},
+                        {"range": {"citation_year": {"gte": request_filters.citation_year_from}}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        )
+
+    if request_filters.citation_year_to is not None:
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        {"range": {"citation.year": {"lte": request_filters.citation_year_to}}},
+                        {"range": {"citation_year": {"lte": request_filters.citation_year_to}}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        )
+
+    if request_filters.citation_month is not None:
+        filters.append(
+            {
+                "bool": {
+                    "should": [
+                        {"term": {"citation.month": request_filters.citation_month}},
+                        {"term": {"citation_month": request_filters.citation_month}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        )
+
+    return filters
+
+
+def _to_int(value: Any) -> int | None:
+    """Safely coerce unknown value to integer when possible."""
+
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _copy_hit(hit: dict[str, Any]) -> dict[str, Any]:
+    """Create a safe mutable copy of retrieval hit payload."""
+
+    citation = hit.get("citation")
+    metadata = hit.get("metadata")
+    return {
+        **hit,
+        "citation": dict(citation) if isinstance(citation, dict) else {},
+        "metadata": dict(metadata) if isinstance(metadata, dict) else {},
+    }
