@@ -6,6 +6,12 @@ import { BedrockAgentsStack } from "../lib/bedrock-agents-stack.js";
 import { MonitoringEc2Stack } from "../lib/monitoring-ec2-stack.js";
 import { Neo4jDataStack } from "../lib/neo4j-data-stack.js";
 
+/**
+ * CDK entrypoint for all deployable stacks in this repository.
+ *
+ * This file only reads context/env values and instantiates stacks.
+ * Resource definitions live in `packages/infra-cdk/lib/*`.
+ */
 const app = new cdk.App();
 
 // Neo4j stack context values (optional).
@@ -58,6 +64,7 @@ const monitoringRetainDataOnDelete =
     ? undefined
     : String(monitoringRetainDataContext).toLowerCase() === "true";
 
+// Create standalone Neo4j infrastructure so compute lifecycle is independent from app stack.
 // Standalone data stack for Neo4j persistence and access endpoints.
 new Neo4jDataStack(app, "Neo4jDataStack", {
   env: {
@@ -77,6 +84,7 @@ new Neo4jDataStack(app, "Neo4jDataStack", {
   retainDataOnDelete: neo4jRetainDataOnDelete,
 });
 
+// Create standalone monitoring host so Grafana can be started/stopped separately.
 // Dedicated monitoring stack so Grafana lifecycle/cost can be controlled independently.
 new MonitoringEc2Stack(app, "MonitoringEc2Stack", {
   env: {
@@ -92,6 +100,7 @@ new MonitoringEc2Stack(app, "MonitoringEc2Stack", {
   retainDataOnDelete: monitoringRetainDataOnDelete,
 });
 
+// Create application layer resources (Bedrock agents + action Lambdas).
 // Application layer stack (Bedrock agents and Lambda tools).
 new BedrockAgentsStack(app, "BedrockAgentsStack", {
   env: {

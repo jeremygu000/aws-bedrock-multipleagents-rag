@@ -2,16 +2,25 @@ import * as cdk from "aws-cdk-lib";
 import * as bedrock from "aws-cdk-lib/aws-bedrock";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import { PythonFunction } from "@aws-cdk/aws-lambda-python-alpha";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as cr from "aws-cdk-lib/custom-resources";
 import type { Construct } from "constructs";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { env as processEnv } from "node:process";
 import { fileURLToPath } from "node:url";
 
 const FOUNDATION_MODEL_ID = "amazon.nova-lite-v1:0";
 
+/**
+ * Read a UTF-8 text file from disk.
+ *
+ * This helper is used for loading OpenAPI schema payloads
+ * that are embedded in Bedrock action group definitions.
+ */
 const readText = (filePath: string): string => fs.readFileSync(filePath, "utf8");
 
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -21,16 +30,34 @@ const workspaceRoot = path.resolve(infraPackageRoot, "../..");
 
 const sharedOpenApiRoot = path.join(workspaceRoot, "packages", "shared", "src", "openapi");
 const toolWorkDist = path.join(workspaceRoot, "packages", "tool-work-search", "dist");
-const toolRagDist = path.join(workspaceRoot, "packages", "tool-rag-search", "dist");
 const toolSupervisorDist = path.join(workspaceRoot, "packages", "tool-supervisor", "dist");
+const ragPythonEntry = path.join(workspaceRoot, "apps", "rag-service");
 
+/**
+ * Main application stack for Bedrock agents and action-group Lambda executors.
+ *
+ * Responsibilities:
+ * - Provision guardrails and versions.
+ * - Provision action-group Lambdas (work search + Python RAG).
+ * - Provision supervisor gateway and memory table.
+ * - Wire collaborator aliases for Bedrock supervisor routing.
+ */
 export class BedrockAgentsStack extends cdk.Stack {
+  /**
+   * Create all Bedrock agents, Lambda tools, and cross-resource permissions.
+   *
+   * @param scope CDK construct scope.
+   * @param id Logical stack identifier.
+   * @param props Optional stack properties such as env/account/region.
+   */
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    // Load OpenAPI contracts that define Bedrock action-group request/response shapes.
     const workOpenApi = readText(path.join(sharedOpenApiRoot, "work-search.yaml"));
     const ragOpenApi = readText(path.join(sharedOpenApiRoot, "rag-search.yaml"));
 
+    // Guardrail for lower-risk work search interactions.
     const workGuardrail = new bedrock.CfnGuardrail(this, "WorkGuardrailLow", {
       name: "work-guardrail-low",
       blockedInputMessaging:
@@ -53,6 +80,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       description: "v1 low restriction for work search",
     });
 
+    // Stricter guardrail for APRA-domain Q&A responses.
     const qaGuardrail = new bedrock.CfnGuardrail(this, "QaGuardrailStrict", {
       name: "qa-guardrail-strict",
       blockedInputMessaging:
@@ -96,6 +124,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       description: "v1 strict for APRA QA",
     });
 
+    // Work search action Lambda (Node.js implementation).
     const workSearchLogGroup = new logs.LogGroup(this, "WorkSearchFnLogGroup", {
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -116,21 +145,81 @@ export class BedrockAgentsStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    const ragSearchFn = new lambda.Function(this, "RagSearchFn", {
-      runtime: lambda.Runtime.NODEJS_22_X,
-      handler: "handler.handler",
-      code: lambda.Code.fromAsset(toolRagDist),
+    // Environment map for Python RAG Lambda. Secret ARN is preferred over plaintext password.
+    const ragSearchFnEnv: Record<string, string> = {
+      RAG_DB_HOST: processEnv.RAG_DB_HOST ?? processEnv.RDS_HOST ?? "",
+      RAG_DB_PORT: processEnv.RAG_DB_PORT ?? processEnv.RDS_PORT ?? "5432",
+      RAG_DB_NAME: processEnv.RAG_DB_NAME ?? processEnv.RDS_DB_NAME ?? "postgres",
+      RAG_DB_USER: processEnv.RAG_DB_USER ?? processEnv.RDS_MASTER_USERNAME ?? "postgres",
+      RAG_DB_PASSWORD_SECRET_ARN:
+        processEnv.RAG_DB_PASSWORD_SECRET_ARN ?? processEnv.RDS_MASTER_SECRET_ARN ?? "",
+      RAG_DB_PASSWORD_SECRET_JSON_KEY: processEnv.RAG_DB_PASSWORD_SECRET_JSON_KEY ?? "password",
+      RAG_DB_SSLMODE: processEnv.RAG_DB_SSLMODE ?? "require",
+      RAG_EMBED_DIM: processEnv.RAG_EMBED_DIM ?? "1024",
+      RAG_ANSWER_MODEL_ID: processEnv.RAG_ANSWER_MODEL_ID ?? FOUNDATION_MODEL_ID,
+      RAG_ANSWER_MAX_TOKENS: processEnv.RAG_ANSWER_MAX_TOKENS ?? "500",
+      RAG_ANSWER_TEMPERATURE: processEnv.RAG_ANSWER_TEMPERATURE ?? "0.05",
+      QWEN_API_KEY: processEnv.QWEN_API_KEY ?? processEnv.DASHSCOPE_API_KEY ?? "",
+      QWEN_API_KEY_SECRET_ARN: processEnv.QWEN_API_KEY_SECRET_ARN ?? "",
+      QWEN_API_KEY_SECRET_KEY: processEnv.QWEN_API_KEY_SECRET_KEY ?? "DASHSCOPE_API_KEY",
+      QWEN_MODEL_ID: processEnv.QWEN_MODEL_ID ?? processEnv.LLM_MODEL ?? "qwen-plus",
+      QWEN_BASE_URL:
+        processEnv.QWEN_BASE_URL ?? "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      QWEN_MAX_TOKENS: processEnv.QWEN_MAX_TOKENS ?? "500",
+      QWEN_TEMPERATURE: processEnv.QWEN_TEMPERATURE ?? "0.0",
+      RAG_ROUTE_MIN_HITS: processEnv.RAG_ROUTE_MIN_HITS ?? "3",
+      RAG_ROUTE_TOP_SCORE_THRESHOLD: processEnv.RAG_ROUTE_TOP_SCORE_THRESHOLD ?? "0.015",
+      RAG_ROUTE_COMPLEX_QUERY_TOKEN_THRESHOLD:
+        processEnv.RAG_ROUTE_COMPLEX_QUERY_TOKEN_THRESHOLD ?? "18",
+      RAG_ENABLE_QUERY_REWRITE: processEnv.RAG_ENABLE_QUERY_REWRITE ?? "true",
+    };
+
+    // Explicit local override only. Avoid injecting plaintext password by default.
+    if (processEnv.RAG_DB_PASSWORD) {
+      ragSearchFnEnv.RAG_DB_PASSWORD = processEnv.RAG_DB_PASSWORD;
+    }
+
+    // RAG action Lambda now points to Python service entrypoint.
+    const ragSearchFn = new PythonFunction(this, "RagSearchFn", {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      entry: ragPythonEntry,
+      index: "lambda_tool.py",
+      handler: "handler",
       timeout: cdk.Duration.seconds(30),
       memorySize: 1024,
       tracing: lambda.Tracing.ACTIVE,
       logGroup: ragSearchLogGroup,
+      environment: ragSearchFnEnv,
     });
+
+    const ragDbPasswordSecretArn = ragSearchFnEnv.RAG_DB_PASSWORD_SECRET_ARN;
+    if (ragDbPasswordSecretArn) {
+      // Grant runtime secret-read permission only when a secret ARN is provided.
+      const ragDbPasswordSecret = secretsmanager.Secret.fromSecretCompleteArn(
+        this,
+        "RagDbPasswordSecret",
+        ragDbPasswordSecretArn,
+      );
+      ragDbPasswordSecret.grantRead(ragSearchFn);
+    }
+
+    const qwenApiKeySecretArn = ragSearchFnEnv.QWEN_API_KEY_SECRET_ARN;
+    if (qwenApiKeySecretArn) {
+      // Grant read access for optional Qwen API key secret.
+      const qwenApiKeySecret = secretsmanager.Secret.fromSecretCompleteArn(
+        this,
+        "QwenApiKeySecret",
+        qwenApiKeySecretArn,
+      );
+      qwenApiKeySecret.grantRead(ragSearchFn);
+    }
 
     const supervisorToolLogGroup = new logs.LogGroup(this, "SupervisorToolFnLogGroup", {
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // Session memory table used by the gateway Lambda for conversation continuity.
     const memoryTable = new dynamodb.Table(this, "SupervisorMemoryTable", {
       partitionKey: { name: "sessionId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -156,6 +245,7 @@ export class BedrockAgentsStack extends cdk.Stack {
 
     memoryTable.grantReadWriteData(gatewayFn);
 
+    // Allow gateway to call Bedrock reranking and runtime APIs.
     gatewayFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["bedrock:Rerank", "bedrock-agent-runtime:Rerank", "bedrock-agent-runtime:*"],
@@ -170,6 +260,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       }),
     );
 
+    // Let Bedrock invoke both action-group Lambdas.
     for (const fn of [workSearchFn, ragSearchFn]) {
       fn.addPermission(`${fn.node.id}InvokeByBedrock`, {
         principal: new iam.ServicePrincipal("bedrock.amazonaws.com"),
@@ -177,6 +268,12 @@ export class BedrockAgentsStack extends cdk.Stack {
       });
     }
 
+    /**
+     * Create a Bedrock service role that can invoke models and action-group Lambdas.
+     *
+     * @param name Logical role id.
+     * @returns IAM role for a Bedrock agent.
+     */
     const createAgentRole = (name: string) =>
       new iam.Role(this, name, {
         assumedBy: new iam.ServicePrincipal("bedrock.amazonaws.com"),
@@ -204,6 +301,7 @@ export class BedrockAgentsStack extends cdk.Stack {
     const qaAgentRole = createAgentRole("QaAgentRole");
     const supervisorRole = createAgentRole("SupervisorRole");
 
+    // Specialist agent for work search use cases.
     const workAgent = new bedrock.CfnAgent(this, "WorkAgent", {
       agentName: "work-search-agent",
       foundationModel: FOUNDATION_MODEL_ID,
@@ -240,6 +338,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       agentId: workAgent.attrAgentId,
     });
 
+    // Specialist agent for APRA grounded Q&A via rag_search.
     const qaAgent = new bedrock.CfnAgent(this, "QaAgent", {
       agentName: "apra-qa-agent",
       foundationModel: FOUNDATION_MODEL_ID,
@@ -284,6 +383,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       }),
     );
 
+    // Supervisor router orchestrates collaborator agents.
     const supervisor = new bedrock.CfnAgent(this, "SupervisorAgent", {
       agentName: "supervisor-agent",
       foundationModel: FOUNDATION_MODEL_ID,
@@ -332,6 +432,7 @@ export class BedrockAgentsStack extends cdk.Stack {
         resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
       }),
     });
+    // Ensure collaborator association happens after supervisor/alias creation.
     workCollaborator.node.addDependency(supervisor);
     workCollaborator.node.addDependency(workAlias);
 
@@ -366,9 +467,11 @@ export class BedrockAgentsStack extends cdk.Stack {
         resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
       }),
     });
+    // Ensure collaborator association happens after supervisor/alias creation.
     qaCollaborator.node.addDependency(supervisor);
     qaCollaborator.node.addDependency(qaAlias);
 
+    // Live alias for supervisor is created after collaborators are associated.
     const supervisorAlias = new bedrock.CfnAgentAlias(this, "SupervisorAlias", {
       agentAliasName: "live",
       agentId: supervisor.attrAgentId,
@@ -390,6 +493,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       authType: lambda.FunctionUrlAuthType.AWS_IAM,
     });
 
+    // Stack outputs are used by local scripts and test clients.
     new cdk.CfnOutput(this, "SupervisorAliasArn", { value: supervisorAlias.attrAgentAliasArn });
     new cdk.CfnOutput(this, "WorkAliasArn", { value: workAlias.attrAgentAliasArn });
     new cdk.CfnOutput(this, "QaAliasArn", { value: qaAlias.attrAgentAliasArn });
