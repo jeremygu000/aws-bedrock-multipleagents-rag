@@ -6,7 +6,7 @@ The repository currently includes:
 
 - CDK infrastructure for Bedrock Agents, Guardrails, IAM, and Lambda wiring
 - A `work_search` Lambda tool
-- A `rag_search` Lambda tool
+- A Python `rag_search` Lambda tool (`apps/rag-service/lambda_tool.py`)
 - A shared package for Bedrock action types, observability helpers, and OpenAPI schemas
 - Workspace-wide type checking with `tsgo`
 - Workspace-wide linting with `oxlint`
@@ -88,6 +88,12 @@ The supervisor agent is configured as a `SUPERVISOR_ROUTER` and routes requests 
 
 ```text
 .
+├── apps
+│   └── rag-service
+│       ├── app
+│       ├── lambda_tool.py
+│       ├── pyproject.toml
+│       └── uv.lock
 ├── package.json
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
@@ -103,10 +109,6 @@ The supervisor agent is configured as a `SUPERVISOR_ROUTER` and routes requests 
     │       ├── bedrockActionTypes.ts
     │       ├── observability.ts
     │       └── openapi
-    ├── tool-rag-search
-    │   └── src
-    │       ├── handler.ts
-    │       └── ragClient.ts
     └── tool-work-search
         └── src
             ├── handler.ts
@@ -145,15 +147,19 @@ Current status:
 - returns stubbed MCP-backed work search results
 - needs a real MCP transport implementation in `src/mcpClient.ts`
 
-### `packages/tool-rag-search`
+### `apps/rag-service`
 
-Lambda for the `rag_search` action group.
+Python runtime for hybrid RAG and the current `rag_search` Bedrock action executor.
 
 Current status:
 
-- wired with Powertools tracer/logger/metrics
-- returns stubbed grounded answer output
-- needs a real RAG pipeline in `src/ragClient.ts`
+- FastAPI retrieval endpoint (`/retrieve`) for local dev
+- Lambda handler (`lambda_tool.py`) used by CDK `RagSearchFn`
+- PostgreSQL sparse/hybrid retrieval contract with strict citation fields
+
+### `packages/tool-rag-search` (legacy)
+
+Legacy Node implementation kept for reference; no longer the default `rag_search` executor in CDK.
 
 ### `packages/shared`
 
@@ -217,6 +223,39 @@ Synthesize the CDK app:
 ```bash
 pnpm synth
 ```
+
+## Python Hybrid RAG Service
+
+The repository now includes a Python runtime scaffold at `apps/rag-service` for the hybrid retrieval path.
+
+Install Python dependencies:
+
+```bash
+pnpm rag:install
+```
+
+Start locally:
+
+```bash
+pnpm rag:dev
+```
+
+API endpoints:
+
+- `GET /healthz`
+- `POST /retrieve` (sparse mode by default, hybrid if `query_embedding` is provided)
+
+The retrieval response includes strict citation fields (`url`, `year`, `month`, and locator fields).
+
+Bedrock `rag_search` action workflow (current implementation):
+
+1. Lambda entry: `apps/rag-service/lambda_tool.py`
+2. Action adapter: `apps/rag-service/app/bedrock_action.py`
+3. LangGraph orchestration: `apps/rag-service/app/workflow.py`
+4. Query pre-processing (`intent detection` + `query rewrite`, Qwen preferred): `apps/rag-service/app/query_processing.py`
+5. Model routing (`Nova Lite` default, `Qwen Plus` for complex/low-confidence cases): `apps/rag-service/app/workflow.py`
+6. Retrieval: `apps/rag-service/app/repository.py`
+7. Answer synthesis backends: Bedrock Runtime `converse` (Nova Lite) and Qwen API (DashScope compatible): `apps/rag-service/app/answer_generator.py`
 
 Diff the stack:
 
