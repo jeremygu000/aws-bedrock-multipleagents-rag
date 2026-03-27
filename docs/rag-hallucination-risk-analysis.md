@@ -21,11 +21,11 @@ Reviewed files:
 
 ## Main Hallucination Risks
 
-### 1) Hybrid retrieval is not effectively used in workflow path
+### 1) Hybrid retrieval depends on embedding service health and dimension alignment
 
-- In workflow request construction, `RetrieveRequest` is built without `query_embedding`.
-- Repository only enters hybrid mode when `query_embedding` exists.
-- Impact: retrieval is often sparse-only, so recall can be unstable for semantic questions, increasing synthesis risk.
+- Workflow now attempts to generate query embeddings before retrieval.
+- Repository enters hybrid mode only when a valid `query_embedding` is present.
+- Impact: if embedding API fails or embedding dimension mismatches, system falls back to sparse retrieval, reducing semantic recall for hard queries.
 
 Code references:
 
@@ -73,11 +73,11 @@ Code references:
 
 ## Recommended Implementation Priority
 
-1. Enable true hybrid retrieval in workflow (`query_embedding` path).
-2. Add evidence gate (if weak evidence, return explicit "insufficient evidence" instead of generating).
-3. Add citation validator before final response.
-4. Add rewrite drift guard (entity/year/constraint preservation checks, else fallback to original query).
-5. Add dynamic `topK` policy based on complexity and evidence quality.
+1. Add evidence gate (if weak evidence, return explicit "insufficient evidence" instead of generating).
+2. Add citation validator before final response.
+3. Add rewrite drift guard (entity/year/constraint preservation checks, else fallback to original query).
+4. Add dynamic `topK` policy based on complexity and evidence quality.
+5. Add embedding-health telemetry (hybrid-vs-sparse fallback rate, embedding dimension mismatch rate).
 
 ## Deploy-First Observation Checklist
 
