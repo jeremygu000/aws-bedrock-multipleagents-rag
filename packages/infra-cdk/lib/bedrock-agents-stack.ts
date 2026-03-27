@@ -1,9 +1,11 @@
 import * as cdk from "aws-cdk-lib";
 import * as bedrock from "aws-cdk-lib/aws-bedrock";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import { PythonFunction } from "@aws-cdk/aws-lambda-python-alpha";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as opensearch from "aws-cdk-lib/aws-opensearchservice";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as cr from "aws-cdk-lib/custom-resources";
@@ -145,6 +147,32 @@ export class BedrockAgentsStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    const openSearchVolumeSizeGiB = Number(processEnv.RAG_OPENSEARCH_VOLUME_GIB ?? "10");
+    const ragSearchDomain = new opensearch.Domain(this, "RagSearchDomain", {
+      version: opensearch.EngineVersion.OPENSEARCH_2_19,
+      capacity: {
+        dataNodes: 1,
+        dataNodeInstanceType: processEnv.RAG_OPENSEARCH_INSTANCE_TYPE ?? "t3.small.search",
+      },
+      ebs: {
+        enabled: true,
+        volumeSize:
+          Number.isFinite(openSearchVolumeSizeGiB) && openSearchVolumeSizeGiB > 0
+            ? openSearchVolumeSizeGiB
+            : 10,
+        volumeType: ec2.EbsDeviceVolumeType.GP3,
+      },
+      zoneAwareness: {
+        enabled: false,
+      },
+      enforceHttps: true,
+      nodeToNodeEncryption: true,
+      encryptionAtRest: {
+        enabled: true,
+      },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     // Environment map for Python RAG Lambda. Secret ARN is preferred over plaintext password.
     const ragSearchFnEnv: Record<string, string> = {
       RAG_DB_HOST: processEnv.RAG_DB_HOST ?? processEnv.RDS_HOST ?? "",
@@ -156,6 +184,11 @@ export class BedrockAgentsStack extends cdk.Stack {
       RAG_DB_PASSWORD_SECRET_JSON_KEY: processEnv.RAG_DB_PASSWORD_SECRET_JSON_KEY ?? "password",
       RAG_DB_SSLMODE: processEnv.RAG_DB_SSLMODE ?? "require",
       RAG_EMBED_DIM: processEnv.RAG_EMBED_DIM ?? "1024",
+      RAG_SPARSE_BACKEND: processEnv.RAG_SPARSE_BACKEND ?? "opensearch",
+      RAG_OPENSEARCH_ENDPOINT:
+        processEnv.RAG_OPENSEARCH_ENDPOINT ?? `https://${ragSearchDomain.domainEndpoint}`,
+      RAG_OPENSEARCH_INDEX: processEnv.RAG_OPENSEARCH_INDEX ?? "kb_chunks",
+      RAG_OPENSEARCH_TIMEOUT_S: processEnv.RAG_OPENSEARCH_TIMEOUT_S ?? "10",
       RAG_ANSWER_MODEL_ID: processEnv.RAG_ANSWER_MODEL_ID ?? FOUNDATION_MODEL_ID,
       RAG_ANSWER_MAX_TOKENS: processEnv.RAG_ANSWER_MAX_TOKENS ?? "500",
       RAG_ANSWER_TEMPERATURE: processEnv.RAG_ANSWER_TEMPERATURE ?? "0.05",
@@ -163,6 +196,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       QWEN_API_KEY_SECRET_ARN: processEnv.QWEN_API_KEY_SECRET_ARN ?? "",
       QWEN_API_KEY_SECRET_KEY: processEnv.QWEN_API_KEY_SECRET_KEY ?? "DASHSCOPE_API_KEY",
       QWEN_MODEL_ID: processEnv.QWEN_MODEL_ID ?? processEnv.LLM_MODEL ?? "qwen-plus",
+      QWEN_EMBEDDING_MODEL_ID: processEnv.QWEN_EMBEDDING_MODEL_ID ?? "text-embedding-v3",
       QWEN_BASE_URL:
         processEnv.QWEN_BASE_URL ?? "https://dashscope.aliyuncs.com/compatible-mode/v1",
       QWEN_MAX_TOKENS: processEnv.QWEN_MAX_TOKENS ?? "500",
@@ -172,6 +206,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       RAG_ROUTE_COMPLEX_QUERY_TOKEN_THRESHOLD:
         processEnv.RAG_ROUTE_COMPLEX_QUERY_TOKEN_THRESHOLD ?? "18",
       RAG_ENABLE_QUERY_REWRITE: processEnv.RAG_ENABLE_QUERY_REWRITE ?? "true",
+      RAG_ENABLE_HYBRID_RETRIEVAL: processEnv.RAG_ENABLE_HYBRID_RETRIEVAL ?? "true",
     };
 
     // Explicit local override only. Avoid injecting plaintext password by default.
@@ -191,6 +226,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       logGroup: ragSearchLogGroup,
       environment: ragSearchFnEnv,
     });
+    ragSearchDomain.grantReadWrite(ragSearchFn);
 
     const ragDbPasswordSecretArn = ragSearchFnEnv.RAG_DB_PASSWORD_SECRET_ARN;
     if (ragDbPasswordSecretArn) {
@@ -213,6 +249,11 @@ export class BedrockAgentsStack extends cdk.Stack {
       );
       qwenApiKeySecret.grantRead(ragSearchFn);
     }
+
+    new cdk.CfnOutput(this, "RagOpenSearchEndpoint", {
+      value: `https://${ragSearchDomain.domainEndpoint}`,
+      description: "OpenSearch domain endpoint for BM25 sparse retrieval.",
+    });
 
     const supervisorToolLogGroup = new logs.LogGroup(this, "SupervisorToolFnLogGroup", {
       retention: logs.RetentionDays.ONE_WEEK,
