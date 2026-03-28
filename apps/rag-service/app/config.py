@@ -158,6 +158,18 @@ class Settings(BaseSettings):
         validation_alias="RAG_RERANK_MAX_TOKENS",
     )
 
+    # --- Entity extraction settings ---
+    enable_entity_extraction: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_ENTITY_EXTRACTION",
+    )
+    entity_extraction_max_retries: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        validation_alias="RAG_ENTITY_EXTRACTION_MAX_RETRIES",
+    )
+
     # --- Ingestion settings ---
     s3_bucket: str = Field(default="", validation_alias="RAG_S3_BUCKET")
     max_upload_size_mb: int = Field(default=50, ge=1, validation_alias="RAG_MAX_UPLOAD_SIZE_MB")
