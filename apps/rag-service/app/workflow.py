@@ -12,6 +12,7 @@ from .config import Settings
 from .graph_retriever import GraphRetriever
 from .hybrid_fusion import fuse_graph_and_traditional
 from .models import GraphContext, RetrievalMode, RetrieveRequest
+from .query_cache import QueryCache
 from .query_processing import QueryProcessor
 from .repository import PostgresRepository
 from .reranker import LLMReranker
@@ -41,6 +42,7 @@ class RagWorkflowState(TypedDict, total=False):
     preferred_model: ModelRoute
     answer_model: ModelRoute
     answer: str
+    cache_hit: bool
 
 
 class RagWorkflow:
@@ -54,6 +56,7 @@ class RagWorkflow:
         answer_generator: RoutedAnswerGenerator,
         reranker: LLMReranker,
         graph_retriever: GraphRetriever | None = None,
+        query_cache: QueryCache | None = None,
     ) -> None:
         """Create and compile graph with injected services."""
 
@@ -63,9 +66,11 @@ class RagWorkflow:
         self._answer_generator = answer_generator
         self._reranker = reranker
         self._graph_retriever = graph_retriever
+        self._query_cache = query_cache
 
         graph = StateGraph(RagWorkflowState)
 
+        graph.add_node("check_cache", self._node_check_cache)
         graph.add_node("detect_intent", self._node_detect_intent)
         graph.add_node("extract_keywords", self._node_extract_keywords)
         graph.add_node("determine_mode", self._node_determine_mode)
@@ -78,8 +83,14 @@ class RagWorkflow:
         graph.add_node("build_citations", self._node_build_citations)
         graph.add_node("choose_model", self._node_choose_model)
         graph.add_node("generate_answer", self._node_generate_answer)
+        graph.add_node("store_cache", self._node_store_cache)
 
-        graph.add_edge(START, "detect_intent")
+        graph.add_edge(START, "check_cache")
+        graph.add_conditional_edges(
+            "check_cache",
+            self._route_after_cache_check,
+            {"cache_hit": END, "cache_miss": "detect_intent"},
+        )
         graph.add_edge("detect_intent", "extract_keywords")
         graph.add_edge("extract_keywords", "determine_mode")
         graph.add_edge("determine_mode", "rewrite_query")
@@ -91,7 +102,8 @@ class RagWorkflow:
         graph.add_edge("rerank", "build_citations")
         graph.add_edge("build_citations", "choose_model")
         graph.add_edge("choose_model", "generate_answer")
-        graph.add_edge("generate_answer", END)
+        graph.add_edge("generate_answer", "store_cache")
+        graph.add_edge("store_cache", END)
 
         self._graph = graph.compile()
 
@@ -256,3 +268,70 @@ class RagWorkflow:
             graph_context=graph_context,
         )
         return {"answer": answer, "answer_model": used_model}
+
+    def _node_check_cache(self, state: RagWorkflowState) -> RagWorkflowState:
+        if not self._query_cache or not self._settings.enable_query_cache:
+            return {"cache_hit": False}
+
+        query = state["query"]
+        try:
+            embedding = self._query_processor.build_query_embedding(query)
+        except Exception:
+            logger.exception("Failed to build embedding for cache lookup")
+            return {"cache_hit": False}
+
+        if not embedding:
+            return {"cache_hit": False}
+
+        try:
+            result = self._query_cache.lookup(embedding)
+        except Exception:
+            logger.exception("Cache lookup failed, continuing without cache")
+            return {"cache_hit": False, "query_embedding": embedding}
+
+        if result is None:
+            return {"cache_hit": False, "query_embedding": embedding}
+
+        return {
+            "cache_hit": True,
+            "answer": result["answer"],
+            "citations": result["citations"],
+            "answer_model": result["model_used"],
+            "query_embedding": embedding,
+        }
+
+    @staticmethod
+    def _route_after_cache_check(state: RagWorkflowState) -> str:
+        if state.get("cache_hit"):
+            return "cache_hit"
+        return "cache_miss"
+
+    def _node_store_cache(self, state: RagWorkflowState) -> RagWorkflowState:
+        if not self._query_cache or not self._settings.enable_query_cache:
+            return {}
+
+        embedding = state.get("query_embedding")
+        if not embedding:
+            return {}
+
+        answer = state.get("answer", "")
+        if not answer:
+            return {}
+
+        hits = state.get("reranked_hits") or state.get("hits", [])
+        source_doc_ids = list({h.get("doc_id", "") for h in hits if h.get("doc_id")})
+
+        try:
+            self._query_cache.store(
+                query_original=state["query"],
+                query_rewritten=state.get("rewritten_query"),
+                query_embedding=embedding,
+                answer=answer,
+                citations=state.get("citations", []),
+                model_used=state.get("answer_model", ""),
+                source_doc_ids=source_doc_ids,
+            )
+        except Exception:
+            logger.exception("Failed to store result in query cache")
+
+        return {}

@@ -93,7 +93,7 @@ graph LR
 | Layer                    | Target                                                       | Trigger            | Priority | Phase               |
 | ------------------------ | ------------------------------------------------------------ | ------------------ | -------- | ------------------- |
 | L1: LLM Extraction Cache | Entity/relation extraction + summary LLM calls               | Ingestion pipeline | Highest  | Phase 2             |
-| L2: Query Result Cache   | Full RAG results (answer + citations) by semantic similarity | Query pipeline     | Medium   | Phase 3             |
+| L2: Query Result Cache   | Full RAG results (answer + citations) by semantic similarity | Query pipeline     | Medium   | Phase 3 ✅ DONE     |
 | L3: Embedding Cache      | Embedding computation results                                | Ingestion dedup    | Low      | Phase 4+ (deferred) |
 
 ## 3. Cache Layers (Priority Order)
@@ -286,17 +286,17 @@ RAG_QUERY_CACHE_SIMILARITY_THRESHOLD=0.95
 
 #### Implementation Checklist
 
-- [ ] Create `app/query_cache.py` with `QueryCache` class
-- [ ] DB migration: create `query_cache` table with pgvector column and indexes
-- [ ] Add lookup hook in workflow before `detect_intent` node
-- [ ] Add storage hook after `generate_answer` node
-- [ ] Implement semantic similarity search with cosine distance
-- [ ] Wrap source doc IDs for invalidation tracking
-- [ ] Add feature flag enforcement
-- [ ] Log cache hit/miss at INFO level
-- [ ] Add TTL cleanup job (hourly)
-- [ ] Unit tests for similarity matching
-- [ ] Integration tests with workflow
+- [x] Create `app/query_cache.py` with `QueryCache` class
+- [x] DB migration: create `query_cache` table with pgvector column and indexes (self-contained in `QueryCache.ensure_table()`)
+- [x] Add lookup hook in workflow before `detect_intent` node (`check_cache` node with conditional edge)
+- [x] Add storage hook after `generate_answer` node (`store_cache` node)
+- [x] Implement semantic similarity search with cosine distance (`<=>` operator)
+- [x] Wrap source doc IDs for invalidation tracking (`source_doc_ids` extracted from `reranked_hits`)
+- [x] Add feature flag enforcement (`RAG_ENABLE_QUERY_CACHE`)
+- [x] Log cache hit/miss at INFO level
+- [x] Add TTL cleanup job (`cleanup_expired()` method)
+- [x] Unit tests for similarity matching (`tests/test_query_cache.py` — 16 tests)
+- [x] Integration tests with workflow (`tests/test_workflow.py` — 8 new cache tests)
 
 ---
 
@@ -696,27 +696,35 @@ fields @timestamp, operation, doc_id, latency_ms
 | stats count() as total_ops, sum(latency_ms) as total_latency by operation
 ```
 
-## 5. Implementation Plan - Layer 2 (Query Result Cache)
+## 5. Implementation Plan - Layer 2 (Query Result Cache) ✅ IMPLEMENTED
 
 ### 5.1 High-Level Overview
 
-Query result caching is deferred to Phase 3. Placeholder documentation here for planning purposes.
+Query result caching has been implemented in Phase 3. Key files:
+
+- **`app/query_cache.py`**: `QueryCache` class with `ensure_table()`, `lookup()`, `store()`, `invalidate_by_doc()`, `cleanup_expired()`
+- **`app/config.py`**: 3 new settings — `enable_query_cache`, `query_cache_ttl_hours`, `query_cache_similarity_threshold`
+- **`app/workflow.py`**: Two new nodes (`check_cache`, `store_cache`) with conditional routing on cache hit/miss
+- **`tests/test_query_cache.py`**: 16 unit tests covering all cache operations
+- **`tests/test_workflow.py`**: 8 new workflow integration tests for cache behavior
 
 ### 5.2 Architecture
 
-- Sits in `workflow.py` at two points: (1) before `detect_intent` node (check), (2) after `generate_answer` node (store)
-- Requires semantic matching using pgvector cosine distance
-- Complex invalidation: document re-ingestion must invalidate related queries
+- `check_cache` node runs before `detect_intent` — builds query embedding, performs cosine similarity lookup
+- On cache hit (similarity >= threshold): returns cached answer/citations, skips full pipeline
+- On cache miss: falls through to normal `detect_intent → ... → generate_answer` pipeline
+- `store_cache` node runs after `generate_answer` — stores result with source_doc_ids for invalidation
+- All cache operations are gracefully degraded (errors caught, pipeline continues)
 
 ### 5.3 Implementation Checklist
 
-- [ ] Create `app/query_cache.py` with `QueryCache` class
-- [ ] DB migration: create `query_cache` table with pgvector
-- [ ] Add similarity search implementation (cosine_distance >= 0.95)
-- [ ] Hook into workflow before `detect_intent` and after `generate_answer`
-- [ ] Implement source-document-based invalidation
-- [ ] Add feature flag `RAG_ENABLE_QUERY_CACHE`
-- [ ] Tests and integration validation
+- [x] Create `app/query_cache.py` with `QueryCache` class
+- [x] DB migration: create `query_cache` table with pgvector (self-contained in `ensure_table()`)
+- [x] Add similarity search implementation (cosine_distance >= 0.95)
+- [x] Hook into workflow before `detect_intent` and after `generate_answer`
+- [x] Implement source-document-based invalidation
+- [x] Add feature flag `RAG_ENABLE_QUERY_CACHE`
+- [x] Tests and integration validation (24 new tests total, 415 tests passing)
 
 ## 6. Invalidation Strategy
 
@@ -859,9 +867,9 @@ Phase 2 (Knowledge Graph) - IN PROGRESS
     ↓
 Phase 3 (Graph-Enhanced Retrieval)
     ↓
-[FUTURE] Layer 2 Cache (Query Result Cache)
+[DONE] Layer 2 Cache (Query Result Cache)
     ↓ (wraps workflow nodes)
-    └─ workflow.py: detect_intent → generate_answer
+    └─ workflow.py: check_cache → detect_intent → ... → generate_answer → store_cache
 ```
 
 ### References

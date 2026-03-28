@@ -249,6 +249,27 @@ class Settings(BaseSettings):
         description="Weight for graph-derived hits during RRF fusion (traditional weight = 1 - this)",
     )
 
+    # --- Query result cache settings (L2) ---
+    enable_query_cache: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_QUERY_CACHE",
+        description="Feature flag to enable L2 query result caching",
+    )
+    query_cache_ttl_hours: int = Field(
+        default=24,
+        ge=1,
+        le=720,
+        validation_alias="RAG_QUERY_CACHE_TTL_HOURS",
+        description="TTL in hours for cached query results",
+    )
+    query_cache_similarity_threshold: float = Field(
+        default=0.95,
+        ge=0.5,
+        le=1.0,
+        validation_alias="RAG_QUERY_CACHE_SIMILARITY_THRESHOLD",
+        description="Cosine similarity threshold for cache hit (>= this value)",
+    )
+
     # --- Ingestion settings ---
     s3_bucket: str = Field(default="", validation_alias="RAG_S3_BUCKET")
     max_upload_size_mb: int = Field(default=50, ge=1, validation_alias="RAG_MAX_UPLOAD_SIZE_MB")

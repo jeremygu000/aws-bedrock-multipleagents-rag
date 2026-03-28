@@ -610,3 +610,236 @@ def test_workflow_generate_answer_no_graph_context_when_disabled() -> None:
     assert state["answer"] == "final-answer"
     ctx = answer_gen.last_graph_context
     assert ctx is None or ctx.is_empty
+
+
+# ---------------------------------------------------------------------------
+# Phase L2 — query_cache integration tests
+# ---------------------------------------------------------------------------
+
+
+class FakeQueryCache:
+    def __init__(
+        self,
+        hit_result: dict | None = None,
+        raise_on_lookup: bool = False,
+        raise_on_store: bool = False,
+    ) -> None:
+        self._hit_result = hit_result
+        self._raise_on_lookup = raise_on_lookup
+        self._raise_on_store = raise_on_store
+        self.lookup_calls: list[list[float]] = []
+        self.store_calls: list[dict] = []
+
+    def lookup(self, query_embedding: list[float]) -> dict | None:
+        self.lookup_calls.append(query_embedding)
+        if self._raise_on_lookup:
+            raise RuntimeError("cache db down")
+        return self._hit_result
+
+    def store(
+        self,
+        query_original: str,
+        query_rewritten: str | None,
+        query_embedding: list[float],
+        answer: str,
+        citations: list[dict],
+        model_used: str,
+        source_doc_ids: list[str] | None = None,
+    ) -> str:
+        if self._raise_on_store:
+            raise RuntimeError("store failed")
+        self.store_calls.append(
+            {
+                "query_original": query_original,
+                "query_rewritten": query_rewritten,
+                "answer": answer,
+                "citations": citations,
+                "model_used": model_used,
+                "source_doc_ids": source_doc_ids,
+            }
+        )
+        return "fake-key"
+
+
+def test_workflow_cache_miss_runs_full_pipeline() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(embedding=[0.1, 0.2])
+    answer_gen = FakeAnswerGenerator()
+    cache = FakeQueryCache(hit_result=None)
+    workflow = RagWorkflow(
+        settings=Settings(RAG_ENABLE_QUERY_CACHE="true"),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=answer_gen,
+        reranker=FakeReranker(),
+        query_cache=cache,
+    )
+
+    state = workflow.run(query="test query", top_k=5, filters={})
+    assert state["answer"] == "final-answer"
+    assert state.get("cache_hit") is False
+    assert len(cache.lookup_calls) == 1
+    assert len(cache.store_calls) == 1
+    assert cache.store_calls[0]["query_original"] == "test query"
+
+
+def test_workflow_cache_hit_skips_pipeline() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(embedding=[0.1, 0.2])
+    answer_gen = FakeAnswerGenerator()
+    cached = {
+        "answer": "cached answer",
+        "citations": [{"sourceId": "cached-c1"}],
+        "model_used": "nova-lite",
+        "cache_key": "abc",
+        "similarity": 0.98,
+    }
+    cache = FakeQueryCache(hit_result=cached)
+    workflow = RagWorkflow(
+        settings=Settings(RAG_ENABLE_QUERY_CACHE="true"),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=answer_gen,
+        reranker=FakeReranker(),
+        query_cache=cache,
+    )
+
+    state = workflow.run(query="test query", top_k=5, filters={})
+    assert state["cache_hit"] is True
+    assert state["answer"] == "cached answer"
+    assert state["citations"] == [{"sourceId": "cached-c1"}]
+    assert state["answer_model"] == "nova-lite"
+    assert len(answer_gen.calls) == 0
+    assert repo.last_request is None
+    assert len(cache.store_calls) == 0
+
+
+def test_workflow_cache_disabled_skips_lookup() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor()
+    answer_gen = FakeAnswerGenerator()
+    cache = FakeQueryCache()
+    workflow = RagWorkflow(
+        settings=Settings(RAG_ENABLE_QUERY_CACHE="false"),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=answer_gen,
+        reranker=FakeReranker(),
+        query_cache=cache,
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["answer"] == "final-answer"
+    assert len(cache.lookup_calls) == 0
+    assert len(cache.store_calls) == 0
+
+
+def test_workflow_cache_no_cache_object_runs_normally() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor()
+    answer_gen = FakeAnswerGenerator()
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=answer_gen,
+        reranker=FakeReranker(),
+        query_cache=None,
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["answer"] == "final-answer"
+    assert state.get("cache_hit") is False
+
+
+def test_workflow_cache_lookup_error_continues_pipeline() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(embedding=[0.1])
+    answer_gen = FakeAnswerGenerator()
+    cache = FakeQueryCache(raise_on_lookup=True)
+    workflow = RagWorkflow(
+        settings=Settings(RAG_ENABLE_QUERY_CACHE="true"),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=answer_gen,
+        reranker=FakeReranker(),
+        query_cache=cache,
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["answer"] == "final-answer"
+    assert state.get("cache_hit") is False
+
+
+def test_workflow_cache_store_error_does_not_fail_pipeline() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(embedding=[0.1])
+    answer_gen = FakeAnswerGenerator()
+    cache = FakeQueryCache(raise_on_store=True)
+    workflow = RagWorkflow(
+        settings=Settings(RAG_ENABLE_QUERY_CACHE="true"),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=answer_gen,
+        reranker=FakeReranker(),
+        query_cache=cache,
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["answer"] == "final-answer"
+
+
+def test_workflow_cache_no_embedding_skips_lookup() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(embedding=None)
+    answer_gen = FakeAnswerGenerator()
+    cache = FakeQueryCache()
+    workflow = RagWorkflow(
+        settings=Settings(RAG_ENABLE_QUERY_CACHE="true"),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=answer_gen,
+        reranker=FakeReranker(),
+        query_cache=cache,
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["answer"] == "final-answer"
+    assert len(cache.lookup_calls) == 0
+
+
+def test_workflow_cache_store_captures_source_doc_ids() -> None:
+    hits = [
+        {
+            "chunk_id": "c1",
+            "doc_id": "doc-a",
+            "chunk_text": "snippet",
+            "score": 0.2,
+            "citation": {"title": "Doc", "url": "https://example.com", "year": 2025, "month": 1},
+        },
+        {
+            "chunk_id": "c2",
+            "doc_id": "doc-b",
+            "chunk_text": "snippet2",
+            "score": 0.1,
+            "citation": {"title": "Doc2", "url": "https://example.com", "year": 2025, "month": 1},
+        },
+    ]
+    repo = FakeRepository(hits)
+    qp = FakeQueryProcessor(embedding=[0.1])
+    answer_gen = FakeAnswerGenerator()
+    cache = FakeQueryCache()
+    workflow = RagWorkflow(
+        settings=Settings(RAG_ENABLE_QUERY_CACHE="true"),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=answer_gen,
+        reranker=FakeReranker(),
+        query_cache=cache,
+    )
+
+    workflow.run(query="query", top_k=5, filters={})
+    assert len(cache.store_calls) == 1
+    stored_doc_ids = set(cache.store_calls[0]["source_doc_ids"])
+    assert "doc-a" in stored_doc_ids
+    assert "doc-b" in stored_doc_ids
