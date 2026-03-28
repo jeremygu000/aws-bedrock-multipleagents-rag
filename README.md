@@ -91,6 +91,13 @@ The supervisor agent is configured as a `SUPERVISOR_ROUTER` and routes requests 
 ├── apps
 │   └── rag-service
 │       ├── app
+│       │   ├── entity_extraction.py
+│       │   ├── entity_extraction_models.py
+│       │   ├── entity_vector_store.py
+│       │   ├── graph_repository.py
+│       │   ├── graph_retriever.py
+│       │   ├── hybrid_fusion.py
+│       │   └── ...
 │       ├── lambda_tool.py
 │       ├── pyproject.toml
 │       └── uv.lock
@@ -158,8 +165,11 @@ Current status:
 - Hybrid retrieval: OpenSearch BM25 (sparse) + pgvector (dense) fused via RRF
 - LightRAG-inspired keyword extraction (dual-level: high-level themes + low-level entities)
 - LLM reranking with Qwen scoring, token-budget awareness, and graceful fallback
+- Knowledge graph construction: entity/relation extraction → Neo4j + pgvector storage
+- Graph-enhanced retrieval: multi-mode search (naive/local/global/hybrid/mix) with weighted RRF fusion
+- Knowledge-graph-aware answer generation with entity/relation context injection
 - Structured evidence prompts for grounded answer synthesis
-- Feature flags for progressive rollout (`RAG_ENABLE_KEYWORD_EXTRACTION`, `RAG_ENABLE_RERANKING`)
+- Feature flags for progressive rollout (`RAG_ENABLE_KEYWORD_EXTRACTION`, `RAG_ENABLE_RERANKING`, `RAG_ENABLE_ENTITY_EXTRACTION`, `RAG_ENABLE_GRAPH_RETRIEVAL`)
 
 ### `packages/tool-rag-search` (legacy)
 
@@ -251,10 +261,10 @@ API endpoints:
 
 The retrieval response includes strict citation fields (`url`, `year`, `month`, and locator fields).
 
-Bedrock `rag_search` action workflow (current 9-node LangGraph pipeline):
+Bedrock `rag_search` action workflow (current 12-node LangGraph pipeline):
 
 ```text
-detect_intent → extract_keywords → rewrite_query → build_request → retrieve → rerank → build_citations → choose_model → generate_answer
+detect_intent → extract_keywords → determine_mode → rewrite_query → build_request → retrieve → graph_retrieve → fuse → rerank → build_citations → choose_model → generate_answer
 ```
 
 1. **Lambda entry**: `apps/rag-service/lambda_tool.py`
@@ -262,21 +272,24 @@ detect_intent → extract_keywords → rewrite_query → build_request → retri
 3. **LangGraph orchestration**: `apps/rag-service/app/workflow.py`
 4. **Intent detection**: classify complexity (Qwen preferred, heuristic fallback)
 5. **Keyword extraction** _(Phase 1 — LightRAG)_: dual-level keyword extraction (high-level themes + low-level entities) for entity-aware query expansion
-6. **Query rewrite**: retrieval-optimized rewrite with keyword context (Qwen preferred, pass-through fallback)
-7. **Hybrid retrieval**: OpenSearch BM25 sparse + pgvector dense, fused via weighted RRF
-8. **LLM reranking** _(Phaßse 1 — LightRAG)_: Qwen-based relevance scoring with token-budget awareness and graceful fallback
-9. **Model routing**: `Nova Lite` default, `Qwen Plus` fßor complex/low-confidence cases
-10. **Answer synthesis**: structured evidence prompts with Bedrock `converse` or Qwen DashScope
+6. **Retrieval mode routing** _(Phase 3 — LightRAG)_: intelligent mode selection (naive/local/global/hybrid/mix) based on query characteristics
+7. **Query rewrite**: retrieval-optimized rewrite with keyword context (Qwen preferred, pass-through fallback)
+8. **Hybrid retrieval**: OpenSearch BM25 sparse + pgvector dense, fused via weighted RRF
+9. **Graph retrieval** _(Phase 3 — LightRAG)_: entity-oriented (local) + theme-oriented (global) search via Neo4j + pgvector entity/relation embeddings
+10. **Hybrid fusion** _(Phase 3 — LightRAG)_: weighted RRF merging of graph and traditional retrieval results (graph weight 0.6)
+11. **LLM reranking** _(Phase 1 — LightRAG)_: Qwen-based relevance scoring with token-budget awareness and graceful fallback
+12. **Model routing**: `Nova Lite` default, `Qwen Plus` for complex/low-confidence cases
+13. **Answer synthesis** _(Phase 3 — LightRAG)_: knowledge-graph-aware answer generation with entity/relation context injection + structured evidence prompts
 
 ### LightRAG Migration Roadmap
 
 This project is progressively porting techniques from [LightRAG (EMNLP 2025)](https://github.com/hkuds/lightrag) into the RAG pipeline. The full 3-phase plan is documented in [`docs/lightrag-migration-plan.md`](docs/lightrag-migration-plan.md).
 
-| Phase                                      | Status      | Description                                                                                     |
-| ------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------- |
-| **Phase 1**: Query Enhancement + Reranking | ✅ Complete | Keyword extraction, entity-aware query expansion, LLM reranking, structured evidence prompts    |
-| **Phase 2**: Knowledge Graph Construction  | 🔲 Planned  | Entity/relation extraction with Qwen Plus, Neo4j graph storage, incremental ingestion pipeline  |
-| **Phase 3**: Graph-Enhanced Retrieval      | 🔲 Planned  | Multi-mode search (naive + local + global + hybrid), graph-aware reranking, community summaries |
+| Phase                                      | Status                | Description                                                                                                                                       |
+| ------------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase 1**: Query Enhancement + Reranking | ✅ Complete           | Keyword extraction, entity-aware query expansion, LLM reranking, structured evidence prompts                                                      |
+| **Phase 2**: Knowledge Graph Construction  | ✅ Complete           | Entity/relation extraction with Qwen Plus, Neo4j graph storage, pgvector entity embeddings, incremental ingestion pipeline                        |
+| **Phase 3**: Graph-Enhanced Retrieval      | ✅ Complete (3.1–3.4) | Graph retriever (local/global/hybrid), intelligent query router, hybrid RRF fusion, KG-aware answer generation. 3.5 Community Detection deferred. |
 
 Diff the stack:
 
@@ -303,14 +316,14 @@ pnpm deploy:app    # application layer only
 - `instanceType=t3.micro` (free-tier-friendly default)
 - `rootVolumeSizeGiB=8`
 - `volumeSizeGiB=20`
-- `allowedIngressCidr=0.0.0.0/0` (lock this down for non-PoC environments)
+- `allowedIngressCidr` — restrict to your IP or VPC CIDR for production use
 - `retainDataOnDelete=true` (EBS volume + Neo4j secret are retained on stack delete)
 
 `MonitoringEc2Stack` defaults:
 
 - `instanceType=t3.micro`
 - `rootVolumeSizeGiB=8`
-- `allowedIngressCidr=0.0.0.0/0` (lock this down for non-PoC environments)
+- `allowedIngressCidr` — restrict to your IP or VPC CIDR for production use
 - `retainDataOnDelete=true` (Grafana admin secret is retained on stack delete)
 
 Override Neo4j sizing/networking with CDK context:
@@ -451,7 +464,9 @@ These are useful project-level settings, but they are not all wired into the cod
 
 ### RAG Service Feature Flags
 
-These flags control Phase 1 (LightRAG) features in `apps/rag-service`:
+These flags control LightRAG features in `apps/rag-service`:
+
+**Phase 1 — Query Enhancement + Reranking:**
 
 - `RAG_ENABLE_KEYWORD_EXTRACTION` (default: `true`)
   - enable dual-level keyword extraction before query rewrite
@@ -461,6 +476,24 @@ These flags control Phase 1 (LightRAG) features in `apps/rag-service`:
   - number of candidates to retrieve before reranking
 - `RAG_RERANK_MAX_TOKENS` (default: `30000`)
   - token budget for reranking context window
+
+**Phase 2 — Knowledge Graph Construction:**
+
+- `RAG_ENABLE_ENTITY_EXTRACTION` (default: `false`)
+  - enable entity/relation extraction during document ingestion
+- `RAG_ENTITY_EXTRACT_MAX_GLEANING` (default: `1`)
+  - number of extra LLM passes to catch missed entities
+- `RAG_ENABLE_NEO4J` (default: `false`)
+  - enable Neo4j graph storage for entities and relations
+
+**Phase 3 — Graph-Enhanced Retrieval:**
+
+- `RAG_ENABLE_GRAPH_RETRIEVAL` (default: `false`)
+  - enable graph-enhanced retrieval pipeline (graph retriever, hybrid fusion, KG-aware answers)
+- `RAG_GRAPH_RETRIEVAL_WEIGHT` (default: `0.6`)
+  - weight for graph hits in weighted RRF fusion (traditional hits get `1 - weight`)
+- `RAG_RETRIEVAL_MODE` (default: `mix`)
+  - default retrieval mode: `naive`, `local`, `global`, `hybrid`, `mix`
 
 See `apps/rag-service/README.md` for the full list of `RAG_*` / `QWEN_*` variables.
 

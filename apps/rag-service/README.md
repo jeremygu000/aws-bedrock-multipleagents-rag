@@ -31,6 +31,25 @@ End-to-end document ingestion supporting TXT, Markdown, PDF, DOCX, and HTML:
 - **Lambda handler**: SQS-triggered async processing with partial batch failure reporting
 - **CDK infrastructure**: S3 bucket, SQS queue + DLQ, ingestion Lambda, S3→SQS event notification
 
+### Phase 2 — Knowledge Graph Construction (Complete)
+
+Entity/relation extraction from document chunks, stored in Neo4j + pgvector:
+
+- **Entity extraction** (`entity_extraction.py`): Qwen Plus LLM-powered extraction with delimited tuple output format, gleaning for missed entities
+- **Entity dedup & merge**: Same-name entity merging with LLM-assisted description summarization when descriptions exceed token threshold
+- **Neo4j storage** (`graph_repository.py`): `Neo4jRepository` with CRUD, batch upsert, fulltext search, neighbor traversal
+- **Entity vector store** (`entity_vector_store.py`): Entity/relation embeddings in pgvector (`kb_entities` + `kb_relations` tables) for semantic search
+- **Ingestion pipeline wiring** (`ingestion.py`): `_run_entity_extraction_pipeline` integrated into document ingestion — extract → dedup → Neo4j + pgvector writes
+
+### Phase 3 — Graph-Enhanced Retrieval (Complete: 3.1–3.4)
+
+Multi-mode graph-enhanced search with hybrid fusion and KG-aware answer generation:
+
+- **3.1 Graph retriever** (`graph_retriever.py`): Local (entity-oriented), global (theme-oriented), and hybrid strategies via Neo4j + pgvector entity/relation embeddings
+- **3.2 Query router**: Intelligent retrieval mode selection (`naive`/`local`/`global`/`hybrid`/`mix`) based on query complexity, intent, and keyword composition
+- **3.3 Hybrid fusion** (`hybrid_fusion.py`): Weighted RRF merging of graph and traditional retrieval results with entity/relation context enrichment
+- **3.4 Enhanced answer generation**: Knowledge graph context injection into answer prompts — entities + relations presented as structured evidence alongside text chunks
+
 New environment variables:
 
 - `RAG_S3_BUCKET` — S3 bucket for document uploads
@@ -40,10 +59,10 @@ New environment variables:
 
 ## 0. Workflow Overview
 
-Current `rag_search` runtime flow (9-node LangGraph pipeline):
+Current `rag_search` runtime flow (12-node LangGraph pipeline):
 
 ```text
-detect_intent → extract_keywords → rewrite_query → build_request → retrieve → rerank → build_citations → choose_model → generate_answer
+detect_intent → extract_keywords → determine_mode → rewrite_query → build_request → retrieve → graph_retrieve → fuse → rerank → build_citations → choose_model → generate_answer
 ```
 
 1. Bedrock Action Group invokes `lambda_tool.handler`
@@ -52,13 +71,16 @@ detect_intent → extract_keywords → rewrite_query → build_request → retri
 4. Workflow nodes:
    - `detect_intent`: classify intent/complexity (Qwen preferred, heuristic fallback)
    - `extract_keywords`: dual-level keyword extraction — high-level themes + low-level entities (Qwen, skip on failure)
+   - `determine_mode`: select retrieval mode (naive/local/global/hybrid/mix) based on query characteristics
    - `rewrite_query`: retrieval rewrite with keyword context (Qwen preferred, pass-through fallback)
    - `build_request`: normalize query/topK/filters and build query embedding when available
    - `retrieve`: fetch strict-citation hits from OpenSearch sparse + pgvector dense, fused via RRF
+   - `graph_retrieve`: entity-oriented (local) + theme-oriented (global) graph search via Neo4j + pgvector (feature-flagged)
+   - `fuse`: weighted RRF fusion of graph and traditional hits with entity/relation context enrichment (feature-flagged)
    - `rerank`: LLM-based relevance scoring with token budget (Qwen, graceful fallback to retrieval order)
    - `build_citations`: map hits to compact citation payload
    - `choose_model`: route default `nova-lite` vs `qwen-plus` for hard/low-confidence cases
-   - `generate_answer`: synthesize answer with structured evidence prompts via routed model
+   - `generate_answer`: synthesize answer with KG context + structured evidence prompts via routed model
 5. Response is returned in Bedrock action envelope with:
    - `answer`
    - `citations[]` (`sourceId`, `title`, `url`, `snippet`)
@@ -68,10 +90,15 @@ Key files:
 - `apps/rag-service/lambda_tool.py`
 - `apps/rag-service/app/bedrock_action.py`
 - `apps/rag-service/app/workflow.py`
-- `apps/rag-service/app/query_processing.py` (intent detection, keyword extraction, query rewrite)
+- `apps/rag-service/app/query_processing.py` (intent detection, keyword extraction, query rewrite, retrieval mode routing)
 - `apps/rag-service/app/repository.py` (OpenSearch + pgvector hybrid retrieval)
 - `apps/rag-service/app/reranker.py` (LLM reranking)
 - `apps/rag-service/app/answer_generator.py`
+- `apps/rag-service/app/graph_retriever.py` (graph-enhanced retrieval — local/global/hybrid)
+- `apps/rag-service/app/hybrid_fusion.py` (weighted RRF fusion of graph + traditional hits)
+- `apps/rag-service/app/entity_extraction.py` (entity/relation extraction from chunks)
+- `apps/rag-service/app/graph_repository.py` (Neo4j CRUD + traversal)
+- `apps/rag-service/app/entity_vector_store.py` (entity/relation embeddings in pgvector)
 
 ## 1. Install
 
@@ -122,6 +149,32 @@ The service reads `RAG_*` variables first, then falls back to existing `RDS_*` v
   - number of candidates to retrieve before reranking down to `k_final`
 - `RAG_RERANK_MAX_TOKENS` (default: `30000`)
   - token budget for the reranking context window
+- `RAG_ENABLE_ENTITY_EXTRACTION` (default: `false`)
+  - enable entity/relation extraction during document ingestion
+- `RAG_ENTITY_EXTRACT_MAX_GLEANING` (default: `1`)
+  - number of extra LLM passes to catch missed entities
+- `RAG_ENTITY_TYPES` (default: `person,organization,location,event,concept,technology,document,regulation`)
+  - entity types to extract
+- `RAG_SUMMARY_MAX_TOKENS` (default: `500`)
+  - token threshold for LLM-assisted description summarization during entity merge
+- `RAG_ENABLE_NEO4J` (default: `false`)
+  - enable Neo4j graph storage for entities and relations
+- `RAG_NEO4J_URI` — Neo4j connection URI (e.g. `bolt://host:7687`)
+- `RAG_NEO4J_USERNAME` (default: `neo4j`)
+- `RAG_NEO4J_PASSWORD_SECRET_ARN` — AWS Secrets Manager ARN for Neo4j password
+- `RAG_NEO4J_DATABASE` (default: `neo4j`)
+- `RAG_ENABLE_GRAPH_RETRIEVAL` (default: `false`)
+  - enable graph-enhanced retrieval pipeline (graph retriever, hybrid fusion, KG-aware answers)
+- `RAG_RETRIEVAL_MODE` (default: `mix`)
+  - default retrieval mode: `naive`, `local`, `global`, `hybrid`, `mix`
+- `RAG_GRAPH_RETRIEVAL_WEIGHT` (default: `0.6`)
+  - weight for graph hits in weighted RRF fusion
+- `RAG_GRAPH_TOP_K_ENTITIES` (default: `10`)
+  - max entities to retrieve per graph query
+- `RAG_GRAPH_TOP_K_RELATIONS` (default: `10`)
+  - max relations to retrieve per graph query
+- `RAG_GRAPH_NEIGHBOR_DEPTH` (default: `1`)
+  - neighbor traversal depth in Neo4j for local retrieval
 
 For Bedrock Action Group Lambda execution, the same variables are used via Lambda environment config.
 

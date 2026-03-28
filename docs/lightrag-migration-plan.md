@@ -125,6 +125,8 @@ graph TD
 
 ## Phase 1: Enhanced Query Understanding + Reranking
 
+**Status**: ✅ Complete.
+
 **Risk**: Low — query-side only, feature-flagged, zero storage changes.
 
 ### 1.1 Dual-Level Keyword Extraction
@@ -261,6 +263,8 @@ flowchart LR
 ---
 
 ## Phase 2: Knowledge Graph Construction + Neo4j
+
+**Status**: ✅ Complete.
 
 **Risk**: Medium — new storage writes, but query pipeline untouched (feature-flagged).
 
@@ -500,15 +504,17 @@ flowchart TD
 
 ### Phase 2 — Completion Criteria
 
-- [ ] Document upload triggers entity/relation extraction
-- [ ] Entities and relations visible in Neo4j
-- [ ] Entity/relation embeddings in pgvector
-- [ ] Existing query pipeline completely unaffected
-- [ ] All new code behind `enable_entity_extraction` flag
+- [x] Document upload triggers entity/relation extraction
+- [x] Entities and relations visible in Neo4j
+- [x] Entity/relation embeddings in pgvector
+- [x] Existing query pipeline completely unaffected
+- [x] All new code behind `enable_entity_extraction` flag
 
 ---
 
 ## Phase 3: Graph-Enhanced Retrieval + Multi-Mode Search
+
+**Status**: ✅ Complete (3.1–3.4). 3.5 Community Detection deferred.
 
 **Risk**: Medium-high — modifies query pipeline, but feature-flagged with NAIVE fallback.
 
@@ -749,23 +755,25 @@ flowchart TD
 
 ### New Files (All Phases)
 
-| Phase | New File                      | Purpose                                |
-| ----- | ----------------------------- | -------------------------------------- |
-| 1     | `reranker.py`                 | LLM-based retrieval reranking          |
-| 1     | `test_reranker.py`            | Reranker tests                         |
-| 2     | `entity_extraction.py`        | Entity/relation extraction from chunks |
-| 2     | `prompts.py`                  | Centralized prompt templates           |
-| 2     | `graph_repository.py`         | Neo4j CRUD + traversal                 |
-| 2     | `entity_vector_store.py`      | Entity/relation embeddings in pgvector |
-| 2     | `ingestion.py`                | Real-time ingestion orchestrator       |
-| 2     | `test_entity_extraction.py`   | Extraction tests                       |
-| 2     | `test_graph_repository.py`    | Neo4j tests                            |
-| 2     | `test_entity_vector_store.py` | Vector store tests                     |
-| 2     | `test_ingestion.py`           | End-to-end ingestion tests             |
-| 2     | DB migration                  | `kb_entities` + `kb_relations` tables  |
-| 3     | `graph_retriever.py`          | Graph-based retrieval engine           |
-| 3     | `community.py`                | Optional community detection           |
-| 3     | `test_graph_retriever.py`     | Graph retrieval tests                  |
+| Phase | New File                      | Purpose                                         |
+| ----- | ----------------------------- | ----------------------------------------------- |
+| 1     | `reranker.py`                 | LLM-based retrieval reranking                   |
+| 1     | `test_reranker.py`            | Reranker tests                                  |
+| 2     | `entity_extraction.py`        | Entity/relation extraction from chunks          |
+| 2     | `prompts.py`                  | Centralized prompt templates                    |
+| 2     | `graph_repository.py`         | Neo4j CRUD + traversal                          |
+| 2     | `entity_vector_store.py`      | Entity/relation embeddings in pgvector          |
+| 2     | `ingestion.py`                | Real-time ingestion orchestrator                |
+| 2     | `test_entity_extraction.py`   | Extraction tests                                |
+| 2     | `test_graph_repository.py`    | Neo4j tests                                     |
+| 2     | `test_entity_vector_store.py` | Vector store tests                              |
+| 2     | `test_ingestion.py`           | End-to-end ingestion tests                      |
+| 2     | DB migration                  | `kb_entities` + `kb_relations` tables           |
+| 3     | `graph_retriever.py`          | Graph-based retrieval engine                    |
+| 3     | `hybrid_fusion.py`            | Weighted RRF fusion of graph + traditional hits |
+| 3     | `community.py`                | Optional community detection                    |
+| 3     | `test_graph_retriever.py`     | Graph retrieval tests                           |
+| 3     | `test_hybrid_fusion.py`       | Hybrid fusion tests                             |
 
 ### Modified Files (All Phases)
 
@@ -777,6 +785,7 @@ flowchart TD
 | `config.py`           | keyword + rerank flags                       | Neo4j + extraction config                | graph retrieval config                   |
 | `answer_generator.py` | prompt upgrade                               | —                                        | KG context injection                     |
 | `repository.py`       | —                                            | —                                        | `get_chunks_by_ids()`                    |
+| `lambda_tool.py`      | —                                            | —                                        | `_build_graph_retriever()` factory       |
 | `pyproject.toml`      | —                                            | `neo4j` driver                           | `python-louvain` (optional)              |
 
 ### Feature Flags
