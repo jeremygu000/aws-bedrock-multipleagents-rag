@@ -176,6 +176,13 @@ class Settings(BaseSettings):
         validation_alias="RAG_ENTITY_SUMMARY_MAX_TOKENS",
         description="Token threshold above which merged entity descriptions are LLM-summarized",
     )
+    entity_extraction_embed_batch_size: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        validation_alias="RAG_ENTITY_EXTRACTION_EMBED_BATCH_SIZE",
+        description="Batch size for embedding entity/relation descriptions during ingestion",
+    )
 
     # --- Neo4j graph database settings ---
     enable_neo4j: bool = Field(

@@ -93,4 +93,6 @@ class IngestionResult:
     doc_id: UUID
     status: str
     chunks_created: int
+    entity_count: int = 0
+    relation_count: int = 0
     error: str | None = None

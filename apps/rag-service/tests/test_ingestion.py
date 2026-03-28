@@ -495,3 +495,557 @@ def test_filename_extracted_from_s3_key(
     ingest_document("my-bucket", "a/b/c/myfile.docx", meta, settings)
 
     mock_parse.assert_called_once_with(FILE_BYTES, "myfile.docx")
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.5 — Entity extraction pipeline tests
+# ---------------------------------------------------------------------------
+
+
+def _make_extraction_result(chunk_id: str, n_entities: int = 2, n_relations: int = 1) -> MagicMock:
+    from app.entity_extraction_models import EntityType, RelationType
+
+    entities = []
+    for i in range(n_entities):
+        e = MagicMock()
+        e.entity_id = f"{chunk_id}_ent_{i}"
+        e.name = f"Entity {i}"
+        e.type = EntityType.WORK
+        e.description = f"Description for entity {i}"
+        e.canonical_key = f"entity_{i}"
+        e.aliases = []
+        e.confidence = 0.9
+        e.source_chunk_ids = [chunk_id]
+        entities.append(e)
+
+    relations = []
+    for i in range(n_relations):
+        r = MagicMock()
+        r.source_entity_id = entities[0].entity_id if entities else f"{chunk_id}_ent_0"
+        r.target_entity_id = entities[-1].entity_id if entities else f"{chunk_id}_ent_1"
+        r.type = RelationType.REFERENCES
+        r.evidence = f"Evidence text {i}"
+        r.confidence = 0.8
+        r.weight = 1.0
+        r.source_chunk_ids = [chunk_id]
+        relations.append(r)
+
+    result = MagicMock()
+    result.chunk_id = chunk_id
+    result.entities = entities
+    result.relations = relations
+    return result
+
+
+def _entity_extraction_settings() -> Settings:
+    return Settings(
+        RAG_DB_HOST="localhost",
+        RAG_DB_PASSWORD="testpass",
+        RAG_S3_BUCKET="test-bucket",
+        RAG_CHUNK_SIZE=512,
+        RAG_CHUNK_OVERLAP=64,
+        RAG_CHUNK_MIN_SIZE=50,
+        RAG_EMBED_BATCH_SIZE=10,
+        RAG_ENABLE_ENTITY_EXTRACTION=True,
+        RAG_ENABLE_NEO4J=True,
+        NEO4J_URI="bolt://localhost:7687",
+        NEO4J_USERNAME="neo4j",
+        NEO4J_PASSWORD="test",
+        NEO4J_DATABASE="neo4j",
+    )
+
+
+ENTITY_EXTRACTION_PATCHES = [
+    "app.ingestion.chunk_document",
+    "app.ingestion.parse_document",
+    "app.ingestion.boto3",
+    "app.ingestion.QwenClient",
+    "app.ingestion.IngestionRepository",
+    "app.ingestion.EntityExtractor",
+    "app.ingestion.EntityDeduplicator",
+    "app.ingestion.EntityVectorStore",
+    "app.ingestion.Neo4jRepository",
+    "app.ingestion.resolve_neo4j_password",
+]
+
+
+def _apply_entity_patches(func):
+    for p in reversed(ENTITY_EXTRACTION_PATCHES):
+        func = patch(p)(func)
+    return func
+
+
+def _setup_entity_mocks(
+    mock_resolve_pw: MagicMock,
+    mock_neo4j_cls: MagicMock,
+    mock_vector_cls: MagicMock,
+    mock_dedup_cls: MagicMock,
+    mock_extractor_cls: MagicMock,
+    mock_repo_cls: MagicMock,
+    mock_qwen_cls: MagicMock,
+    mock_boto3: MagicMock,
+    mock_parse: MagicMock,
+    mock_chunk: MagicMock,
+    chunks: list[_FakeChunk] | None = None,
+    n_entities: int = 2,
+    n_relations: int = 1,
+) -> dict[str, MagicMock]:
+    if chunks is None:
+        chunks = _make_chunks(3)
+
+    mock_repo, mock_qwen = _setup_mocks(
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=chunks
+    )
+
+    chunk_results = [
+        _make_extraction_result(
+            f"{FAKE_DOC_ID}_chunk_{c.chunk_index}",
+            n_entities=n_entities,
+            n_relations=n_relations,
+        )
+        for c in chunks
+    ]
+
+    mock_extractor = MagicMock()
+    mock_extractor.extract.side_effect = [(cr, MagicMock()) for cr in chunk_results]
+    mock_extractor_cls.return_value = mock_extractor
+
+    merged_entities = []
+    merged_relations = []
+    for cr in chunk_results:
+        merged_entities.extend(cr.entities)
+        merged_relations.extend(cr.relations)
+
+    mock_dedup = MagicMock()
+    mock_dedup.merge_entities.return_value = merged_entities
+    mock_dedup.merge_relations.return_value = merged_relations
+    mock_dedup_cls.return_value = mock_dedup
+
+    mock_vector = MagicMock()
+    mock_vector.batch_upsert_entities.return_value = len(merged_entities)
+    mock_vector.batch_upsert_relations.return_value = len(merged_relations)
+    mock_vector_cls.return_value = mock_vector
+
+    mock_neo4j = MagicMock()
+    mock_neo4j.upsert_batch.return_value = {
+        "entities_written": len(merged_entities),
+        "relations_written": len(merged_relations),
+    }
+    mock_neo4j_cls.return_value = mock_neo4j
+
+    mock_resolve_pw.return_value = "neo4j-password"
+
+    return {
+        "repo": mock_repo,
+        "qwen": mock_qwen,
+        "extractor": mock_extractor,
+        "extractor_cls": mock_extractor_cls,
+        "dedup": mock_dedup,
+        "dedup_cls": mock_dedup_cls,
+        "vector": mock_vector,
+        "vector_cls": mock_vector_cls,
+        "neo4j": mock_neo4j,
+        "neo4j_cls": mock_neo4j_cls,
+        "resolve_pw": mock_resolve_pw,
+        "chunk_results": chunk_results,
+        "merged_entities": merged_entities,
+        "merged_relations": merged_relations,
+    }
+
+
+@_apply_entity_patches
+def test_entity_extraction_happy_path(
+    mock_resolve_pw,
+    mock_neo4j_cls,
+    mock_vector_cls,
+    mock_dedup_cls,
+    mock_extractor_cls,
+    mock_repo_cls,
+    mock_qwen_cls,
+    mock_boto3,
+    mock_parse,
+    mock_chunk,
+):
+    settings = _entity_extraction_settings()
+    chunks = _make_chunks(3)
+    mocks = _setup_entity_mocks(
+        mock_resolve_pw,
+        mock_neo4j_cls,
+        mock_vector_cls,
+        mock_dedup_cls,
+        mock_extractor_cls,
+        mock_repo_cls,
+        mock_qwen_cls,
+        mock_boto3,
+        mock_parse,
+        mock_chunk,
+        chunks=chunks,
+    )
+    meta = _make_upload_metadata()
+
+    result = ingest_document("my-bucket", "docs/report.pdf", meta, settings)
+
+    assert result.status == "succeeded"
+    assert result.chunks_created == 3
+    assert result.entity_count > 0
+    assert result.relation_count > 0
+
+    assert mocks["extractor"].extract.call_count == 3
+    mocks["dedup"].merge_entities.assert_called_once()
+    mocks["dedup"].merge_relations.assert_called_once()
+    mocks["neo4j"].upsert_batch.assert_called_once()
+    mocks["neo4j"].close.assert_called_once()
+    mocks["vector"].batch_upsert_entities.assert_called_once()
+    mocks["vector"].batch_upsert_relations.assert_called_once()
+    mocks["repo"].complete_ingestion_run.assert_called_once_with(FAKE_RUN_ID, "succeeded")
+
+
+@_apply_entity_patches
+def test_entity_extraction_disabled_skips_pipeline(
+    mock_resolve_pw,
+    mock_neo4j_cls,
+    mock_vector_cls,
+    mock_dedup_cls,
+    mock_extractor_cls,
+    mock_repo_cls,
+    mock_qwen_cls,
+    mock_boto3,
+    mock_parse,
+    mock_chunk,
+):
+    settings = Settings(
+        RAG_DB_HOST="localhost",
+        RAG_DB_PASSWORD="testpass",
+        RAG_S3_BUCKET="test-bucket",
+        RAG_CHUNK_SIZE=512,
+        RAG_CHUNK_OVERLAP=64,
+        RAG_CHUNK_MIN_SIZE=50,
+        RAG_EMBED_BATCH_SIZE=10,
+        RAG_ENABLE_ENTITY_EXTRACTION=False,
+    )
+    chunks = _make_chunks(3)
+    _setup_entity_mocks(
+        mock_resolve_pw,
+        mock_neo4j_cls,
+        mock_vector_cls,
+        mock_dedup_cls,
+        mock_extractor_cls,
+        mock_repo_cls,
+        mock_qwen_cls,
+        mock_boto3,
+        mock_parse,
+        mock_chunk,
+        chunks=chunks,
+    )
+    meta = _make_upload_metadata()
+
+    result = ingest_document("my-bucket", "docs/report.pdf", meta, settings)
+
+    assert result.status == "succeeded"
+    assert result.entity_count == 0
+    assert result.relation_count == 0
+    mock_extractor_cls.assert_not_called()
+    mock_neo4j_cls.assert_not_called()
+    mock_vector_cls.assert_not_called()
+
+
+@_apply_entity_patches
+def test_entity_extraction_chunk_failure_continues(
+    mock_resolve_pw,
+    mock_neo4j_cls,
+    mock_vector_cls,
+    mock_dedup_cls,
+    mock_extractor_cls,
+    mock_repo_cls,
+    mock_qwen_cls,
+    mock_boto3,
+    mock_parse,
+    mock_chunk,
+):
+    settings = _entity_extraction_settings()
+    chunks = _make_chunks(3)
+    mocks = _setup_entity_mocks(
+        mock_resolve_pw,
+        mock_neo4j_cls,
+        mock_vector_cls,
+        mock_dedup_cls,
+        mock_extractor_cls,
+        mock_repo_cls,
+        mock_qwen_cls,
+        mock_boto3,
+        mock_parse,
+        mock_chunk,
+        chunks=chunks,
+    )
+
+    good_result = _make_extraction_result(
+        f"{FAKE_DOC_ID}_chunk_0",
+        n_entities=2,
+        n_relations=1,
+    )
+    good_tuple = (good_result, MagicMock())
+    mocks["extractor"].extract.side_effect = [
+        good_tuple,
+        RuntimeError("LLM timeout"),
+        good_tuple,
+    ]
+
+    merged_entities = good_result.entities * 2
+    merged_relations = good_result.relations * 2
+    mocks["dedup"].merge_entities.return_value = merged_entities
+    mocks["dedup"].merge_relations.return_value = merged_relations
+    mocks["vector"].batch_upsert_entities.return_value = len(merged_entities)
+    mocks["vector"].batch_upsert_relations.return_value = len(merged_relations)
+    mocks["neo4j"].upsert_batch.return_value = {
+        "entities_written": len(merged_entities),
+        "relations_written": len(merged_relations),
+    }
+
+    meta = _make_upload_metadata()
+    result = ingest_document("my-bucket", "docs/report.pdf", meta, settings)
+
+    assert result.status == "succeeded"
+    assert result.entity_count > 0
+    assert mocks["extractor"].extract.call_count == 3
+
+
+@_apply_entity_patches
+def test_entity_extraction_all_chunks_fail_returns_zero(
+    mock_resolve_pw,
+    mock_neo4j_cls,
+    mock_vector_cls,
+    mock_dedup_cls,
+    mock_extractor_cls,
+    mock_repo_cls,
+    mock_qwen_cls,
+    mock_boto3,
+    mock_parse,
+    mock_chunk,
+):
+    settings = _entity_extraction_settings()
+    chunks = _make_chunks(2)
+    mocks = _setup_entity_mocks(
+        mock_resolve_pw,
+        mock_neo4j_cls,
+        mock_vector_cls,
+        mock_dedup_cls,
+        mock_extractor_cls,
+        mock_repo_cls,
+        mock_qwen_cls,
+        mock_boto3,
+        mock_parse,
+        mock_chunk,
+        chunks=chunks,
+    )
+    mocks["extractor"].extract.side_effect = RuntimeError("All fail")
+    meta = _make_upload_metadata()
+
+    result = ingest_document("my-bucket", "docs/report.pdf", meta, settings)
+
+    assert result.status == "succeeded"
+    assert result.entity_count == 0
+    assert result.relation_count == 0
+    mocks["neo4j_cls"].assert_not_called()
+    mocks["vector_cls"].assert_not_called()
+
+
+@_apply_entity_patches
+def test_entity_extraction_neo4j_failure_continues_to_pgvector(
+    mock_resolve_pw,
+    mock_neo4j_cls,
+    mock_vector_cls,
+    mock_dedup_cls,
+    mock_extractor_cls,
+    mock_repo_cls,
+    mock_qwen_cls,
+    mock_boto3,
+    mock_parse,
+    mock_chunk,
+):
+    settings = _entity_extraction_settings()
+    chunks = _make_chunks(2)
+    mocks = _setup_entity_mocks(
+        mock_resolve_pw,
+        mock_neo4j_cls,
+        mock_vector_cls,
+        mock_dedup_cls,
+        mock_extractor_cls,
+        mock_repo_cls,
+        mock_qwen_cls,
+        mock_boto3,
+        mock_parse,
+        mock_chunk,
+        chunks=chunks,
+    )
+    mocks["neo4j"].upsert_batch.side_effect = ConnectionError("Neo4j down")
+    meta = _make_upload_metadata()
+
+    result = ingest_document("my-bucket", "docs/report.pdf", meta, settings)
+
+    assert result.status == "succeeded"
+    assert result.entity_count > 0
+    mocks["vector"].batch_upsert_entities.assert_called_once()
+    mocks["vector"].batch_upsert_relations.assert_called_once()
+
+
+@_apply_entity_patches
+def test_entity_extraction_pgvector_failure_still_succeeds(
+    mock_resolve_pw,
+    mock_neo4j_cls,
+    mock_vector_cls,
+    mock_dedup_cls,
+    mock_extractor_cls,
+    mock_repo_cls,
+    mock_qwen_cls,
+    mock_boto3,
+    mock_parse,
+    mock_chunk,
+):
+    settings = _entity_extraction_settings()
+    chunks = _make_chunks(2)
+    mocks = _setup_entity_mocks(
+        mock_resolve_pw,
+        mock_neo4j_cls,
+        mock_vector_cls,
+        mock_dedup_cls,
+        mock_extractor_cls,
+        mock_repo_cls,
+        mock_qwen_cls,
+        mock_boto3,
+        mock_parse,
+        mock_chunk,
+        chunks=chunks,
+    )
+    mocks["vector_cls"].side_effect = RuntimeError("pgvector connection failed")
+    meta = _make_upload_metadata()
+
+    result = ingest_document("my-bucket", "docs/report.pdf", meta, settings)
+
+    assert result.status == "succeeded"
+    mocks["neo4j"].upsert_batch.assert_called_once()
+
+
+@_apply_entity_patches
+def test_entity_extraction_neo4j_disabled_skips_graph(
+    mock_resolve_pw,
+    mock_neo4j_cls,
+    mock_vector_cls,
+    mock_dedup_cls,
+    mock_extractor_cls,
+    mock_repo_cls,
+    mock_qwen_cls,
+    mock_boto3,
+    mock_parse,
+    mock_chunk,
+):
+    settings = Settings(
+        RAG_DB_HOST="localhost",
+        RAG_DB_PASSWORD="testpass",
+        RAG_S3_BUCKET="test-bucket",
+        RAG_CHUNK_SIZE=512,
+        RAG_CHUNK_OVERLAP=64,
+        RAG_CHUNK_MIN_SIZE=50,
+        RAG_EMBED_BATCH_SIZE=10,
+        RAG_ENABLE_ENTITY_EXTRACTION=True,
+        RAG_ENABLE_NEO4J=False,
+    )
+    chunks = _make_chunks(2)
+    mocks = _setup_entity_mocks(
+        mock_resolve_pw,
+        mock_neo4j_cls,
+        mock_vector_cls,
+        mock_dedup_cls,
+        mock_extractor_cls,
+        mock_repo_cls,
+        mock_qwen_cls,
+        mock_boto3,
+        mock_parse,
+        mock_chunk,
+        chunks=chunks,
+    )
+    meta = _make_upload_metadata()
+
+    result = ingest_document("my-bucket", "docs/report.pdf", meta, settings)
+
+    assert result.status == "succeeded"
+    assert result.entity_count > 0
+    mock_neo4j_cls.assert_not_called()
+    mock_resolve_pw.assert_not_called()
+    mocks["vector"].batch_upsert_entities.assert_called_once()
+
+
+@_apply_entity_patches
+def test_entity_extraction_pipeline_crash_does_not_fail_ingestion(
+    mock_resolve_pw,
+    mock_neo4j_cls,
+    mock_vector_cls,
+    mock_dedup_cls,
+    mock_extractor_cls,
+    mock_repo_cls,
+    mock_qwen_cls,
+    mock_boto3,
+    mock_parse,
+    mock_chunk,
+):
+    settings = _entity_extraction_settings()
+    chunks = _make_chunks(2)
+    mocks = _setup_entity_mocks(
+        mock_resolve_pw,
+        mock_neo4j_cls,
+        mock_vector_cls,
+        mock_dedup_cls,
+        mock_extractor_cls,
+        mock_repo_cls,
+        mock_qwen_cls,
+        mock_boto3,
+        mock_parse,
+        mock_chunk,
+        chunks=chunks,
+    )
+    mocks["dedup"].merge_entities.side_effect = Exception("Unexpected crash in dedup")
+    meta = _make_upload_metadata()
+
+    result = ingest_document("my-bucket", "docs/report.pdf", meta, settings)
+
+    assert result.status == "succeeded"
+    assert result.chunks_created == 2
+    assert result.entity_count == 0
+    assert result.relation_count == 0
+    mocks["repo"].complete_ingestion_run.assert_called_once_with(FAKE_RUN_ID, "succeeded")
+
+
+@_apply_entity_patches
+def test_entity_extraction_empty_chunks_skips_pipeline(
+    mock_resolve_pw,
+    mock_neo4j_cls,
+    mock_vector_cls,
+    mock_dedup_cls,
+    mock_extractor_cls,
+    mock_repo_cls,
+    mock_qwen_cls,
+    mock_boto3,
+    mock_parse,
+    mock_chunk,
+):
+    settings = _entity_extraction_settings()
+    _setup_entity_mocks(
+        mock_resolve_pw,
+        mock_neo4j_cls,
+        mock_vector_cls,
+        mock_dedup_cls,
+        mock_extractor_cls,
+        mock_repo_cls,
+        mock_qwen_cls,
+        mock_boto3,
+        mock_parse,
+        mock_chunk,
+        chunks=[],
+    )
+    meta = _make_upload_metadata()
+
+    result = ingest_document("my-bucket", "docs/empty.pdf", meta, settings)
+
+    assert result.status == "succeeded"
+    assert result.entity_count == 0
+    assert result.relation_count == 0
+    mock_extractor_cls.assert_not_called()
