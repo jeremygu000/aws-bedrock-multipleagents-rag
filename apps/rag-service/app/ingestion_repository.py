@@ -26,6 +26,7 @@ from sqlalchemy import (
     create_engine,
     delete,
     insert,
+    select,
     text,
     update,
 )
@@ -345,6 +346,26 @@ class IngestionRepository:
                 }
             )
         helpers.bulk(client, actions)
+
+    def get_ingestion_run(self, run_id: UUID) -> dict[str, Any] | None:
+        """SELECT a single ingestion run by run_id.
+
+        Returns a dict with keys matching IngestionStatusResponse, or None if not found.
+        """
+
+        stmt = select(ingestion_runs).where(ingestion_runs.c.run_id == run_id)
+        engine = self._get_engine()
+        with engine.begin() as conn:
+            row = conn.execute(stmt).fetchone()
+        if row is None:
+            return None
+        return {
+            "run_id": str(row.run_id),
+            "status": row.status,
+            "started_at": row.started_at.isoformat() if row.started_at else None,
+            "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+            "notes": row.notes,
+        }
 
     def _get_engine(self) -> Engine:
         """Lazily construct and cache SQLAlchemy engine for connection reuse."""
