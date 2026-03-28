@@ -11,9 +11,15 @@ from fastapi import FastAPI, Form, HTTPException, UploadFile
 from psycopg import Error as PsycopgError
 
 from .config import get_settings
+from .document_manager import delete_document
 from .document_parser import _EXTENSION_TO_MIME, SUPPORTED_MIME_TYPES
 from .ingestion import ingest_document
-from .ingestion_models import IngestionStatusResponse, UploadMetadata, UploadResponse
+from .ingestion_models import (
+    DeleteDocumentResponse,
+    IngestionStatusResponse,
+    UploadMetadata,
+    UploadResponse,
+)
 from .ingestion_repository import IngestionRepository
 from .models import RetrieveRequest, RetrieveResponse
 from .repository import PostgresRepository
@@ -155,3 +161,17 @@ def get_ingestion_status(run_id: str) -> IngestionStatusResponse:
         raise HTTPException(status_code=404, detail="Ingestion run not found")
 
     return IngestionStatusResponse(**result)
+
+
+@app.delete("/documents/{doc_id}", response_model=DeleteDocumentResponse)
+def delete_document_endpoint(doc_id: str) -> DeleteDocumentResponse:
+    try:
+        doc_uuid = uuid.UUID(doc_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid doc_id format") from exc
+
+    try:
+        return delete_document(doc_uuid, settings)
+    except Exception as exc:
+        logger.exception("Document deletion failed for %s: %s", doc_id, exc)
+        raise HTTPException(status_code=500, detail="Document deletion failed") from exc

@@ -712,3 +712,113 @@ class TestResolveNeo4jPassword:
 
         monkeypatch.setattr(secrets, "_fetch_secret_string", fake_fetch)
         assert resolve_neo4j_password(settings) == "from-secret-manager"
+
+
+# ---------------------------------------------------------------------------
+# Delete operations tests
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteOperations:
+    @patch("app.graph_repository.GraphDatabase.driver")
+    def test_delete_entities_by_source_chunks_empty_returns_zero(self, mock_gd_driver):
+        mock_driver, mock_session = _mock_driver()
+        mock_gd_driver.return_value = mock_driver
+        repo = _make_repo()
+        count = repo.delete_entities_by_source_chunks([])
+        assert count == 0
+        mock_session.execute_write.assert_not_called()
+
+    @patch("app.graph_repository.GraphDatabase.driver")
+    def test_delete_entities_by_source_chunks_returns_count(self, mock_gd_driver):
+        mock_driver, mock_session = _mock_driver()
+        mock_gd_driver.return_value = mock_driver
+
+        call_count = [0]
+
+        def side_effect(work_fn):
+            call_count[0] += 1
+            tx = MagicMock()
+            result = MagicMock()
+            if call_count[0] == 1:
+                result.single.return_value = {"pruned": 1}
+            else:
+                result.single.return_value = {"deleted": 3}
+            tx.run.return_value = result
+            return work_fn(tx)
+
+        mock_session.execute_write.side_effect = side_effect
+        repo = _make_repo()
+        count = repo.delete_entities_by_source_chunks(["c1", "c2"])
+        assert count == 3
+
+    @patch("app.graph_repository.GraphDatabase.driver")
+    def test_prune_shared_entities_empty_returns_zero(self, mock_gd_driver):
+        mock_driver, mock_session = _mock_driver()
+        mock_gd_driver.return_value = mock_driver
+        repo = _make_repo()
+        count = repo.prune_shared_entities([])
+        assert count == 0
+        mock_session.execute_write.assert_not_called()
+
+    @patch("app.graph_repository.GraphDatabase.driver")
+    def test_prune_shared_entities_returns_count(self, mock_gd_driver):
+        mock_driver, mock_session = _mock_driver()
+        mock_gd_driver.return_value = mock_driver
+
+        def side_effect(work_fn):
+            tx = MagicMock()
+            result = MagicMock()
+            result.single.return_value = {"pruned": 2}
+            tx.run.return_value = result
+            return work_fn(tx)
+
+        mock_session.execute_write.side_effect = side_effect
+        repo = _make_repo()
+        count = repo.prune_shared_entities(["c1", "c2"])
+        assert count == 2
+
+    @patch("app.graph_repository.GraphDatabase.driver")
+    def test_cleanup_orphan_relations_returns_count(self, mock_gd_driver):
+        mock_driver, mock_session = _mock_driver()
+        mock_gd_driver.return_value = mock_driver
+
+        def side_effect(work_fn):
+            tx = MagicMock()
+            result = MagicMock()
+            result.single.return_value = {"deleted": 1}
+            tx.run.return_value = result
+            return work_fn(tx)
+
+        mock_session.execute_write.side_effect = side_effect
+        repo = _make_repo()
+        count = repo.cleanup_orphan_relations()
+        assert count == 1
+
+    @patch("app.graph_repository.GraphDatabase.driver")
+    def test_delete_relations_by_source_chunks_empty_returns_zero(self, mock_gd_driver):
+        mock_driver, mock_session = _mock_driver()
+        mock_gd_driver.return_value = mock_driver
+        repo = _make_repo()
+        count = repo.delete_relations_by_source_chunks([])
+        assert count == 0
+        mock_session.execute_write.assert_not_called()
+
+    @patch("app.graph_repository.GraphDatabase.driver")
+    def test_delete_relations_by_source_chunks_returns_count(self, mock_gd_driver):
+        mock_driver, mock_session = _mock_driver()
+        mock_gd_driver.return_value = mock_driver
+
+        def side_effect(work_fn):
+            tx = MagicMock()
+            prune_result = MagicMock()
+            prune_result.single.return_value = {"pruned": 1}
+            delete_result = MagicMock()
+            delete_result.single.return_value = {"deleted": 4}
+            tx.run.side_effect = [prune_result, delete_result]
+            return work_fn(tx)
+
+        mock_session.execute_write.side_effect = side_effect
+        repo = _make_repo()
+        count = repo.delete_relations_by_source_chunks(["c1", "c2"])
+        assert count == 4

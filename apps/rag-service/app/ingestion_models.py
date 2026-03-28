@@ -33,6 +33,18 @@ class UploadResponse(BaseModel):
     message: str = "Document queued for ingestion"
 
 
+class DeleteDocumentResponse(BaseModel):
+    """Response for DELETE /documents/{doc_id}."""
+
+    doc_id: str
+    status: str = "deleted"
+    chunks_deleted: int = 0
+    entities_deleted: int = 0
+    relations_deleted: int = 0
+    opensearch_deleted: int = 0
+    cache_invalidated: bool = False
+
+
 class IngestionStatusResponse(BaseModel):
     """Response for GET /ingestion/{run_id}."""
 

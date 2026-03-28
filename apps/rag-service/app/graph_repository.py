@@ -535,6 +535,139 @@ class Neo4jRepository:
                 session.run(stmt)
         logger.info("Neo4j indexes ensured")
 
+    # -- delete operations ------------------------------------------------------
+
+    def delete_entities_by_source_chunks(self, chunk_ids: list[str]) -> int:
+        """Delete entities whose source_chunk_ids are entirely contained in chunk_ids.
+
+        Entities that also reference chunks *outside* the given set are pruned
+        (the given chunk_ids are removed from their ``source_chunk_ids`` list)
+        instead of deleted — see :meth:`prune_shared_entities`.
+
+        Returns the number of entities fully deleted.
+        """
+
+        if not chunk_ids:
+            return 0
+
+        # Step 1: prune shared entities (removes chunk_ids from their lists)
+        self.prune_shared_entities(chunk_ids)
+
+        # Step 2: delete entities whose source_chunk_ids are now empty or
+        # were entirely contained in the given set.
+        cypher = """
+        MATCH (e:Entity)
+        WHERE ALL(cid IN e.source_chunk_ids WHERE cid IN $chunk_ids)
+        DETACH DELETE e
+        RETURN count(e) AS deleted
+        """
+
+        def _work(tx: ManagedTransaction) -> int:
+            result = tx.run(cypher, chunk_ids=chunk_ids)
+            record = result.single()
+            return int(record["deleted"]) if record else 0
+
+        with self._get_driver().session(database=self._database) as session:
+            deleted = session.execute_write(_work)
+        logger.info("Neo4j: deleted %d entities for chunk_ids (%d chunks)", deleted, len(chunk_ids))
+        return deleted
+
+    def prune_shared_entities(self, chunk_ids: list[str]) -> int:
+        """Remove chunk_ids from entities that reference chunks both inside and outside the set.
+
+        This ensures entities shared across multiple documents are not deleted
+        when only one document is removed — only the stale chunk references are pruned.
+
+        Returns the number of entities pruned (but not deleted).
+        """
+
+        if not chunk_ids:
+            return 0
+
+        cypher = """
+        MATCH (e:Entity)
+        WHERE ANY(cid IN e.source_chunk_ids WHERE cid IN $chunk_ids)
+          AND NOT ALL(cid IN e.source_chunk_ids WHERE cid IN $chunk_ids)
+        SET e.source_chunk_ids = [cid IN e.source_chunk_ids WHERE NOT cid IN $chunk_ids]
+        RETURN count(e) AS pruned
+        """
+
+        def _work(tx: ManagedTransaction) -> int:
+            result = tx.run(cypher, chunk_ids=chunk_ids)
+            record = result.single()
+            return int(record["pruned"]) if record else 0
+
+        with self._get_driver().session(database=self._database) as session:
+            pruned = session.execute_write(_work)
+        logger.info("Neo4j: pruned chunk refs from %d shared entities", pruned)
+        return pruned
+
+    def cleanup_orphan_relations(self) -> int:
+        """Delete RELATES_TO relations whose source or target entity no longer exists.
+
+        This handles relations left behind after entity deletion.
+        Returns the number of orphan relations deleted.
+        """
+
+        cypher = """
+        MATCH ()-[r:RELATES_TO]->()
+        WHERE NOT exists((startNode(r))--()) OR size(startNode(r).source_chunk_ids) = 0
+           OR NOT exists((endNode(r))--()) OR size(endNode(r).source_chunk_ids) = 0
+        DELETE r
+        RETURN count(r) AS deleted
+        """
+
+        def _work(tx: ManagedTransaction) -> int:
+            result = tx.run(cypher)
+            record = result.single()
+            return int(record["deleted"]) if record else 0
+
+        with self._get_driver().session(database=self._database) as session:
+            deleted = session.execute_write(_work)
+        logger.info("Neo4j: cleaned up %d orphan relations", deleted)
+        return deleted
+
+    def delete_relations_by_source_chunks(self, chunk_ids: list[str]) -> int:
+        """Delete relations whose source_chunk_ids are entirely contained in chunk_ids.
+
+        Relations that also reference chunks outside the given set have those
+        chunk_ids pruned from their list instead.
+
+        Returns the number of relations fully deleted.
+        """
+
+        if not chunk_ids:
+            return 0
+
+        # Prune shared relations first
+        prune_cypher = """
+        MATCH ()-[r:RELATES_TO]->()
+        WHERE ANY(cid IN r.source_chunk_ids WHERE cid IN $chunk_ids)
+          AND NOT ALL(cid IN r.source_chunk_ids WHERE cid IN $chunk_ids)
+        SET r.source_chunk_ids = [cid IN r.source_chunk_ids WHERE NOT cid IN $chunk_ids]
+        RETURN count(r) AS pruned
+        """
+
+        delete_cypher = """
+        MATCH ()-[r:RELATES_TO]->()
+        WHERE ALL(cid IN r.source_chunk_ids WHERE cid IN $chunk_ids)
+        DELETE r
+        RETURN count(r) AS deleted
+        """
+
+        def _work(tx: ManagedTransaction) -> int:
+            tx.run(prune_cypher, chunk_ids=chunk_ids)
+            result = tx.run(delete_cypher, chunk_ids=chunk_ids)
+            record = result.single()
+            return int(record["deleted"]) if record else 0
+
+        with self._get_driver().session(database=self._database) as session:
+            deleted = session.execute_write(_work)
+        logger.info("Neo4j: deleted %d relations for chunk_ids", deleted)
+        return deleted
+
+    # -- schema / admin ---------------------------------------------------------
+
     def health_check(self) -> bool:
         """Verify connectivity to Neo4j. Returns True if healthy."""
         try:

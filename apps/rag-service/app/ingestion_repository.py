@@ -347,6 +347,57 @@ class IngestionRepository:
             )
         helpers.bulk(client, actions)
 
+    def delete_all_chunks_for_doc(self, doc_id: UUID) -> int:
+        """DELETE all chunks for a doc_id regardless of version. Returns rows deleted."""
+
+        stmt = delete(kb_chunks_w).where(kb_chunks_w.c.doc_id == doc_id)
+        engine = self._get_engine()
+        with engine.begin() as conn:
+            result = conn.execute(stmt)
+        return result.rowcount
+
+    def delete_document_record(self, doc_id: UUID) -> bool:
+        """DELETE the kb_documents row for doc_id. Returns True if a row was deleted."""
+
+        stmt = delete(kb_documents_w).where(kb_documents_w.c.doc_id == doc_id)
+        engine = self._get_engine()
+        with engine.begin() as conn:
+            result = conn.execute(stmt)
+        return result.rowcount > 0
+
+    def get_chunk_ids_for_doc(self, doc_id: UUID) -> list[str]:
+        """Return all chunk_ids (as '{doc_id}_chunk_{index}' strings) for a given doc_id.
+
+        These composite IDs match the format stored in Neo4j and pgvector entity_vector_store
+        source_chunk_ids columns.
+        """
+
+        stmt = select(kb_chunks_w.c.doc_id, kb_chunks_w.c.chunk_index).where(
+            kb_chunks_w.c.doc_id == doc_id
+        )
+        engine = self._get_engine()
+        with engine.begin() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [f"{doc_id}_chunk_{row.chunk_index}" for row in rows]
+
+    def delete_opensearch_docs_by_doc_id(self, doc_id: UUID) -> int:
+        """Delete all OpenSearch documents matching doc_id.
+
+        Returns the number of documents deleted. Silently returns 0 if OpenSearch
+        is not configured.
+        """
+
+        if not self._settings.opensearch_endpoint.strip():
+            return 0
+
+        client = self._get_opensearch_client()
+        body = {"query": {"term": {"doc_id": str(doc_id)}}}
+        response = client.delete_by_query(
+            index=self._settings.opensearch_index,
+            body=body,
+        )
+        return int(response.get("deleted", 0))
+
     def get_ingestion_run(self, run_id: UUID) -> dict[str, Any] | None:
         """SELECT a single ingestion run by run_id.
 

@@ -385,3 +385,119 @@ class TestBulkIndexOpensearch:
                 repo.bulk_index_opensearch([chunk], doc_ids={0: override_doc_id})
                 _, actions = mock_helpers.bulk.call_args[0]
                 assert actions[0]["_source"]["doc_id"] == str(override_doc_id)
+
+
+class TestDeleteAllChunksForDoc:
+    def _make_mock_conn_with_rowcount(self, rowcount: int):
+        mock_result = MagicMock()
+        mock_result.rowcount = rowcount
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value = mock_result
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_conn)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+        mock_engine = MagicMock()
+        mock_engine.begin.return_value = mock_ctx
+        return mock_engine, mock_conn
+
+    def test_delete_all_chunks_returns_count(self, repo: IngestionRepository):
+        mock_engine, _ = self._make_mock_conn_with_rowcount(5)
+        doc_id = uuid.uuid4()
+        with patch.object(repo, "_get_engine", return_value=mock_engine):
+            count = repo.delete_all_chunks_for_doc(doc_id)
+            assert count == 5
+
+    def test_delete_all_chunks_zero(self, repo: IngestionRepository):
+        mock_engine, _ = self._make_mock_conn_with_rowcount(0)
+        doc_id = uuid.uuid4()
+        with patch.object(repo, "_get_engine", return_value=mock_engine):
+            count = repo.delete_all_chunks_for_doc(doc_id)
+            assert count == 0
+
+
+class TestDeleteDocumentRecord:
+    def _make_mock_conn_with_rowcount(self, rowcount: int):
+        mock_result = MagicMock()
+        mock_result.rowcount = rowcount
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value = mock_result
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_conn)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+        mock_engine = MagicMock()
+        mock_engine.begin.return_value = mock_ctx
+        return mock_engine, mock_conn
+
+    def test_delete_document_record_true(self, repo: IngestionRepository):
+        mock_engine, _ = self._make_mock_conn_with_rowcount(1)
+        doc_id = uuid.uuid4()
+        with patch.object(repo, "_get_engine", return_value=mock_engine):
+            result = repo.delete_document_record(doc_id)
+            assert result is True
+
+    def test_delete_document_record_false(self, repo: IngestionRepository):
+        mock_engine, _ = self._make_mock_conn_with_rowcount(0)
+        doc_id = uuid.uuid4()
+        with patch.object(repo, "_get_engine", return_value=mock_engine):
+            result = repo.delete_document_record(doc_id)
+            assert result is False
+
+
+class TestGetChunkIdsForDoc:
+    def _make_mock_conn_with_fetchall(self, rows):
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = rows
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value = mock_result
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_conn)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+        mock_engine = MagicMock()
+        mock_engine.begin.return_value = mock_ctx
+        return mock_engine, mock_conn
+
+    def test_get_chunk_ids_for_doc_returns_composite_ids(self, repo: IngestionRepository):
+        doc_id = uuid.uuid4()
+        row0 = MagicMock()
+        row0.chunk_index = 0
+        row1 = MagicMock()
+        row1.chunk_index = 1
+        row2 = MagicMock()
+        row2.chunk_index = 2
+        mock_engine, _ = self._make_mock_conn_with_fetchall([row0, row1, row2])
+        with patch.object(repo, "_get_engine", return_value=mock_engine):
+            ids = repo.get_chunk_ids_for_doc(doc_id)
+            assert ids == [
+                f"{doc_id}_chunk_0",
+                f"{doc_id}_chunk_1",
+                f"{doc_id}_chunk_2",
+            ]
+
+    def test_get_chunk_ids_for_doc_empty(self, repo: IngestionRepository):
+        doc_id = uuid.uuid4()
+        mock_engine, _ = self._make_mock_conn_with_fetchall([])
+        with patch.object(repo, "_get_engine", return_value=mock_engine):
+            ids = repo.get_chunk_ids_for_doc(doc_id)
+            assert ids == []
+
+
+class TestDeleteOpensearchDocsByDocId:
+    def test_delete_opensearch_no_endpoint_returns_zero(self):
+        settings = Settings(
+            RAG_DB_PASSWORD="pass",
+            RAG_OPENSEARCH_ENDPOINT="",
+        )
+        repo = IngestionRepository(settings)
+        doc_id = uuid.uuid4()
+        with patch.object(repo, "_get_opensearch_client") as mock_get_client:
+            count = repo.delete_opensearch_docs_by_doc_id(doc_id)
+            assert count == 0
+            mock_get_client.assert_not_called()
+
+    def test_delete_opensearch_returns_deleted_count(self, repo: IngestionRepository):
+        mock_client = MagicMock()
+        mock_client.delete_by_query.return_value = {"deleted": 3}
+        doc_id = uuid.uuid4()
+        with patch.object(repo, "_get_opensearch_client", return_value=mock_client):
+            count = repo.delete_opensearch_docs_by_doc_id(doc_id)
+            assert count == 3
