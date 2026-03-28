@@ -132,6 +132,20 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="RAG_ENABLE_RERANKING",
     )
+    enable_intent_aware_prompts: bool = Field(
+        default=True,
+        validation_alias="RAG_ENABLE_INTENT_AWARE_PROMPTS",
+    )
+    enable_relevance_scores_in_evidence: bool = Field(
+        default=True,
+        validation_alias="RAG_ENABLE_RELEVANCE_SCORES_IN_EVIDENCE",
+    )
+    answer_evidence_max_chars: int = Field(
+        default=1200,
+        ge=200,
+        le=5000,
+        validation_alias="RAG_ANSWER_EVIDENCE_MAX_CHARS",
+    )
     rerank_candidate_count: int = Field(
         default=20,
         ge=1,

@@ -11,6 +11,61 @@ from .qwen_client import QwenClient
 
 ModelRoute = Literal["nova-lite", "qwen-plus"]
 
+_GENERIC_SYSTEM_PROMPT = (
+    "You are a grounded enterprise RAG assistant. "
+    "Answer ONLY using the provided evidence. "
+    "Do NOT fabricate facts or add information beyond what is given. "
+    "Use citation markers [1], [2], ... that map to evidence entries. "
+    "Structure your response: first summarize the key finding, then provide supporting details with citations."
+)
+
+_INTENT_SYSTEM_PROMPTS: dict[str, str] = {
+    "factual": (
+        "You are a grounded enterprise RAG assistant. "
+        "Answer ONLY using the provided evidence. "
+        "Be precise and concise. "
+        "Cite specific facts with [N] markers. "
+        "If the evidence doesn't contain the answer, say so."
+    ),
+    "analytical": (
+        "You are a grounded enterprise RAG assistant. "
+        "Analyze the evidence to answer this question. "
+        "Structure your response: "
+        "1) Key finding, "
+        "2) Supporting analysis with citations [N], "
+        "3) Caveats or limitations based on available evidence."
+    ),
+    "procedural": (
+        "You are a grounded enterprise RAG assistant. "
+        "Provide step-by-step instructions based on the evidence. "
+        "Number each step clearly. "
+        "Cite the source for each step with [N] markers."
+    ),
+    "comparison": (
+        "You are a grounded enterprise RAG assistant. "
+        "Compare the items using evidence provided. "
+        "Structure as: "
+        "1) Summary of key differences, "
+        "2) Detailed comparison with citations [N], "
+        "3) Recommendation if evidence supports one."
+    ),
+}
+
+
+def _get_intent_system_prompt(intent: str, settings: Settings) -> str:
+    """Return system prompt based on intent and feature flag.
+
+    Args:
+        intent: Detected query intent (factual, analytical, procedural, comparison, other).
+        settings: Runtime settings controlling feature flags.
+
+    Returns:
+        System prompt string appropriate for the intent.
+    """
+    if not settings.enable_intent_aware_prompts:
+        return _GENERIC_SYSTEM_PROMPT
+    return _INTENT_SYSTEM_PROMPTS.get(intent, _GENERIC_SYSTEM_PROMPT)
+
 
 class BedrockConverseAnswerGenerator:
     """Generate grounded answers with Amazon Bedrock Runtime `converse`."""
@@ -21,7 +76,14 @@ class BedrockConverseAnswerGenerator:
         self._settings = settings
         self._client: Any | None = None
 
-    def generate(self, query: str, hits: list[dict[str, Any]]) -> str:
+    def generate(
+        self,
+        query: str,
+        hits: list[dict[str, Any]],
+        intent: str = "factual",
+        complexity: str = "medium",
+        keywords: list[str] | None = None,
+    ) -> str:
         """Generate citation-aware answer text using Bedrock model."""
 
         if not hits:
@@ -29,16 +91,18 @@ class BedrockConverseAnswerGenerator:
                 "I could not find grounded passages for this query in the current knowledge base."
             )
 
-        context_block = _build_context_block(hits)
-        system_prompt = (
-            "You are a grounded enterprise RAG assistant. "
-            "Answer ONLY using the provided evidence. "
-            "Do NOT fabricate facts or add information beyond what is given. "
-            "Use citation markers [1], [2], ... that map to evidence entries. "
-            "Structure your response: first summarize the key finding, then provide supporting details with citations."
+        context_block = _build_context_block(
+            hits,
+            max_chars=self._settings.answer_evidence_max_chars,
+            include_scores=self._settings.enable_relevance_scores_in_evidence,
         )
+        system_prompt = _get_intent_system_prompt(intent, self._settings)
+        keyword_line = ""
+        if keywords:
+            keyword_line = f"Key topics: {', '.join(keywords)}\n"
         user_prompt = (
             f"User query:\n{query}\n\n"
+            f"{keyword_line}"
             f"Evidence:\n{context_block}\n\n"
             "Write a concise answer with clear citation markers."
         )
@@ -79,17 +143,25 @@ class BedrockConverseAnswerGenerator:
 class QwenAnswerGenerator:
     """Generate grounded answers with Qwen chat completions."""
 
-    def __init__(self, qwen_client: QwenClient) -> None:
-        """Store configured Qwen client instance."""
+    def __init__(self, qwen_client: QwenClient, settings: Settings) -> None:
+        """Store configured Qwen client instance and settings."""
 
         self._qwen = qwen_client
+        self._settings = settings
 
     def is_available(self) -> bool:
         """Return whether Qwen generator is available in this environment."""
 
         return self._qwen.is_configured()
 
-    def generate(self, query: str, hits: list[dict[str, Any]]) -> str:
+    def generate(
+        self,
+        query: str,
+        hits: list[dict[str, Any]],
+        intent: str = "factual",
+        complexity: str = "medium",
+        keywords: list[str] | None = None,
+    ) -> str:
         """Generate citation-aware answer text using Qwen."""
 
         if not hits:
@@ -97,18 +169,20 @@ class QwenAnswerGenerator:
                 "I could not find grounded passages for this query in the current knowledge base."
             )
 
-        context_block = _build_context_block(hits)
-        system_prompt = (
-            "You are a grounded enterprise RAG assistant. "
-            "Answer ONLY using the provided evidence. "
-            "Do NOT fabricate facts or add information beyond what is given. "
-            "Use citation markers [1], [2], ... that map to evidence entries. "
-            "Structure your response: first summarize the key finding, then provide supporting details with citations."
+        context_block = _build_context_block(
+            hits,
+            max_chars=self._settings.answer_evidence_max_chars,
+            include_scores=self._settings.enable_relevance_scores_in_evidence,
         )
+        system_prompt = _get_intent_system_prompt(intent, self._settings)
+        keyword_line = ""
+        if keywords:
+            keyword_line = f"Key topics: {', '.join(keywords)}\n"
         user_prompt = (
             f"User query:\n{query}\n\n"
+            f"{keyword_line}"
             f"Evidence:\n{context_block}\n\n"
-            "Write a concise answer with citation markers."
+            "Write a concise answer with clear citation markers."
         )
         answer = self._qwen.chat(system_prompt, user_prompt).strip()
         if not answer:
@@ -134,6 +208,9 @@ class RoutedAnswerGenerator:
         query: str,
         hits: list[dict[str, Any]],
         preferred_model: ModelRoute,
+        intent: str = "factual",
+        complexity: str = "medium",
+        keywords: list[str] | None = None,
     ) -> tuple[str, ModelRoute]:
         """Generate answer using preferred model with automatic fallback.
 
@@ -144,33 +221,77 @@ class RoutedAnswerGenerator:
 
         if preferred_model == "qwen-plus" and self._qwen.is_available():
             try:
-                return self._qwen.generate(query, hits), "qwen-plus"
+                return (
+                    self._qwen.generate(
+                        query, hits, intent=intent, complexity=complexity, keywords=keywords
+                    ),
+                    "qwen-plus",
+                )
             except Exception:
                 # Fallback to Bedrock if Qwen call fails at runtime.
-                return self._bedrock.generate(query, hits), "nova-lite"
+                return (
+                    self._bedrock.generate(
+                        query, hits, intent=intent, complexity=complexity, keywords=keywords
+                    ),
+                    "nova-lite",
+                )
 
         if preferred_model == "nova-lite":
             try:
-                return self._bedrock.generate(query, hits), "nova-lite"
+                return (
+                    self._bedrock.generate(
+                        query, hits, intent=intent, complexity=complexity, keywords=keywords
+                    ),
+                    "nova-lite",
+                )
             except Exception:
                 if self._qwen.is_available():
-                    return self._qwen.generate(query, hits), "qwen-plus"
+                    return (
+                        self._qwen.generate(
+                            query, hits, intent=intent, complexity=complexity, keywords=keywords
+                        ),
+                        "qwen-plus",
+                    )
                 raise
 
         # If Qwen is preferred but unavailable, default to Bedrock.
-        return self._bedrock.generate(query, hits), "nova-lite"
+        return (
+            self._bedrock.generate(
+                query, hits, intent=intent, complexity=complexity, keywords=keywords
+            ),
+            "nova-lite",
+        )
 
 
-def _build_context_block(hits: list[dict[str, Any]]) -> str:
+def _build_context_block(
+    hits: list[dict[str, Any]],
+    max_chars: int = 800,
+    include_scores: bool = False,
+) -> str:
+    """Build formatted evidence context block for answer prompts.
+
+    Args:
+        hits: Retrieved document hits with citation and chunk_text fields.
+        max_chars: Maximum characters to include per evidence chunk.
+        include_scores: When True, include the relevance score in each block.
+
+    Returns:
+        Formatted multi-section string with evidence blocks.
+    """
     sections: list[str] = []
     for index, hit in enumerate(hits, start=1):
         citation = hit["citation"]
+        score_line = ""
+        if include_scores:
+            score = hit.get("score", 0.0)
+            score_line = f"Relevance: {float(score):.3f}\n"
         section = (
             f"--- Evidence [{index}] ---\n"
             f"Title: {citation['title']}\n"
             f"URL: {citation['url']}\n"
             f"Date: {citation['year']}-{citation['month']:02d}\n"
-            f"Content:\n{hit['chunk_text'][:800]}"
+            f"{score_line}"
+            f"Content:\n{hit['chunk_text'][:max_chars]}"
         )
         sections.append(section)
     return "\n\n".join(sections)

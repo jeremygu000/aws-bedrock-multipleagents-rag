@@ -48,7 +48,15 @@ class FakeAnswerGenerator:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[dict], ModelRoute]] = []
 
-    def generate(self, query: str, hits: list[dict], preferred_model: ModelRoute):
+    def generate(
+        self,
+        query: str,
+        hits: list[dict],
+        preferred_model: ModelRoute,
+        intent: str = "factual",
+        complexity: str = "medium",
+        keywords: list[str] | None = None,
+    ):
         self.calls.append((query, hits, preferred_model))
         return ("final-answer", preferred_model)
 

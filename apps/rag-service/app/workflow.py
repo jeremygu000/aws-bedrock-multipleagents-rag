@@ -167,9 +167,15 @@ class RagWorkflow:
         return {"preferred_model": preferred_model}
 
     def _node_generate_answer(self, state: RagWorkflowState) -> RagWorkflowState:
+        hl = state.get("hl_keywords", [])
+        ll = state.get("ll_keywords", [])
+        keywords = list(dict.fromkeys(hl + ll))
         answer, used_model = self._answer_generator.generate(
             query=state["query"],
             hits=state.get("reranked_hits") or state.get("hits", []),
             preferred_model=state.get("preferred_model", "nova-lite"),
+            intent=state.get("intent", "factual"),
+            complexity=state.get("complexity", "medium"),
+            keywords=keywords or None,
         )
         return {"answer": answer, "answer_model": used_model}

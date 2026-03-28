@@ -59,14 +59,14 @@ def test_bedrock_generator_uses_client(monkeypatch) -> None:
 
 def test_routed_generator_prefers_qwen_when_available() -> None:
     class FakeBedrock:
-        def generate(self, query, hits):
+        def generate(self, query, hits, **kwargs):
             return "bedrock"
 
     class FakeQwen:
         def is_available(self):
             return True
 
-        def generate(self, query, hits):
+        def generate(self, query, hits, **kwargs):
             return "qwen"
 
     router = RoutedAnswerGenerator(FakeBedrock(), FakeQwen())
@@ -77,14 +77,14 @@ def test_routed_generator_prefers_qwen_when_available() -> None:
 
 def test_routed_generator_fallback_qwen_to_bedrock() -> None:
     class FakeBedrock:
-        def generate(self, query, hits):
+        def generate(self, query, hits, **kwargs):
             return "bedrock-fallback"
 
     class FakeQwen:
         def is_available(self):
             return True
 
-        def generate(self, query, hits):
+        def generate(self, query, hits, **kwargs):
             raise RuntimeError("qwen failed")
 
     router = RoutedAnswerGenerator(FakeBedrock(), FakeQwen())
@@ -101,7 +101,7 @@ def test_qwen_answer_generator_returns_default_when_no_hits() -> None:
         def chat(self, system_prompt: str, user_prompt: str) -> str:
             return "unused"
 
-    generator = QwenAnswerGenerator(FakeQwenClient())
+    generator = QwenAnswerGenerator(FakeQwenClient(), Settings())
     answer = generator.generate("q", [])
     assert "could not find grounded passages" in answer.lower()
 
@@ -115,5 +115,5 @@ def test_qwen_answer_generator_calls_client() -> None:
             assert "Evidence" in user_prompt
             return "qwen-answer"
 
-    generator = QwenAnswerGenerator(FakeQwenClient())
+    generator = QwenAnswerGenerator(FakeQwenClient(), Settings())
     assert generator.generate("q", _sample_hits()) == "qwen-answer"

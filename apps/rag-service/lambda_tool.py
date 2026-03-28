@@ -28,7 +28,7 @@ qwen_client = QwenClient(settings)
 query_processor = QueryProcessor(settings=settings, qwen_client=qwen_client)
 answer_generator = RoutedAnswerGenerator(
     bedrock_generator=BedrockConverseAnswerGenerator(settings),
-    qwen_generator=QwenAnswerGenerator(qwen_client),
+    qwen_generator=QwenAnswerGenerator(qwen_client, settings),
 )
 reranker = LLMReranker(settings=settings, qwen_client=qwen_client)
 workflow = RagWorkflow(
