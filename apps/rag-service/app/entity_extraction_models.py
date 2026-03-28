@@ -59,12 +59,17 @@ class ExtractedEntity(BaseModel):
         default=None,
         description="Deduplication key (e.g., normalized name or ID)",
     )
+    description: str = Field(default="", description="Entity description from extraction context")
     aliases: list[str] = Field(default_factory=list, description="Alternative names or spellings")
     mentions: list[Mention] = Field(
         default_factory=list,
         description="Surface mentions with character offsets",
     )
     confidence: float = Field(ge=0.0, le=1.0, description="Extraction confidence score")
+    source_chunk_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs of chunks this entity was extracted from (for provenance tracking)",
+    )
 
 
 class ExtractedRelation(BaseModel):
@@ -75,6 +80,11 @@ class ExtractedRelation(BaseModel):
     target_entity_id: str = Field(description="entity_id of the target entity")
     evidence: str = Field(default="", description="Supporting text snippet from the source")
     confidence: float = Field(ge=0.0, le=1.0, description="Extraction confidence score")
+    weight: float = Field(default=1.0, ge=0.0, description="Accumulated weight from merges")
+    source_chunk_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs of chunks this relation was extracted from (for provenance tracking)",
+    )
 
 
 class ChunkExtractionResult(BaseModel):

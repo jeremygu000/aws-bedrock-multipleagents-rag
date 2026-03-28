@@ -4,7 +4,12 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
-from app.entity_extraction import EntityExtractor
+from app.entity_extraction import (
+    EntityDeduplicator,
+    EntityExtractor,
+    _entity_dedup_key,
+    _estimate_token_count,
+)
 from app.entity_extraction_models import (
     ChunkExtractionResult,
     EntityType,
@@ -313,3 +318,597 @@ class TestConfigFlag:
 
         settings = Settings()
         assert settings.entity_extraction_max_retries == 1
+
+    def test_entity_summary_max_tokens_default(self) -> None:
+        from app.config import Settings
+
+        settings = Settings()
+        assert settings.entity_summary_max_tokens == 500
+
+
+# ── Helpers for Phase 2.2 tests ──────────────────────────────────────────
+
+
+def _make_entity(
+    entity_id: str = "e1",
+    name: str = "John Smith",
+    entity_type: EntityType = EntityType.PERSON,
+    canonical_key: str | None = "john_smith",
+    aliases: list[str] | None = None,
+    mentions: list[Mention] | None = None,
+    confidence: float = 0.9,
+    description: str = "",
+    source_chunk_ids: list[str] | None = None,
+) -> ExtractedEntity:
+    """Create an ExtractedEntity with sensible defaults for testing."""
+    return ExtractedEntity(
+        entity_id=entity_id,
+        type=entity_type,
+        name=name,
+        canonical_key=canonical_key,
+        aliases=aliases or [],
+        mentions=mentions or [],
+        confidence=confidence,
+        description=description,
+        source_chunk_ids=source_chunk_ids or [],
+    )
+
+
+def _make_relation(
+    rel_type: RelationType = RelationType.WROTE,
+    source_entity_id: str = "e1",
+    target_entity_id: str = "e2",
+    evidence: str = "evidence text",
+    confidence: float = 0.85,
+    weight: float = 1.0,
+    source_chunk_ids: list[str] | None = None,
+) -> ExtractedRelation:
+    """Create an ExtractedRelation with sensible defaults for testing."""
+    return ExtractedRelation(
+        type=rel_type,
+        source_entity_id=source_entity_id,
+        target_entity_id=target_entity_id,
+        evidence=evidence,
+        confidence=confidence,
+        weight=weight,
+        source_chunk_ids=source_chunk_ids or [],
+    )
+
+
+def _make_chunk_result(
+    chunk_id: str,
+    entities: list[ExtractedEntity],
+    relations: list[ExtractedRelation] | None = None,
+) -> ChunkExtractionResult:
+    """Create a ChunkExtractionResult, bypassing the relation endpoint validator."""
+    # Use model_construct to skip relation endpoint validation since we may
+    # reference entity IDs from other chunks
+    return ChunkExtractionResult.model_construct(
+        chunk_id=chunk_id,
+        entities=entities,
+        relations=relations or [],
+    )
+
+
+# ── Helper function unit tests ───────────────────────────────────────────
+
+
+class TestEntityDedupKey:
+    """Tests for _entity_dedup_key helper."""
+
+    def test_uses_canonical_key_when_present(self) -> None:
+        entity = _make_entity(canonical_key="john_smith")
+        assert _entity_dedup_key(entity) == "john_smith"
+
+    def test_falls_back_to_lowercase_name(self) -> None:
+        entity = _make_entity(name="John Smith", canonical_key=None)
+        assert _entity_dedup_key(entity) == "john smith"
+
+    def test_empty_canonical_key_falls_back(self) -> None:
+        """Empty string canonical_key is falsy, should fall back to name.lower()."""
+        entity = _make_entity(name="ACME Corp", canonical_key="")
+        assert _entity_dedup_key(entity) == "acme corp"
+
+
+class TestEstimateTokenCount:
+    """Tests for _estimate_token_count helper."""
+
+    def test_empty_string(self) -> None:
+        assert _estimate_token_count("") == 0
+
+    def test_short_text(self) -> None:
+        # "hello" = 5 chars → 5 // 4 = 1
+        assert _estimate_token_count("hello") == 1
+
+    def test_longer_text(self) -> None:
+        text = "a" * 400
+        assert _estimate_token_count(text) == 100
+
+
+# ── EntityDeduplicator.merge_entities tests ──────────────────────────────
+
+
+class TestMergeEntities:
+    """Tests for EntityDeduplicator.merge_entities()."""
+
+    def test_single_chunk_no_dedup(self) -> None:
+        """Entities from a single chunk should pass through unchanged."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+        e1 = _make_entity(entity_id="e1", name="Alice", canonical_key="alice")
+        e2 = _make_entity(entity_id="e2", name="Bob", canonical_key="bob")
+        chunk = _make_chunk_result("c1", [e1, e2])
+
+        merged = dedup.merge_entities([chunk])
+
+        assert len(merged) == 2
+        names = {e.name for e in merged}
+        assert names == {"Alice", "Bob"}
+
+    def test_dedup_by_canonical_key(self) -> None:
+        """Same canonical_key across chunks → merged into one entity."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(
+            entity_id="e1",
+            name="John Smith",
+            canonical_key="john_smith",
+            confidence=0.8,
+            description="A songwriter",
+        )
+        e2 = _make_entity(
+            entity_id="e2",
+            name="J. Smith",
+            canonical_key="john_smith",
+            confidence=0.95,
+            description="An artist",
+        )
+        chunk1 = _make_chunk_result("c1", [e1])
+        chunk2 = _make_chunk_result("c2", [e2])
+
+        merged = dedup.merge_entities([chunk1, chunk2])
+
+        assert len(merged) == 1
+        entity = merged[0]
+        # Should keep the base name (first seen)
+        assert entity.name == "John Smith"
+        # Should take the best confidence
+        assert entity.confidence == 0.95
+        # "J. Smith" should be an alias (different from base name)
+        assert "J. Smith" in entity.aliases
+        # Both chunk IDs tracked
+        assert "c1" in entity.source_chunk_ids
+        assert "c2" in entity.source_chunk_ids
+
+    def test_dedup_by_lowercase_name_fallback(self) -> None:
+        """When canonical_key is None, dedup falls back to name.lower()."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(entity_id="e1", name="APRA AMCOS", canonical_key=None, confidence=0.7)
+        e2 = _make_entity(entity_id="e2", name="apra amcos", canonical_key=None, confidence=0.9)
+        chunk1 = _make_chunk_result("c1", [e1])
+        chunk2 = _make_chunk_result("c2", [e2])
+
+        merged = dedup.merge_entities([chunk1, chunk2])
+
+        assert len(merged) == 1
+        assert merged[0].confidence == 0.9
+
+    def test_no_duplicate_aliases(self) -> None:
+        """Base entity name should not appear in aliases."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(
+            entity_id="e1", name="John Smith", canonical_key="john_smith", aliases=["Johnny"]
+        )
+        e2 = _make_entity(
+            entity_id="e2", name="John Smith", canonical_key="john_smith", aliases=["JS"]
+        )
+        chunk1 = _make_chunk_result("c1", [e1])
+        chunk2 = _make_chunk_result("c2", [e2])
+
+        merged = dedup.merge_entities([chunk1, chunk2])
+
+        entity = merged[0]
+        # "John Smith" should not be in aliases (it's the name)
+        assert "John Smith" not in entity.aliases
+        # Both alias sets should be merged
+        assert "Johnny" in entity.aliases
+        assert "JS" in entity.aliases
+
+    def test_mentions_aggregated(self) -> None:
+        """All mentions from duplicate entities are combined."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        m1 = Mention(text="John Smith", start=0, end=10)
+        m2 = Mention(text="J. Smith", start=5, end=13)
+        e1 = _make_entity(
+            entity_id="e1", name="John Smith", canonical_key="john_smith", mentions=[m1]
+        )
+        e2 = _make_entity(
+            entity_id="e2", name="J. Smith", canonical_key="john_smith", mentions=[m2]
+        )
+        chunk1 = _make_chunk_result("c1", [e1])
+        chunk2 = _make_chunk_result("c2", [e2])
+
+        merged = dedup.merge_entities([chunk1, chunk2])
+
+        assert len(merged[0].mentions) == 2
+
+    def test_source_chunk_ids_stamped_from_chunk_result(self) -> None:
+        """When entity has no source_chunk_ids, they are stamped from chunk_result.chunk_id."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(entity_id="e1", name="Alice", canonical_key="alice", source_chunk_ids=[])
+        chunk1 = _make_chunk_result("c1", [e1])
+
+        merged = dedup.merge_entities([chunk1])
+
+        assert merged[0].source_chunk_ids == ["c1"]
+
+    def test_source_chunk_ids_preserved_if_already_set(self) -> None:
+        """When entity already has source_chunk_ids, they are preserved (not overwritten)."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(
+            entity_id="e1",
+            name="Alice",
+            canonical_key="alice",
+            source_chunk_ids=["original-chunk"],
+        )
+        chunk1 = _make_chunk_result("c1", [e1])
+
+        merged = dedup.merge_entities([chunk1])
+
+        assert merged[0].source_chunk_ids == ["original-chunk"]
+
+    def test_empty_input(self) -> None:
+        """No chunks → no merged entities."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        merged = dedup.merge_entities([])
+
+        assert merged == []
+
+    def test_distinct_entities_not_merged(self) -> None:
+        """Entities with different keys remain separate."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(entity_id="e1", name="Alice", canonical_key="alice")
+        e2 = _make_entity(entity_id="e2", name="Bob", canonical_key="bob")
+        chunk1 = _make_chunk_result("c1", [e1])
+        chunk2 = _make_chunk_result("c2", [e2])
+
+        merged = dedup.merge_entities([chunk1, chunk2])
+
+        assert len(merged) == 2
+
+    def test_three_way_merge(self) -> None:
+        """Three occurrences of the same entity across three chunks merge correctly."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(entity_id="e1", name="APRA", canonical_key="apra", confidence=0.7)
+        e2 = _make_entity(entity_id="e2", name="APRA Corp", canonical_key="apra", confidence=0.8)
+        e3 = _make_entity(entity_id="e3", name="APRA Ltd", canonical_key="apra", confidence=0.9)
+        c1 = _make_chunk_result("c1", [e1])
+        c2 = _make_chunk_result("c2", [e2])
+        c3 = _make_chunk_result("c3", [e3])
+
+        merged = dedup.merge_entities([c1, c2, c3])
+
+        assert len(merged) == 1
+        entity = merged[0]
+        assert entity.confidence == 0.9
+        assert len(entity.source_chunk_ids) == 3
+        # "APRA Corp" and "APRA Ltd" should be aliases (different from base "APRA")
+        assert "APRA Corp" in entity.aliases
+        assert "APRA Ltd" in entity.aliases
+
+
+# ── EntityDeduplicator._merge_descriptions tests ────────────────────────
+
+
+class TestMergeDescriptions:
+    """Tests for EntityDeduplicator._merge_descriptions()."""
+
+    def test_empty_descriptions(self) -> None:
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+        assert dedup._merge_descriptions([], "entity", "Person") == ""
+
+    def test_single_description(self) -> None:
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+        assert dedup._merge_descriptions(["A songwriter"], "John", "Person") == "A songwriter"
+
+    def test_short_descriptions_returns_longest(self) -> None:
+        """When combined is under token threshold, return the longest description."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock, summary_max_tokens=500)
+
+        descriptions = ["Short desc", "A longer description with more detail"]
+        result = dedup._merge_descriptions(descriptions, "Entity", "Person")
+
+        # Should return the longest
+        assert result == "A longer description with more detail"
+        # LLM should NOT be called
+        mock.chat.assert_not_called()
+
+    def test_long_descriptions_triggers_llm_summarization(self) -> None:
+        """When combined descriptions exceed token threshold, LLM summarization is triggered."""
+        mock = _make_qwen_mock("Consolidated summary of the entity.")
+        # Set very low threshold to force LLM path
+        dedup = EntityDeduplicator(mock, summary_max_tokens=5)
+
+        descriptions = [
+            "A famous songwriter from England known for many hits.",
+            "An award-winning musician with decades of experience in the industry.",
+        ]
+        result = dedup._merge_descriptions(descriptions, "John Smith", "Person")
+
+        assert result == "Consolidated summary of the entity."
+        mock.chat.assert_called_once()
+        # Verify the prompt includes entity name and type
+        call_args = mock.chat.call_args
+        assert "John Smith" in call_args[0][1]  # user prompt
+        assert "Person" in call_args[0][1]
+
+    def test_llm_failure_falls_back_to_longest(self) -> None:
+        """When LLM summarization fails, fallback to the longest description."""
+        mock = MagicMock()
+        mock.chat.side_effect = RuntimeError("API error")
+        dedup = EntityDeduplicator(mock, summary_max_tokens=5)
+
+        descriptions = [
+            "Short.",
+            "A much longer description that should be returned as fallback.",
+        ]
+        result = dedup._merge_descriptions(descriptions, "Entity", "Person")
+
+        assert result == "A much longer description that should be returned as fallback."
+
+    def test_duplicate_descriptions_not_repeated(self) -> None:
+        """Duplicate descriptions from merge_entities flow are filtered before merge."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock, summary_max_tokens=500)
+
+        descriptions = ["Same desc", "Different desc"]
+        result = dedup._merge_descriptions(descriptions, "E", "Person")
+
+        assert result == "Different desc"  # longer one
+
+
+# ── EntityDeduplicator.merge_relations tests ─────────────────────────────
+
+
+class TestMergeRelations:
+    """Tests for EntityDeduplicator.merge_relations()."""
+
+    def test_single_relation_no_dedup(self) -> None:
+        """A single relation passes through with entity ID remapping."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(entity_id="e1", name="John", canonical_key="john")
+        e2 = _make_entity(
+            entity_id="e2", name="Yesterday", canonical_key="yesterday", entity_type=EntityType.WORK
+        )
+        rel = _make_relation(
+            source_entity_id="e1", target_entity_id="e2", evidence="John wrote Yesterday"
+        )
+        chunk = _make_chunk_result("c1", [e1, e2], [rel])
+
+        # Merged entities have new IDs
+        merged_e1 = _make_entity(entity_id="merged_e1", name="John", canonical_key="john")
+        merged_e2 = _make_entity(
+            entity_id="merged_e2",
+            name="Yesterday",
+            canonical_key="yesterday",
+            entity_type=EntityType.WORK,
+        )
+
+        merged_rels = dedup.merge_relations([chunk], [merged_e1, merged_e2])
+
+        assert len(merged_rels) == 1
+        # Entity IDs should be remapped to merged entity IDs
+        assert merged_rels[0].source_entity_id == "merged_e1"
+        assert merged_rels[0].target_entity_id == "merged_e2"
+
+    def test_duplicate_relations_merged(self) -> None:
+        """Same relation across two chunks → merged with accumulated weight and evidence."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(entity_id="e1", name="John", canonical_key="john")
+        e2 = _make_entity(
+            entity_id="e2", name="Song A", canonical_key="song_a", entity_type=EntityType.WORK
+        )
+        rel1 = _make_relation(
+            source_entity_id="e1",
+            target_entity_id="e2",
+            evidence="Evidence from chunk 1",
+            confidence=0.8,
+        )
+
+        e3 = _make_entity(entity_id="e3", name="John", canonical_key="john")
+        e4 = _make_entity(
+            entity_id="e4", name="Song A", canonical_key="song_a", entity_type=EntityType.WORK
+        )
+        rel2 = _make_relation(
+            source_entity_id="e3",
+            target_entity_id="e4",
+            evidence="Evidence from chunk 2",
+            confidence=0.95,
+        )
+
+        chunk1 = _make_chunk_result("c1", [e1, e2], [rel1])
+        chunk2 = _make_chunk_result("c2", [e3, e4], [rel2])
+
+        merged_e1 = _make_entity(entity_id="m_e1", name="John", canonical_key="john")
+        merged_e2 = _make_entity(
+            entity_id="m_e2", name="Song A", canonical_key="song_a", entity_type=EntityType.WORK
+        )
+
+        merged_rels = dedup.merge_relations([chunk1, chunk2], [merged_e1, merged_e2])
+
+        assert len(merged_rels) == 1
+        rel = merged_rels[0]
+        # Weight = number of occurrences
+        assert rel.weight == 2.0
+        # Best confidence kept
+        assert rel.confidence == 0.95
+        # Evidence joined with pipe separator
+        assert "Evidence from chunk 1" in rel.evidence
+        assert "Evidence from chunk 2" in rel.evidence
+        assert " | " in rel.evidence
+        # Both chunks tracked
+        assert "c1" in rel.source_chunk_ids
+        assert "c2" in rel.source_chunk_ids
+
+    def test_distinct_relations_not_merged(self) -> None:
+        """Relations with different (source, target, type) remain separate."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(entity_id="e1", name="John", canonical_key="john")
+        e2 = _make_entity(
+            entity_id="e2", name="Song A", canonical_key="song_a", entity_type=EntityType.WORK
+        )
+        e3 = _make_entity(
+            entity_id="e3", name="Song B", canonical_key="song_b", entity_type=EntityType.WORK
+        )
+
+        rel1 = _make_relation(source_entity_id="e1", target_entity_id="e2")
+        rel2 = _make_relation(source_entity_id="e1", target_entity_id="e3")
+
+        chunk = _make_chunk_result("c1", [e1, e2, e3], [rel1, rel2])
+
+        merged_rels = dedup.merge_relations([chunk], [e1, e2, e3])
+
+        assert len(merged_rels) == 2
+
+    def test_different_relation_types_not_merged(self) -> None:
+        """Same endpoints but different types → separate relations."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(entity_id="e1", name="John", canonical_key="john")
+        e2 = _make_entity(
+            entity_id="e2", name="Song A", canonical_key="song_a", entity_type=EntityType.WORK
+        )
+
+        rel1 = _make_relation(
+            source_entity_id="e1", target_entity_id="e2", rel_type=RelationType.WROTE
+        )
+        rel2 = _make_relation(
+            source_entity_id="e1", target_entity_id="e2", rel_type=RelationType.PERFORMED_BY
+        )
+
+        chunk = _make_chunk_result("c1", [e1, e2], [rel1, rel2])
+
+        merged_rels = dedup.merge_relations([chunk], [e1, e2])
+
+        assert len(merged_rels) == 2
+
+    def test_empty_input(self) -> None:
+        """No chunks → no merged relations."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        merged_rels = dedup.merge_relations([], [])
+
+        assert merged_rels == []
+
+    def test_entity_id_remapping_across_chunks(self) -> None:
+        """Entity IDs in relations should be remapped to the merged entity set."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        # Chunk 1: e1 → e2 (WROTE)
+        e1_c1 = _make_entity(entity_id="c1_e1", name="Alice", canonical_key="alice")
+        e2_c1 = _make_entity(
+            entity_id="c1_e2", name="Work X", canonical_key="work_x", entity_type=EntityType.WORK
+        )
+        rel_c1 = _make_relation(
+            source_entity_id="c1_e1", target_entity_id="c1_e2", evidence="Alice wrote Work X"
+        )
+
+        # Chunk 2: e1 → e2 (WROTE) — same entities, different IDs
+        e1_c2 = _make_entity(entity_id="c2_e1", name="Alice", canonical_key="alice")
+        e2_c2 = _make_entity(
+            entity_id="c2_e2", name="Work X", canonical_key="work_x", entity_type=EntityType.WORK
+        )
+        rel_c2 = _make_relation(
+            source_entity_id="c2_e1", target_entity_id="c2_e2", evidence="Alice authored Work X"
+        )
+
+        chunk1 = _make_chunk_result("c1", [e1_c1, e2_c1], [rel_c1])
+        chunk2 = _make_chunk_result("c2", [e1_c2, e2_c2], [rel_c2])
+
+        # Merged entities (from merge_entities step)
+        merged_alice = _make_entity(entity_id="merged_alice", name="Alice", canonical_key="alice")
+        merged_work = _make_entity(
+            entity_id="merged_work",
+            name="Work X",
+            canonical_key="work_x",
+            entity_type=EntityType.WORK,
+        )
+
+        merged_rels = dedup.merge_relations([chunk1, chunk2], [merged_alice, merged_work])
+
+        assert len(merged_rels) == 1
+        rel = merged_rels[0]
+        assert rel.source_entity_id == "merged_alice"
+        assert rel.target_entity_id == "merged_work"
+        assert rel.weight == 2.0
+
+    def test_duplicate_evidence_not_repeated(self) -> None:
+        """Identical evidence strings should not be duplicated in merged evidence."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(entity_id="e1", name="John", canonical_key="john")
+        e2 = _make_entity(
+            entity_id="e2", name="Song", canonical_key="song", entity_type=EntityType.WORK
+        )
+
+        # Same evidence string from two chunks
+        rel1 = _make_relation(
+            source_entity_id="e1", target_entity_id="e2", evidence="John wrote Song"
+        )
+        rel2 = _make_relation(
+            source_entity_id="e1", target_entity_id="e2", evidence="John wrote Song"
+        )
+
+        chunk1 = _make_chunk_result("c1", [e1, e2], [rel1])
+        chunk2 = _make_chunk_result("c2", [e1, e2], [rel2])
+
+        merged_rels = dedup.merge_relations([chunk1, chunk2], [e1, e2])
+
+        assert len(merged_rels) == 1
+        # Evidence should appear only once (deduped)
+        assert merged_rels[0].evidence == "John wrote Song"
+        assert " | " not in merged_rels[0].evidence
+
+    def test_source_chunk_ids_on_single_relation(self) -> None:
+        """Single relation should get chunk_id stamped if source_chunk_ids is empty."""
+        mock = _make_qwen_mock()
+        dedup = EntityDeduplicator(mock)
+
+        e1 = _make_entity(entity_id="e1", name="A", canonical_key="a")
+        e2 = _make_entity(entity_id="e2", name="B", canonical_key="b", entity_type=EntityType.WORK)
+        rel = _make_relation(source_entity_id="e1", target_entity_id="e2", source_chunk_ids=[])
+
+        chunk = _make_chunk_result("c1", [e1, e2], [rel])
+        merged_rels = dedup.merge_relations([chunk], [e1, e2])
+
+        assert merged_rels[0].source_chunk_ids == ["c1"]

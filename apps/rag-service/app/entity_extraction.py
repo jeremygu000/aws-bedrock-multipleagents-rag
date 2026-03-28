@@ -21,10 +21,13 @@ from .entity_extraction_models import (
     ChunkExtractionResult,
     EntityType,
     ExtractedEntity,
+    ExtractedRelation,
     ExtractionTrace,
     Mention,
 )
 from .prompts import (
+    ENTITY_DESCRIPTION_SUMMARIZE_SYSTEM_PROMPT,
+    ENTITY_DESCRIPTION_SUMMARIZE_USER_PROMPT_TEMPLATE,
     ENTITY_EXTRACTION_SYSTEM_PROMPT,
     ENTITY_EXTRACTION_USER_PROMPT_TEMPLATE,
     JSON_REPAIR_SYSTEM_PROMPT,
@@ -208,5 +211,256 @@ class EntityExtractor:
             key = rule_entity.canonical_key or rule_entity.name.lower()
             if key not in llm_keys:
                 merged.append(rule_entity)
+
+        return merged
+
+
+def _entity_dedup_key(entity: ExtractedEntity) -> str:
+    """Compute the deduplication key for an entity.
+
+    Uses canonical_key if available, otherwise falls back to lowercase name.
+    """
+    return entity.canonical_key if entity.canonical_key else entity.name.lower()
+
+
+def _estimate_token_count(text: str) -> int:
+    """Rough token count estimation (~4 chars per token for English text)."""
+    return len(text) // 4
+
+
+class EntityDeduplicator:
+    """Cross-chunk entity and relation deduplication with LLM-assisted description merging.
+
+    Merges entities from multiple chunk extraction results into a unified set,
+    deduplicating by canonical_key (or normalized name). When merged descriptions
+    exceed a token threshold, uses LLM to summarize them.
+    """
+
+    def __init__(self, qwen_client: QwenClient, summary_max_tokens: int = 500) -> None:
+        """Initialize the deduplicator.
+
+        Args:
+            qwen_client: Qwen client for LLM description summarization.
+            summary_max_tokens: Token threshold above which merged descriptions
+                are summarized by LLM instead of simple concatenation.
+        """
+        self._qwen = qwen_client
+        self._summary_max_tokens = summary_max_tokens
+
+    def merge_entities(
+        self,
+        chunk_results: list[ChunkExtractionResult],
+    ) -> list[ExtractedEntity]:
+        """Merge entities across multiple chunk extraction results.
+
+        Deduplication strategy:
+        1. Group entities by dedup key (canonical_key or name.lower())
+        2. For each group, merge into a single entity:
+           - Keep the highest confidence score
+           - Union all aliases and mentions
+           - Track all source chunk IDs
+           - Merge descriptions: keep longer if under token limit, else LLM summarize
+
+        Args:
+            chunk_results: Extraction results from multiple chunks of the same document.
+
+        Returns:
+            Deduplicated list of merged entities.
+        """
+        groups: dict[str, list[ExtractedEntity]] = {}
+
+        for result in chunk_results:
+            for entity in result.entities:
+                key = _entity_dedup_key(entity)
+                if key not in groups:
+                    groups[key] = []
+                # Stamp source_chunk_ids if not already set
+                if not entity.source_chunk_ids:
+                    entity = entity.model_copy(update={"source_chunk_ids": [result.chunk_id]})
+                groups[key].append(entity)
+
+        merged: list[ExtractedEntity] = []
+        for _key, group in groups.items():
+            if len(group) == 1:
+                merged.append(group[0])
+                continue
+            merged.append(self._merge_entity_group(group))
+
+        return merged
+
+    def _merge_entity_group(self, group: list[ExtractedEntity]) -> ExtractedEntity:
+        """Merge a group of duplicate entities into one consolidated entity.
+
+        Uses the first entity as the base, then folds in data from subsequent entities.
+        """
+        base = group[0]
+        all_aliases: set[str] = set(base.aliases)
+        all_mentions: list[Mention] = list(base.mentions)
+        all_chunk_ids: list[str] = list(base.source_chunk_ids)
+        descriptions: list[str] = [base.description] if base.description else []
+        best_confidence = base.confidence
+
+        for entity in group[1:]:
+            all_aliases.update(entity.aliases)
+            # Add name as alias if different from base name
+            if entity.name.lower() != base.name.lower():
+                all_aliases.add(entity.name)
+            all_mentions.extend(entity.mentions)
+            for cid in entity.source_chunk_ids:
+                if cid not in all_chunk_ids:
+                    all_chunk_ids.append(cid)
+            if entity.description and entity.description not in descriptions:
+                descriptions.append(entity.description)
+            best_confidence = max(best_confidence, entity.confidence)
+
+        all_aliases.discard(base.name)
+
+        merged_description = self._merge_descriptions(
+            descriptions, entity_name=base.name, entity_type=base.type.value
+        )
+
+        return base.model_copy(
+            update={
+                "aliases": sorted(all_aliases),
+                "mentions": all_mentions,
+                "source_chunk_ids": all_chunk_ids,
+                "description": merged_description,
+                "confidence": best_confidence,
+            }
+        )
+
+    def _merge_descriptions(
+        self,
+        descriptions: list[str],
+        entity_name: str,
+        entity_type: str,
+    ) -> str:
+        """Merge multiple descriptions, using LLM summarization if needed.
+
+        If combined descriptions are under the token threshold, returns the longest one.
+        Otherwise, asks the LLM to consolidate them into a single coherent summary.
+        """
+        if not descriptions:
+            return ""
+        if len(descriptions) == 1:
+            return descriptions[0]
+
+        combined = "\n".join(descriptions)
+        if _estimate_token_count(combined) <= self._summary_max_tokens:
+            return max(descriptions, key=len)
+
+        try:
+            numbered = "\n".join(f"- {d}" for d in descriptions)
+            user_prompt = ENTITY_DESCRIPTION_SUMMARIZE_USER_PROMPT_TEMPLATE.format(
+                entity_name=entity_name,
+                entity_type=entity_type,
+                descriptions=numbered,
+            )
+            summary = self._qwen.chat(ENTITY_DESCRIPTION_SUMMARIZE_SYSTEM_PROMPT, user_prompt)
+            return summary.strip()
+        except Exception as exc:
+            logger.warning(
+                "LLM description summarization failed for entity '%s': %s",
+                entity_name,
+                exc,
+            )
+            return max(descriptions, key=len)
+
+    def merge_relations(
+        self,
+        chunk_results: list[ChunkExtractionResult],
+        merged_entities: list[ExtractedEntity],
+    ) -> list[ExtractedRelation]:
+        """Merge relations across multiple chunk extraction results.
+
+        Deduplication strategy:
+        1. Resolve entity IDs to entity names (for stable cross-chunk matching)
+        2. Group relations by (source_name, target_name, type)
+        3. For each group, merge into a single relation:
+           - Accumulate weight (count of occurrences)
+           - Keep the highest confidence score
+           - Merge evidence strings
+           - Track all source chunk IDs
+
+        Args:
+            chunk_results: Extraction results from multiple chunks.
+            merged_entities: The deduplicated entity list (for ID→name resolution).
+
+        Returns:
+            Deduplicated list of merged relations.
+        """
+        # Build entity_id → name lookup per chunk for ID resolution
+        entity_id_to_name: dict[str, str] = {}
+        for result in chunk_results:
+            for entity in result.entities:
+                entity_id_to_name[entity.entity_id] = entity.name.lower()
+
+        # Build merged entity name → entity_id lookup for re-mapping
+        merged_name_to_id: dict[str, str] = {}
+        for entity in merged_entities:
+            merged_name_to_id[entity.name.lower()] = entity.entity_id
+            if entity.canonical_key:
+                merged_name_to_id[entity.canonical_key] = entity.entity_id
+
+        # Group relations by (source_name, target_name, type)
+        groups: dict[tuple[str, str, str], list[tuple[ExtractedRelation, str]]] = {}
+
+        for result in chunk_results:
+            for rel in result.relations:
+                src_name = entity_id_to_name.get(rel.source_entity_id, rel.source_entity_id)
+                tgt_name = entity_id_to_name.get(rel.target_entity_id, rel.target_entity_id)
+                group_key = (src_name, tgt_name, rel.type.value)
+                if group_key not in groups:
+                    groups[group_key] = []
+                groups[group_key].append((rel, result.chunk_id))
+
+        merged: list[ExtractedRelation] = []
+        for (src_name, tgt_name, _rel_type), group in groups.items():
+            base_rel, base_chunk_id = group[0]
+
+            # Re-map entity IDs to merged entity IDs
+            new_source_id = merged_name_to_id.get(src_name, base_rel.source_entity_id)
+            new_target_id = merged_name_to_id.get(tgt_name, base_rel.target_entity_id)
+
+            if len(group) == 1:
+                source_chunks = base_rel.source_chunk_ids or [base_chunk_id]
+                merged.append(
+                    base_rel.model_copy(
+                        update={
+                            "source_entity_id": new_source_id,
+                            "target_entity_id": new_target_id,
+                            "source_chunk_ids": source_chunks,
+                        }
+                    )
+                )
+                continue
+
+            # Merge multiple occurrences
+            all_evidence: list[str] = []
+            all_chunk_ids: list[str] = []
+            best_confidence = 0.0
+
+            for rel, chunk_id in group:
+                if rel.evidence and rel.evidence not in all_evidence:
+                    all_evidence.append(rel.evidence)
+                if chunk_id not in all_chunk_ids:
+                    all_chunk_ids.append(chunk_id)
+                for cid in rel.source_chunk_ids:
+                    if cid not in all_chunk_ids:
+                        all_chunk_ids.append(cid)
+                best_confidence = max(best_confidence, rel.confidence)
+
+            merged.append(
+                base_rel.model_copy(
+                    update={
+                        "source_entity_id": new_source_id,
+                        "target_entity_id": new_target_id,
+                        "evidence": " | ".join(all_evidence) if all_evidence else "",
+                        "confidence": best_confidence,
+                        "weight": float(len(group)),
+                        "source_chunk_ids": all_chunk_ids,
+                    }
+                )
+            )
 
         return merged

@@ -73,3 +73,22 @@ Valid entity types: Work, Person, Organization, Identifier, Territory, LicenseTe
 Valid relation types: WROTE, PERFORMED_BY, PUBLISHED_BY, HAS_IDENTIFIER, VALID_IN_TERRITORY, HAS_TERM, REFERENCES
 
 Return the corrected JSON only."""
+
+# --- Phase 2.2: Entity Dedup & Merge prompts ---
+
+ENTITY_DESCRIPTION_SUMMARIZE_SYSTEM_PROMPT = """\
+You are a precise information consolidation engine.
+Combine the provided entity descriptions into a single, concise summary.
+Return ONLY the consolidated description text. No markdown, no extra explanation."""
+
+ENTITY_DESCRIPTION_SUMMARIZE_USER_PROMPT_TEMPLATE = """\
+Entity name: {entity_name}
+Entity type: {entity_type}
+
+The following descriptions of this entity were extracted from different document chunks.
+Merge them into a single coherent description, preserving all unique facts and removing redundancy.
+
+Descriptions:
+{descriptions}
+
+Consolidated description:"""

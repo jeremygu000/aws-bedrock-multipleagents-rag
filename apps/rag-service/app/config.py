@@ -169,6 +169,13 @@ class Settings(BaseSettings):
         le=3,
         validation_alias="RAG_ENTITY_EXTRACTION_MAX_RETRIES",
     )
+    entity_summary_max_tokens: int = Field(
+        default=500,
+        ge=50,
+        le=5000,
+        validation_alias="RAG_ENTITY_SUMMARY_MAX_TOKENS",
+        description="Token threshold above which merged entity descriptions are LLM-summarized",
+    )
 
     # --- Ingestion settings ---
     s3_bucket: str = Field(default="", validation_alias="RAG_S3_BUCKET")
