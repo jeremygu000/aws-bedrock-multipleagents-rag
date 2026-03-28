@@ -2,9 +2,101 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+# ---------------------------------------------------------------------------
+# Graph-enhanced retrieval types (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+class RetrievalMode(str, Enum):
+    """Controls how graph context is combined with traditional retrieval.
+
+    - ``chunks_only``: Legacy mode — no graph retrieval.
+    - ``graph_only``: Return only graph-derived context (debugging).
+    - ``mix``: Merge graph context into the standard chunk pipeline (default).
+    """
+
+    CHUNKS_ONLY = "chunks_only"
+    GRAPH_ONLY = "graph_only"
+    MIX = "mix"
+
+
+class GraphEntity(BaseModel):
+    """A single entity surfaced by graph retrieval."""
+
+    entity_id: str
+    name: str
+    type: str
+    description: str
+    confidence: float = 0.0
+    score: float = 0.0  # retrieval similarity / relevance score
+
+
+class GraphRelation(BaseModel):
+    """A single relation surfaced by graph retrieval."""
+
+    source_entity: str
+    target_entity: str
+    relation_type: str
+    evidence: str
+    confidence: float = 0.0
+    weight: float = 1.0
+    score: float = 0.0  # retrieval similarity / relevance score
+
+
+class GraphContext(BaseModel):
+    """Aggregated graph retrieval result injected into the RAG workflow state.
+
+    Produced by ``GraphRetriever`` and consumed by downstream nodes
+    (reranker, answer generator) to enrich evidence.
+    """
+
+    entities: list[GraphEntity] = Field(default_factory=list)
+    relations: list[GraphRelation] = Field(default_factory=list)
+    source_chunk_ids: list[str] = Field(
+        default_factory=list,
+        description="Chunk IDs referenced by retrieved entities/relations — used for boosting",
+    )
+
+    @property
+    def is_empty(self) -> bool:
+        """Return True when no graph evidence was found."""
+        return not self.entities and not self.relations
+
+    def to_evidence_text(self, max_entities: int = 10, max_relations: int = 10) -> str:
+        """Serialize graph context into a compact text block for prompt injection.
+
+        Args:
+            max_entities: Cap on entities to include.
+            max_relations: Cap on relations to include.
+
+        Returns:
+            Human-readable evidence string, or empty string if nothing found.
+        """
+        if self.is_empty:
+            return ""
+
+        parts: list[str] = []
+
+        if self.entities:
+            entity_lines = []
+            for ent in sorted(self.entities, key=lambda e: e.score, reverse=True)[:max_entities]:
+                entity_lines.append(f"- {ent.name} ({ent.type}): {ent.description}")
+            parts.append("### Entities\n" + "\n".join(entity_lines))
+
+        if self.relations:
+            rel_lines = []
+            for rel in sorted(self.relations, key=lambda r: r.score, reverse=True)[:max_relations]:
+                rel_lines.append(
+                    f"- {rel.source_entity} --[{rel.relation_type}]--> {rel.target_entity}: {rel.evidence}"
+                )
+            parts.append("### Relations\n" + "\n".join(rel_lines))
+
+        return "\n\n".join(parts)
 
 
 class RetrievalFilters(BaseModel):

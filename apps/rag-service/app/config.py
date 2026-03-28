@@ -211,6 +211,37 @@ class Settings(BaseSettings):
         validation_alias="RAG_NEO4J_DATABASE",
     )
 
+    # --- Graph retrieval settings (Phase 3) ---
+    enable_graph_retrieval: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_GRAPH_RETRIEVAL",
+        description="Feature flag to enable graph-enhanced retrieval (Phase 3+)",
+    )
+    retrieval_mode: str = Field(
+        default="mix",
+        validation_alias="RAG_RETRIEVAL_MODE",
+        description="Graph retrieval mode: chunks_only, graph_only, mix",
+    )
+    graph_top_k_entities: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        validation_alias="RAG_GRAPH_TOP_K_ENTITIES",
+    )
+    graph_top_k_relations: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        validation_alias="RAG_GRAPH_TOP_K_RELATIONS",
+    )
+    graph_neighbor_depth: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        validation_alias="RAG_GRAPH_NEIGHBOR_DEPTH",
+        description="How many hops to traverse for entity neighbors in local retrieval",
+    )
+
     # --- Ingestion settings ---
     s3_bucket: str = Field(default="", validation_alias="RAG_S3_BUCKET")
     max_upload_size_mb: int = Field(default=50, ge=1, validation_alias="RAG_MAX_UPLOAD_SIZE_MB")
