@@ -7,6 +7,7 @@ from typing import Any, Literal
 import boto3
 
 from .config import Settings
+from .models import GraphContext
 from .qwen_client import QwenClient
 
 ModelRoute = Literal["nova-lite", "qwen-plus"]
@@ -52,19 +53,50 @@ _INTENT_SYSTEM_PROMPTS: dict[str, str] = {
 }
 
 
-def _get_intent_system_prompt(intent: str, settings: Settings) -> str:
+_KG_REASONING_SUPPLEMENT = (
+    "\n\nYou also have access to a Knowledge Graph with entity and relationship data. "
+    "When entity relationships are relevant, cite them explicitly: "
+    '"According to the knowledge graph, [Entity A] [relation] [Entity B]..." '
+    "If the answer requires connecting multiple entities, explain the reasoning path. "
+    "Distinguish between graph-inferred context and text-grounded facts."
+)
+
+
+def _get_intent_system_prompt(
+    intent: str, settings: Settings, *, has_graph_context: bool = False
+) -> str:
     """Return system prompt based on intent and feature flag.
 
     Args:
         intent: Detected query intent (factual, analytical, procedural, comparison, other).
         settings: Runtime settings controlling feature flags.
+        has_graph_context: When True, append KG reasoning instructions.
 
     Returns:
         System prompt string appropriate for the intent.
     """
     if not settings.enable_intent_aware_prompts:
-        return _GENERIC_SYSTEM_PROMPT
-    return _INTENT_SYSTEM_PROMPTS.get(intent, _GENERIC_SYSTEM_PROMPT)
+        base = _GENERIC_SYSTEM_PROMPT
+    else:
+        base = _INTENT_SYSTEM_PROMPTS.get(intent, _GENERIC_SYSTEM_PROMPT)
+
+    if has_graph_context:
+        return base + _KG_REASONING_SUPPLEMENT
+    return base
+
+
+def _build_graph_evidence_block(graph_context: GraphContext | None) -> str:
+    """Build a formatted graph evidence section for injection into answer prompts.
+
+    Args:
+        graph_context: Graph context with entities and relations, or None.
+
+    Returns:
+        Formatted string with entity/relation sections, or empty string.
+    """
+    if graph_context is None or graph_context.is_empty:
+        return ""
+    return graph_context.to_evidence_text()
 
 
 class BedrockConverseAnswerGenerator:
@@ -83,6 +115,7 @@ class BedrockConverseAnswerGenerator:
         intent: str = "factual",
         complexity: str = "medium",
         keywords: list[str] | None = None,
+        graph_context: GraphContext | None = None,
     ) -> str:
         """Generate citation-aware answer text using Bedrock model."""
 
@@ -96,14 +129,26 @@ class BedrockConverseAnswerGenerator:
             max_chars=self._settings.answer_evidence_max_chars,
             include_scores=self._settings.enable_relevance_scores_in_evidence,
         )
-        system_prompt = _get_intent_system_prompt(intent, self._settings)
+        graph_evidence = _build_graph_evidence_block(graph_context)
+        has_graph = bool(graph_evidence)
+        system_prompt = _get_intent_system_prompt(
+            intent, self._settings, has_graph_context=has_graph
+        )
         keyword_line = ""
         if keywords:
             keyword_line = f"Key topics: {', '.join(keywords)}\n"
+
+        # Build evidence section: graph evidence first (structural context), then text chunks.
+        evidence_parts: list[str] = []
+        if graph_evidence:
+            evidence_parts.append(f"=== KNOWLEDGE GRAPH ===\n{graph_evidence}")
+        evidence_parts.append(f"=== TEXT EVIDENCE ===\n{context_block}")
+        evidence_section = "\n\n".join(evidence_parts)
+
         user_prompt = (
             f"User query:\n{query}\n\n"
             f"{keyword_line}"
-            f"Evidence:\n{context_block}\n\n"
+            f"Evidence:\n{evidence_section}\n\n"
             "Write a concise answer with clear citation markers."
         )
 
@@ -161,6 +206,7 @@ class QwenAnswerGenerator:
         intent: str = "factual",
         complexity: str = "medium",
         keywords: list[str] | None = None,
+        graph_context: GraphContext | None = None,
     ) -> str:
         """Generate citation-aware answer text using Qwen."""
 
@@ -174,14 +220,26 @@ class QwenAnswerGenerator:
             max_chars=self._settings.answer_evidence_max_chars,
             include_scores=self._settings.enable_relevance_scores_in_evidence,
         )
-        system_prompt = _get_intent_system_prompt(intent, self._settings)
+        graph_evidence = _build_graph_evidence_block(graph_context)
+        has_graph = bool(graph_evidence)
+        system_prompt = _get_intent_system_prompt(
+            intent, self._settings, has_graph_context=has_graph
+        )
         keyword_line = ""
         if keywords:
             keyword_line = f"Key topics: {', '.join(keywords)}\n"
+
+        # Build evidence section: graph evidence first (structural context), then text chunks.
+        evidence_parts: list[str] = []
+        if graph_evidence:
+            evidence_parts.append(f"=== KNOWLEDGE GRAPH ===\n{graph_evidence}")
+        evidence_parts.append(f"=== TEXT EVIDENCE ===\n{context_block}")
+        evidence_section = "\n\n".join(evidence_parts)
+
         user_prompt = (
             f"User query:\n{query}\n\n"
             f"{keyword_line}"
-            f"Evidence:\n{context_block}\n\n"
+            f"Evidence:\n{evidence_section}\n\n"
             "Write a concise answer with clear citation markers."
         )
         answer = self._qwen.chat(system_prompt, user_prompt).strip()
@@ -211,6 +269,7 @@ class RoutedAnswerGenerator:
         intent: str = "factual",
         complexity: str = "medium",
         keywords: list[str] | None = None,
+        graph_context: GraphContext | None = None,
     ) -> tuple[str, ModelRoute]:
         """Generate answer using preferred model with automatic fallback.
 
@@ -223,7 +282,12 @@ class RoutedAnswerGenerator:
             try:
                 return (
                     self._qwen.generate(
-                        query, hits, intent=intent, complexity=complexity, keywords=keywords
+                        query,
+                        hits,
+                        intent=intent,
+                        complexity=complexity,
+                        keywords=keywords,
+                        graph_context=graph_context,
                     ),
                     "qwen-plus",
                 )
@@ -231,7 +295,12 @@ class RoutedAnswerGenerator:
                 # Fallback to Bedrock if Qwen call fails at runtime.
                 return (
                     self._bedrock.generate(
-                        query, hits, intent=intent, complexity=complexity, keywords=keywords
+                        query,
+                        hits,
+                        intent=intent,
+                        complexity=complexity,
+                        keywords=keywords,
+                        graph_context=graph_context,
                     ),
                     "nova-lite",
                 )
@@ -240,7 +309,12 @@ class RoutedAnswerGenerator:
             try:
                 return (
                     self._bedrock.generate(
-                        query, hits, intent=intent, complexity=complexity, keywords=keywords
+                        query,
+                        hits,
+                        intent=intent,
+                        complexity=complexity,
+                        keywords=keywords,
+                        graph_context=graph_context,
                     ),
                     "nova-lite",
                 )
@@ -248,7 +322,12 @@ class RoutedAnswerGenerator:
                 if self._qwen.is_available():
                     return (
                         self._qwen.generate(
-                            query, hits, intent=intent, complexity=complexity, keywords=keywords
+                            query,
+                            hits,
+                            intent=intent,
+                            complexity=complexity,
+                            keywords=keywords,
+                            graph_context=graph_context,
                         ),
                         "qwen-plus",
                     )
@@ -257,7 +336,12 @@ class RoutedAnswerGenerator:
         # If Qwen is preferred but unavailable, default to Bedrock.
         return (
             self._bedrock.generate(
-                query, hits, intent=intent, complexity=complexity, keywords=keywords
+                query,
+                hits,
+                intent=intent,
+                complexity=complexity,
+                keywords=keywords,
+                graph_context=graph_context,
             ),
             "nova-lite",
         )

@@ -245,6 +245,7 @@ class RagWorkflow:
         hl = state.get("hl_keywords", [])
         ll = state.get("ll_keywords", [])
         keywords = list(dict.fromkeys(hl + ll))
+        graph_context: GraphContext | None = state.get("graph_context")
         answer, used_model = self._answer_generator.generate(
             query=state["query"],
             hits=state.get("reranked_hits") or state.get("hits", []),
@@ -252,5 +253,6 @@ class RagWorkflow:
             intent=state.get("intent", "factual"),
             complexity=state.get("complexity", "medium"),
             keywords=keywords or None,
+            graph_context=graph_context,
         )
         return {"answer": answer, "answer_model": used_model}

@@ -64,6 +64,7 @@ class FakeQueryProcessor:
 class FakeAnswerGenerator:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[dict], ModelRoute]] = []
+        self.last_graph_context: GraphContext | None = None
 
     def generate(
         self,
@@ -73,8 +74,10 @@ class FakeAnswerGenerator:
         intent: str = "factual",
         complexity: str = "medium",
         keywords: list[str] | None = None,
+        graph_context: GraphContext | None = None,
     ):
         self.calls.append((query, hits, preferred_model))
+        self.last_graph_context = graph_context
         return ("final-answer", preferred_model)
 
 
@@ -542,3 +545,68 @@ def test_workflow_fuse_with_naive_mode_skips_graph_entirely() -> None:
     assert state["graph_context"].is_empty
     assert len(repo.get_chunks_by_ids_calls) == 0
     assert state["fused_hits"][0]["chunk_id"] == "c1"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.4 — generate_answer receives graph_context
+# ---------------------------------------------------------------------------
+
+
+def test_workflow_generate_answer_receives_graph_context() -> None:
+    graph_ctx = GraphContext(
+        entities=[
+            GraphEntity(
+                entity_id="e1",
+                name="TestOrg",
+                type="Organization",
+                description="A test org",
+                score=0.9,
+            ),
+        ],
+        relations=[
+            GraphRelation(
+                source_entity="TestOrg",
+                target_entity="ProjectX",
+                relation_type="develops",
+                evidence="Develops project X",
+                score=0.8,
+            ),
+        ],
+        source_chunk_ids=["gc1"],
+    )
+    chunk_map = {"gc1": _graph_chunk("gc1")}
+    repo = FakeRepository(_sample_hits(), chunk_map=chunk_map)
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.LOCAL)
+    answer_gen = FakeAnswerGenerator()
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=answer_gen,
+        reranker=FakeReranker(),
+        graph_retriever=FakeGraphRetriever(context=graph_ctx),
+    )
+
+    state = workflow.run(query="query", top_k=10, filters={})
+    assert state["answer"] == "final-answer"
+    assert answer_gen.last_graph_context is not None
+    assert not answer_gen.last_graph_context.is_empty
+    assert answer_gen.last_graph_context.entities[0].name == "TestOrg"
+
+
+def test_workflow_generate_answer_no_graph_context_when_disabled() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.NAIVE)
+    answer_gen = FakeAnswerGenerator()
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=answer_gen,
+        reranker=FakeReranker(),
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["answer"] == "final-answer"
+    ctx = answer_gen.last_graph_context
+    assert ctx is None or ctx.is_empty
