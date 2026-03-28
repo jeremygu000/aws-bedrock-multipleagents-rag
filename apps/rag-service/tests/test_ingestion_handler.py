@@ -18,14 +18,18 @@ def _sqs_event(records: list[dict]) -> dict:
 def _sqs_record(bucket: str, key: str, message_id: str = "msg-1") -> dict:
     return {
         "messageId": message_id,
-        "body": json.dumps({
-            "Records": [{
-                "s3": {
-                    "bucket": {"name": bucket},
-                    "object": {"key": key},
-                }
-            }]
-        }),
+        "body": json.dumps(
+            {
+                "Records": [
+                    {
+                        "s3": {
+                            "bucket": {"name": bucket},
+                            "object": {"key": key},
+                        }
+                    }
+                ]
+            }
+        ),
     }
 
 
@@ -115,7 +119,10 @@ def test_handler_invalid_body() -> None:
 def test_handler_missing_s3_records() -> None:
     event = _sqs_event([{"messageId": "msg-empty", "body": json.dumps({"Records": []})}])
 
-    with patch("ingestion_handler.boto3"), patch("ingestion_handler.ingest_document") as mock_ingest:
+    with (
+        patch("ingestion_handler.boto3"),
+        patch("ingestion_handler.ingest_document") as mock_ingest,
+    ):
         result = handler(event, None)
 
     assert result == {"batchItemFailures": []}
@@ -126,10 +133,12 @@ def test_handler_multiple_records(mock_s3_client: MagicMock) -> None:
     success_result = _ingestion_result(status="succeeded", chunks_created=3)
     failure_result = _ingestion_result(status="failed", chunks_created=0, error="timeout")
 
-    event = _sqs_event([
-        _sqs_record("my-bucket", "docs/a.pdf", message_id="msg-ok"),
-        _sqs_record("my-bucket", "docs/b.pdf", message_id="msg-bad"),
-    ])
+    event = _sqs_event(
+        [
+            _sqs_record("my-bucket", "docs/a.pdf", message_id="msg-ok"),
+            _sqs_record("my-bucket", "docs/b.pdf", message_id="msg-bad"),
+        ]
+    )
 
     with (
         patch("ingestion_handler.boto3") as mock_boto3,
@@ -189,7 +198,10 @@ def test_handler_metadata_extraction(mock_s3_client: MagicMock) -> None:
 
 
 def test_handler_empty_event() -> None:
-    with patch("ingestion_handler.boto3"), patch("ingestion_handler.ingest_document") as mock_ingest:
+    with (
+        patch("ingestion_handler.boto3"),
+        patch("ingestion_handler.ingest_document") as mock_ingest,
+    ):
         result = handler({}, None)
 
     assert result == {"batchItemFailures": []}

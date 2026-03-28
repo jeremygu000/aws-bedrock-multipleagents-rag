@@ -4,7 +4,7 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
-import { PythonFunction } from "@aws-cdk/aws-lambda-python-alpha";
+import { PythonFunction, PythonLayerVersion } from "@aws-cdk/aws-lambda-python-alpha";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as opensearch from "aws-cdk-lib/aws-opensearchservice";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
@@ -311,6 +311,13 @@ export class BedrockAgentsStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // Lambda Layer: heavy document-parsing deps (pymupdf, python-docx, bs4, lxml).
+    const docParsingLayer = new PythonLayerVersion(this, "DocParsingLayer", {
+      entry: path.join(ragPythonEntry, "layers", "doc-parsing"),
+      compatibleRuntimes: [lambda.Runtime.PYTHON_3_12],
+      description: "Document parsing dependencies (pymupdf, python-docx, bs4, lxml)",
+    });
+
     // Ingestion Lambda: processes documents from SQS, writes embeddings to OpenSearch.
     const ingestionFn = new PythonFunction(this, "IngestionFn", {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -321,6 +328,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       memorySize: 1024,
       tracing: lambda.Tracing.ACTIVE,
       logGroup: ingestionLogGroup,
+      layers: [docParsingLayer],
       environment: {
         ...ragSearchFnEnv,
         RAG_S3_BUCKET: ingestionBucket.bucketName,

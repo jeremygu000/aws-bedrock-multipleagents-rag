@@ -246,9 +246,7 @@ def test_s3_download_failure_marks_run_failed(
     mock_chunk: MagicMock,
     settings: Settings,
 ) -> None:
-    mock_repo, _ = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk
-    )
+    mock_repo, _ = _setup_mocks(mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk)
     mock_boto3.client.return_value.get_object.side_effect = Exception("S3 access denied")
     meta = _make_upload_metadata()
 
@@ -276,9 +274,7 @@ def test_parse_failure_marks_run_failed(
     mock_chunk: MagicMock,
     settings: Settings,
 ) -> None:
-    mock_repo, _ = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk
-    )
+    mock_repo, _ = _setup_mocks(mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk)
     mock_parse.side_effect = ValueError("Unsupported file format")
     meta = _make_upload_metadata()
 
