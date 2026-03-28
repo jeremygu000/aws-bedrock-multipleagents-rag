@@ -45,6 +45,11 @@ export class MonitoringEc2Stack extends cdk.Stack {
       allowAllOutbound: true,
     });
     monitoringSg.addIngressRule(ec2.Peer.ipv4(allowedIngressCidr), ec2.Port.tcp(3000), "Grafana");
+    monitoringSg.addIngressRule(
+      ec2.Peer.ipv4(allowedIngressCidr),
+      ec2.Port.tcp(9200),
+      "Elasticsearch",
+    );
 
     // Read-only observability permissions let Grafana query AWS metrics/logs/traces.
     const instanceRole = new iam.Role(this, "MonitoringInstanceRole", {
@@ -149,6 +154,22 @@ export class MonitoringEc2Stack extends cdk.Stack {
       "  -v /var/lib/grafana:/var/lib/grafana \\",
       "  -v /opt/grafana/provisioning:/etc/grafana/provisioning:ro \\",
       "  grafana/grafana:11.6.0",
+      "",
+      "mkdir -p /var/lib/elasticsearch",
+      "chown -R 1000:1000 /var/lib/elasticsearch",
+      "docker rm -f elasticsearch || true",
+      "docker pull docker.elastic.co/elasticsearch/elasticsearch:8.17.0",
+      "docker run -d --name elasticsearch --restart unless-stopped \\",
+      "  -p 9200:9200 \\",
+      "  -e discovery.type=single-node \\",
+      "  -e xpack.security.enabled=false \\",
+      "  -e xpack.ml.enabled=false \\",
+      "  -e xpack.watcher.enabled=false \\",
+      "  -e xpack.graph.enabled=false \\",
+      '  -e ES_JAVA_OPTS="-Xms256m -Xmx256m" \\',
+      "  -e cluster.routing.allocation.disk.threshold_enabled=false \\",
+      "  -v /var/lib/elasticsearch:/usr/share/elasticsearch/data \\",
+      "  docker.elastic.co/elasticsearch/elasticsearch:8.17.0",
     );
 
     new cdk.CfnOutput(this, "MonitoringVpcId", { value: vpc.vpcId });
@@ -162,5 +183,8 @@ export class MonitoringEc2Stack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "GrafanaAuthSecretArn", { value: grafanaAuthSecret.secretArn });
     new cdk.CfnOutput(this, "GrafanaDefaultDatasource", { value: "CloudWatch" });
+    new cdk.CfnOutput(this, "ElasticsearchHttpUri", {
+      value: `http://${instance.instancePublicDnsName}:9200`,
+    });
   }
 }

@@ -4,7 +4,7 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
-import { PythonFunction, PythonLayerVersion } from "@aws-cdk/aws-lambda-python-alpha";
+import { PythonFunction } from "@aws-cdk/aws-lambda-python-alpha";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as opensearch from "aws-cdk-lib/aws-opensearchservice";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
@@ -151,31 +151,40 @@ export class BedrockAgentsStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    const openSearchVolumeSizeGiB = Number(processEnv.RAG_OPENSEARCH_VOLUME_GIB ?? "10");
-    const ragSearchDomain = new opensearch.Domain(this, "RagSearchDomain", {
-      version: opensearch.EngineVersion.OPENSEARCH_2_19,
-      capacity: {
-        dataNodes: 1,
-        dataNodeInstanceType: processEnv.RAG_OPENSEARCH_INSTANCE_TYPE ?? "t3.small.search",
-      },
-      ebs: {
-        enabled: true,
-        volumeSize:
-          Number.isFinite(openSearchVolumeSizeGiB) && openSearchVolumeSizeGiB > 0
-            ? openSearchVolumeSizeGiB
-            : 10,
-        volumeType: ec2.EbsDeviceVolumeType.GP3,
-      },
-      zoneAwareness: {
-        enabled: false,
-      },
-      enforceHttps: true,
-      nodeToNodeEncryption: true,
-      encryptionAtRest: {
-        enabled: true,
-      },
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
+    // OpenSearch is optional — disable via `--context enableOpenSearch=false` when the
+    // account has not yet subscribed to the OpenSearch service or for cost savings.
+    const enableOpenSearch =
+      (this.node.tryGetContext("enableOpenSearch") ?? "true").toString().toLowerCase() !== "false";
+
+    let ragSearchDomain: opensearch.Domain | undefined;
+
+    if (enableOpenSearch) {
+      const openSearchVolumeSizeGiB = Number(processEnv.RAG_OPENSEARCH_VOLUME_GIB ?? "10");
+      ragSearchDomain = new opensearch.Domain(this, "RagSearchDomain", {
+        version: opensearch.EngineVersion.OPENSEARCH_2_19,
+        capacity: {
+          dataNodes: 1,
+          dataNodeInstanceType: processEnv.RAG_OPENSEARCH_INSTANCE_TYPE ?? "t3.small.search",
+        },
+        ebs: {
+          enabled: true,
+          volumeSize:
+            Number.isFinite(openSearchVolumeSizeGiB) && openSearchVolumeSizeGiB > 0
+              ? openSearchVolumeSizeGiB
+              : 10,
+          volumeType: ec2.EbsDeviceVolumeType.GP3,
+        },
+        zoneAwareness: {
+          enabled: false,
+        },
+        enforceHttps: true,
+        nodeToNodeEncryption: true,
+        encryptionAtRest: {
+          enabled: true,
+        },
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      });
+    }
 
     // Environment map for Python RAG Lambda. Secret ARN is preferred over plaintext password.
     const ragSearchFnEnv: Record<string, string> = {
@@ -188,9 +197,11 @@ export class BedrockAgentsStack extends cdk.Stack {
       RAG_DB_PASSWORD_SECRET_JSON_KEY: processEnv.RAG_DB_PASSWORD_SECRET_JSON_KEY ?? "password",
       RAG_DB_SSLMODE: processEnv.RAG_DB_SSLMODE ?? "require",
       RAG_EMBED_DIM: processEnv.RAG_EMBED_DIM ?? "1024",
-      RAG_SPARSE_BACKEND: processEnv.RAG_SPARSE_BACKEND ?? "opensearch",
+      RAG_SPARSE_BACKEND:
+        processEnv.RAG_SPARSE_BACKEND ?? (enableOpenSearch ? "opensearch" : "none"),
       RAG_OPENSEARCH_ENDPOINT:
-        processEnv.RAG_OPENSEARCH_ENDPOINT ?? `https://${ragSearchDomain.domainEndpoint}`,
+        processEnv.RAG_OPENSEARCH_ENDPOINT ??
+        (ragSearchDomain ? `https://${ragSearchDomain.domainEndpoint}` : ""),
       RAG_OPENSEARCH_INDEX: processEnv.RAG_OPENSEARCH_INDEX ?? "kb_chunks",
       RAG_OPENSEARCH_TIMEOUT_S: processEnv.RAG_OPENSEARCH_TIMEOUT_S ?? "10",
       RAG_ANSWER_MODEL_ID: processEnv.RAG_ANSWER_MODEL_ID ?? FOUNDATION_MODEL_ID,
@@ -250,7 +261,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       environment: ragSearchFnEnv,
       bundling: { assetExcludes: pythonAssetExcludes },
     });
-    ragSearchDomain.grantReadWrite(ragSearchFn);
+    ragSearchDomain?.grantReadWrite(ragSearchFn);
 
     const ragDbPasswordSecretArn = ragSearchFnEnv.RAG_DB_PASSWORD_SECRET_ARN;
     if (ragDbPasswordSecretArn) {
@@ -274,10 +285,12 @@ export class BedrockAgentsStack extends cdk.Stack {
       qwenApiKeySecret.grantRead(ragSearchFn);
     }
 
-    new cdk.CfnOutput(this, "RagOpenSearchEndpoint", {
-      value: `https://${ragSearchDomain.domainEndpoint}`,
-      description: "OpenSearch domain endpoint for BM25 sparse retrieval.",
-    });
+    if (ragSearchDomain) {
+      new cdk.CfnOutput(this, "RagOpenSearchEndpoint", {
+        value: `https://${ragSearchDomain.domainEndpoint}`,
+        description: "OpenSearch domain endpoint for BM25 sparse retrieval.",
+      });
+    }
 
     // ── Document Ingestion Pipeline ──────────────────────────────────────────
 
@@ -324,13 +337,6 @@ export class BedrockAgentsStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // Lambda Layer: heavy document-parsing deps (pymupdf, python-docx, bs4, lxml).
-    const docParsingLayer = new PythonLayerVersion(this, "DocParsingLayer", {
-      entry: path.join(ragPythonEntry, "layers", "doc-parsing"),
-      compatibleRuntimes: [lambda.Runtime.PYTHON_3_12],
-      description: "Document parsing dependencies (pymupdf, python-docx, bs4, lxml)",
-    });
-
     // Ingestion Lambda: processes documents from SQS, writes embeddings to OpenSearch.
     const ingestionFn = new PythonFunction(this, "IngestionFn", {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -341,7 +347,6 @@ export class BedrockAgentsStack extends cdk.Stack {
       memorySize: 1024,
       tracing: lambda.Tracing.ACTIVE,
       logGroup: ingestionLogGroup,
-      layers: [docParsingLayer],
       environment: {
         ...ragSearchFnEnv,
         RAG_S3_BUCKET: ingestionBucket.bucketName,
@@ -365,7 +370,7 @@ export class BedrockAgentsStack extends cdk.Stack {
 
     // IAM: ingestion Lambda reads uploaded docs and writes embeddings to OpenSearch.
     ingestionBucket.grantRead(ingestionFn);
-    ragSearchDomain.grantReadWrite(ingestionFn);
+    ragSearchDomain?.grantReadWrite(ingestionFn);
 
     // IAM: ragSearchFn needs S3 read/write for sync-mode upload endpoint.
     ingestionBucket.grantReadWrite(ragSearchFn);
