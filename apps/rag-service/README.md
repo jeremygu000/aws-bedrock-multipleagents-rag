@@ -18,6 +18,26 @@ Techniques ported from [LightRAG (EMNLP 2025)](https://github.com/hkuds/lightrag
 - **LLM reranking**: Qwen-based relevance scoring with token-budget awareness and graceful fallback to retrieval order
 - **Structured evidence prompts**: `--- Evidence [N] ---` blocks with source metadata for grounded answer synthesis
 
+### Phase 1.5 — Document Ingestion Pipeline (Complete)
+
+End-to-end document ingestion supporting TXT, Markdown, PDF, DOCX, and HTML:
+
+- **Document parser**: Multi-format parsing with section/heading extraction, page tracking (PDF), and metadata detection
+- **Hybrid chunker**: Header-based splitting with fixed-size fallback, configurable size/overlap/minimum, locator guarantee per chunk
+- **Batch embedding**: Qwen `text-embedding-v3` with configurable batch size for efficient embedding generation
+- **Ingestion repository**: PostgreSQL (`ingestion_runs`, `kb_documents`, `kb_chunks`) + OpenSearch bulk indexing
+- **Pipeline orchestrator**: S3 download → parse → chunk → embed → upsert → index, with full error tracking
+- **Upload endpoint**: `POST /upload` (multipart form) + `GET /ingestion/{run_id}` status tracking
+- **Lambda handler**: SQS-triggered async processing with partial batch failure reporting
+- **CDK infrastructure**: S3 bucket, SQS queue + DLQ, ingestion Lambda, S3→SQS event notification
+
+New environment variables:
+
+- `RAG_S3_BUCKET` — S3 bucket for document uploads
+- `RAG_INGESTION_QUEUE_URL` — SQS queue URL (empty = sync mode)
+- `RAG_CHUNK_SIZE` (default: `512`), `RAG_CHUNK_OVERLAP` (default: `64`), `RAG_CHUNK_MIN_SIZE` (default: `50`)
+- `RAG_EMBED_BATCH_SIZE` (default: `20`), `RAG_MAX_UPLOAD_SIZE_MB` (default: `50`)
+
 ## 0. Workflow Overview
 
 Current `rag_search` runtime flow (9-node LangGraph pipeline):
@@ -150,3 +170,28 @@ CDK points Bedrock `rag_search` action group to:
 - handler: `handler`
 
 This handler reads Bedrock action input, runs retrieval, and returns `answer + citations`.
+
+## 6. Document Ingestion
+
+Upload a document:
+
+```bash
+curl -X POST http://127.0.0.1:8080/upload \
+  -F "file=@document.pdf" \
+  -F "title=My Document" \
+  -F "published_year=2024" \
+  -F "published_month=6" \
+  -F "lang=en" \
+  -F "category=general"
+```
+
+Check ingestion status:
+
+```bash
+curl http://127.0.0.1:8080/ingestion/{run_id}
+```
+
+Supported formats: `.txt`, `.md`, `.pdf`, `.docx`, `.html`
+
+When `RAG_INGESTION_QUEUE_URL` is empty, ingestion runs synchronously (useful for dev/testing).
+When set, the upload is stored in S3 and processed asynchronously via SQS → Lambda.
