@@ -96,6 +96,7 @@ The service reads `RAG_*` variables first, then falls back to existing `RDS_*` v
 - `RAG_OPENSEARCH_ENDPOINT` (required when `RAG_SPARSE_BACKEND=opensearch`)
 - `RAG_OPENSEARCH_INDEX` (default: `kb_chunks`)
 - `RAG_OPENSEARCH_TIMEOUT_S` (default: `10`)
+- `RAG_OPENSEARCH_USE_SIGV4` (default: `true`) — `true` for AWS-managed OpenSearch (IAM SigV4 auth), `false` for self-hosted Elasticsearch (no auth)
 - `RAG_ANSWER_MODEL_ID` (default: `amazon.nova-lite-v1:0`)
 - `RAG_ANSWER_MAX_TOKENS` (default: `500`)
 - `RAG_ANSWER_TEMPERATURE` (default: `0.05`)
@@ -195,3 +196,48 @@ Supported formats: `.txt`, `.md`, `.pdf`, `.docx`, `.html`
 
 When `RAG_INGESTION_QUEUE_URL` is empty, ingestion runs synchronously (useful for dev/testing).
 When set, the upload is stored in S3 and processed asynchronously via SQS → Lambda.
+
+## 7. Elasticsearch / OpenSearch Index
+
+The `kb_chunks` index stores BM25 sparse retrieval data. Create it before ingesting documents:
+
+```bash
+curl -X PUT "$ES_ENDPOINT/kb_chunks" -H "Content-Type: application/json" -d '{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "chunk_text":      { "type": "text", "analyzer": "standard" },
+      "doc_id":          { "type": "keyword" },
+      "citation_url":    { "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 2048 } } },
+      "citation_title":  { "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } } },
+      "citation_year":   { "type": "integer" },
+      "citation_month":  { "type": "integer" },
+      "page_start":      { "type": "integer" },
+      "page_end":        { "type": "integer" },
+      "section_id":      { "type": "keyword" },
+      "anchor_id":       { "type": "keyword" },
+      "category":        { "type": "text", "fields": { "keyword": { "type": "keyword" } } },
+      "lang":            { "type": "text", "fields": { "keyword": { "type": "keyword" } } },
+      "source_type":     { "type": "text", "fields": { "keyword": { "type": "keyword" } } },
+      "metadata":        { "type": "object", "properties": { "title": { "type": "text" } } }
+    }
+  }
+}'
+```
+
+Field mapping rationale:
+
+| Field                               | Type               | Why                                                           |
+| ----------------------------------- | ------------------ | ------------------------------------------------------------- |
+| `chunk_text`                        | `text`             | BM25 full-text search (primary `multi_match` field, boost ×3) |
+| `citation_title`                    | `text` + `keyword` | Full-text search (boost ×2) + exact filter                    |
+| `citation_url`                      | `text` + `keyword` | Full-text search + exact filter                               |
+| `category`, `lang`, `source_type`   | `text` + `keyword` | Supports both `term` exact filter and full-text               |
+| `citation_year`, `citation_month`   | `integer`          | Range filters (`gte`/`lte`)                                   |
+| `doc_id`, `section_id`, `anchor_id` | `keyword`          | Exact match only                                              |
+| `metadata.title`                    | `text`             | Secondary `multi_match` search field                          |
+
+Settings: single shard, zero replicas — suitable for single-node dev/staging. Adjust for production.
