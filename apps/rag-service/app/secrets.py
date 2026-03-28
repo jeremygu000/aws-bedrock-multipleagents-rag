@@ -3,6 +3,7 @@
 This module supports:
 - database password resolution
 - Qwen API key resolution
+- Neo4j password resolution
 
 Both paths prefer explicit env values for local development, then fall back to
 AWS Secrets Manager for production safety.
@@ -95,3 +96,16 @@ def resolve_qwen_api_key(settings: Settings) -> str:
 
     secret_string = _fetch_secret_string(settings.qwen_api_key_secret_arn, settings.aws_region)
     return _extract_key_from_secret(secret_string, settings.qwen_api_key_secret_key)
+
+
+def resolve_neo4j_password(settings: Settings) -> str:
+    """Resolve Neo4j password with env override, then Secrets Manager."""
+
+    if settings.neo4j_password:
+        return settings.neo4j_password
+
+    if not settings.neo4j_password_secret_arn:
+        return ""
+
+    secret_string = _fetch_secret_string(settings.neo4j_password_secret_arn, settings.aws_region)
+    return _extract_key_from_secret(secret_string, "password")

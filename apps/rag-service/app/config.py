@@ -177,6 +177,33 @@ class Settings(BaseSettings):
         description="Token threshold above which merged entity descriptions are LLM-summarized",
     )
 
+    # --- Neo4j graph database settings ---
+    enable_neo4j: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_NEO4J",
+        description="Feature flag to enable Neo4j graph storage (Phase 2.3+)",
+    )
+    neo4j_uri: str = Field(
+        default="bolt://localhost:7687",
+        validation_alias="RAG_NEO4J_URI",
+    )
+    neo4j_username: str = Field(
+        default="neo4j",
+        validation_alias="RAG_NEO4J_USERNAME",
+    )
+    neo4j_password: str = Field(
+        default="",
+        validation_alias="RAG_NEO4J_PASSWORD",
+    )
+    neo4j_password_secret_arn: str = Field(
+        default="",
+        validation_alias="RAG_NEO4J_PASSWORD_SECRET_ARN",
+    )
+    neo4j_database: str = Field(
+        default="neo4j",
+        validation_alias="RAG_NEO4J_DATABASE",
+    )
+
     # --- Ingestion settings ---
     s3_bucket: str = Field(default="", validation_alias="RAG_S3_BUCKET")
     max_upload_size_mb: int = Field(default=50, ge=1, validation_alias="RAG_MAX_UPLOAD_SIZE_MB")

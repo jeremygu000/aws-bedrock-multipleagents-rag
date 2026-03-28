@@ -17,6 +17,7 @@ dependencies = [
   "lxml>=5.0.0,<6",
   "sqlalchemy>=2.0.0,<3",
   "uvicorn[standard]>=0.30.0,<1",
+  "neo4j>=5.0.0,<6",
 ]
 
 [project.optional-dependencies]
