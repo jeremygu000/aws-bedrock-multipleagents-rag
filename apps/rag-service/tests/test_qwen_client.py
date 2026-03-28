@@ -117,7 +117,7 @@ def test_embedding_success(monkeypatch) -> None:
 
     def fake_urlopen(req, timeout: int):
         assert req.full_url == "https://example.com/v1/embeddings"
-        assert timeout == 30
+        assert timeout == 60
         return FakeResponse()
 
     monkeypatch.setattr("app.qwen_client.request.urlopen", fake_urlopen)

@@ -1,0 +1,3 @@
+This is a sample plain text document.
+It has multiple lines for testing purposes.
+The parser should extract all text content.

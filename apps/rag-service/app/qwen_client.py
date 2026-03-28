@@ -70,9 +70,14 @@ class QwenClient:
         parsed = json.loads(raw)
         return self._extract_text(parsed)
 
-    def embedding(self, text: str) -> list[float]:
-        """Call Qwen embeddings API and return a single embedding vector."""
+    def embedding(self, text: str | list[str]) -> list[float] | list[list[float]]:
+        """Call Qwen embeddings API.
 
+        Accepts a single string or a list of strings (batch mode).
+        Returns a single vector or a list of vectors respectively.
+        """
+
+        batch_mode = isinstance(text, list)
         if not self.is_configured():
             raise ValueError("Qwen API key is not configured.")
         api_key = self._get_api_key()
@@ -94,7 +99,7 @@ class QwenClient:
             },
         )
         try:
-            with request.urlopen(req, timeout=30) as response:
+            with request.urlopen(req, timeout=60) as response:
                 raw = response.read().decode("utf-8")
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
@@ -103,10 +108,20 @@ class QwenClient:
             raise ValueError(f"Qwen embeddings API connection error: {exc}") from exc
 
         parsed = json.loads(raw)
-        embedding = self._extract_embedding(parsed)
-        if not embedding:
+
+        if batch_mode:
+            vectors = self._extract_all_embeddings(parsed)
+            if len(vectors) != len(text):
+                raise ValueError(
+                    f"Qwen embeddings API returned {len(vectors)} vectors "
+                    f"for {len(text)} inputs."
+                )
+            return vectors
+
+        single = self._extract_embedding(parsed)
+        if not single:
             raise ValueError("Qwen embeddings API returned empty embedding.")
-        return embedding
+        return single
 
     def _get_api_key(self) -> str:
         """Resolve Qwen API key from env or Secrets Manager."""
@@ -151,3 +166,20 @@ class QwenClient:
             if isinstance(value, (int, float)):
                 normalized.append(float(value))
         return normalized
+
+    def _extract_all_embeddings(self, payload: dict[str, Any]) -> list[list[float]]:
+        data = payload.get("data")
+        if not isinstance(data, list):
+            return []
+
+        sorted_data = sorted(data, key=lambda item: item.get("index", 0))
+        vectors: list[list[float]] = []
+        for item in sorted_data:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("embedding")
+            if not isinstance(raw, list):
+                continue
+            vector = [float(v) for v in raw if isinstance(v, (int, float))]
+            vectors.append(vector)
+        return vectors
