@@ -32,7 +32,8 @@ lint = [
 [tool.pytest.ini_options]
 pythonpath = ["apps/rag-service"]
 testpaths = ["apps/rag-service/tests"]
-addopts = "-q"
+addopts = "-q --ignore=packages --ignore=node_modules"
+norecursedirs = ["cdk.out", ".venv", "dist", "*.egg-info", "layers"]
 
 [tool.black]
 line-length = 100
@@ -46,6 +47,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 ignore = ["E501"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]
