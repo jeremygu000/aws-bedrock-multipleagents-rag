@@ -10,6 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from .answer_generator import ModelRoute, RoutedAnswerGenerator
 from .config import Settings
 from .graph_retriever import GraphRetriever
+from .hybrid_fusion import fuse_graph_and_traditional
 from .models import GraphContext, RetrievalMode, RetrieveRequest
 from .query_processing import QueryProcessor
 from .repository import PostgresRepository
@@ -34,6 +35,7 @@ class RagWorkflowState(TypedDict, total=False):
     request: RetrieveRequest
     hits: list[dict[str, Any]]
     graph_context: GraphContext
+    fused_hits: list[dict[str, Any]]
     reranked_hits: list[dict[str, Any]]
     citations: list[dict[str, Any]]
     preferred_model: ModelRoute
@@ -71,6 +73,7 @@ class RagWorkflow:
         graph.add_node("build_request", self._node_build_request)
         graph.add_node("retrieve", self._node_retrieve)
         graph.add_node("graph_retrieve", self._node_graph_retrieve)
+        graph.add_node("fuse", self._node_fuse)
         graph.add_node("rerank", self._node_rerank)
         graph.add_node("build_citations", self._node_build_citations)
         graph.add_node("choose_model", self._node_choose_model)
@@ -83,7 +86,8 @@ class RagWorkflow:
         graph.add_edge("rewrite_query", "build_request")
         graph.add_edge("build_request", "retrieve")
         graph.add_edge("retrieve", "graph_retrieve")
-        graph.add_edge("graph_retrieve", "rerank")
+        graph.add_edge("graph_retrieve", "fuse")
+        graph.add_edge("fuse", "rerank")
         graph.add_edge("rerank", "build_citations")
         graph.add_edge("build_citations", "choose_model")
         graph.add_edge("choose_model", "generate_answer")
@@ -169,8 +173,37 @@ class RagWorkflow:
 
         return {"graph_context": graph_context}
 
+    def _node_fuse(self, state: RagWorkflowState) -> RagWorkflowState:
+        """Fuse traditional retrieval hits with graph-derived chunk hits via weighted RRF."""
+
+        graph_context: GraphContext = state.get("graph_context", GraphContext())
+        traditional_hits = state.get("hits", [])
+
+        if graph_context.is_empty or not graph_context.source_chunk_ids:
+            return {"fused_hits": traditional_hits}
+
+        try:
+            graph_chunk_hits = self._repository.get_chunks_by_ids(graph_context.source_chunk_ids)
+        except Exception:
+            logger.exception("Failed to fetch graph chunk hits, skipping fusion")
+            return {"fused_hits": traditional_hits}
+
+        if not graph_chunk_hits:
+            return {"fused_hits": traditional_hits}
+
+        top_k = state.get("top_k", 8)
+        fused = fuse_graph_and_traditional(
+            traditional_hits=traditional_hits,
+            graph_chunk_hits=graph_chunk_hits,
+            graph_context=graph_context,
+            graph_weight=self._settings.graph_retrieval_weight,
+            rrf_k=self._settings.default_rrf_k,
+            k_final=top_k,
+        )
+        return {"fused_hits": fused}
+
     def _node_rerank(self, state: RagWorkflowState) -> RagWorkflowState:
-        hits = state.get("hits", [])
+        hits = state.get("fused_hits") or state.get("hits", [])
         top_k = state.get("top_k", 8)
         reranked = self._reranker.rerank(
             query=state.get("rewritten_query") or state["query"],

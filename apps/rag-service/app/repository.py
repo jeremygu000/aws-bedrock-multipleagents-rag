@@ -501,6 +501,56 @@ class PostgresRepository:
         }
         return self._run_statement(statement, params)
 
+    def get_chunks_by_ids(self, chunk_ids: list[str]) -> list[dict[str, Any]]:
+        """Fetch full chunk payloads by their IDs for graph→chunk fusion.
+
+        Used by hybrid fusion to convert graph-derived ``source_chunk_ids``
+        into concrete retrieval hits that can participate in RRF scoring.
+
+        Args:
+            chunk_ids: List of chunk UUID strings to look up.
+
+        Returns:
+            List of normalized retrieval hit dicts (same schema as ``retrieve``).
+            Missing IDs are silently skipped.
+        """
+
+        if not chunk_ids:
+            return []
+
+        # Deduplicate while preserving order
+        seen: set[str] = set()
+        unique_ids: list[str] = []
+        for cid in chunk_ids:
+            if cid not in seen:
+                seen.add(cid)
+                unique_ids.append(cid)
+
+        statement = (
+            select(
+                kb_chunks.c.chunk_id,
+                kb_documents.c.doc_id,
+                kb_chunks.c.chunk_text,
+                literal(0.0).label("score"),
+                kb_documents.c.category,
+                kb_documents.c.lang,
+                kb_documents.c.source_type,
+                kb_chunks.c.metadata,
+                kb_chunks.c.citation_url,
+                kb_chunks.c.citation_title,
+                kb_chunks.c.citation_year,
+                kb_chunks.c.citation_month,
+                kb_chunks.c.page_start,
+                kb_chunks.c.page_end,
+                kb_chunks.c.section_id,
+                kb_chunks.c.anchor_id,
+            )
+            .select_from(kb_chunks.join(kb_documents, kb_chunks.c.doc_id == kb_documents.c.doc_id))
+            .where(kb_chunks.c.chunk_id.in_(bindparam("chunk_ids", expanding=True)))
+        )
+
+        return self._run_statement(statement, {"chunk_ids": unique_ids})
+
     def _fuse_ranked_hits(
         self,
         sparse_hits: list[dict[str, Any]],

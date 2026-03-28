@@ -241,6 +241,13 @@ class Settings(BaseSettings):
         validation_alias="RAG_GRAPH_NEIGHBOR_DEPTH",
         description="How many hops to traverse for entity neighbors in local retrieval",
     )
+    graph_retrieval_weight: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_GRAPH_RETRIEVAL_WEIGHT",
+        description="Weight for graph-derived hits during RRF fusion (traditional weight = 1 - this)",
+    )
 
     # --- Ingestion settings ---
     s3_bucket: str = Field(default="", validation_alias="RAG_S3_BUCKET")

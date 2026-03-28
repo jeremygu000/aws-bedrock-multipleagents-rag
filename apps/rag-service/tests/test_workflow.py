@@ -7,13 +7,19 @@ from app.workflow import RagWorkflow
 
 
 class FakeRepository:
-    def __init__(self, hits: list[dict]) -> None:
+    def __init__(self, hits: list[dict], chunk_map: dict[str, dict] | None = None) -> None:
         self._hits = hits
+        self._chunk_map = chunk_map or {}
         self.last_request = None
+        self.get_chunks_by_ids_calls: list[list[str]] = []
 
     def retrieve(self, request):
         self.last_request = request
         return self._hits
+
+    def get_chunks_by_ids(self, chunk_ids: list[str]) -> list[dict]:
+        self.get_chunks_by_ids_calls.append(chunk_ids)
+        return [self._chunk_map[cid] for cid in chunk_ids if cid in self._chunk_map]
 
 
 class FakeQueryProcessor:
@@ -382,3 +388,157 @@ def test_workflow_graph_context_preserved_through_pipeline() -> None:
     assert len(state["graph_context"].relations) == 1
     assert state["graph_context"].entities[0].name == "Entity1"
     assert state["graph_context"].relations[0].relation_type == "WROTE"
+
+
+# ---------------------------------------------------------------------------
+# fuse node workflow integration tests
+# ---------------------------------------------------------------------------
+
+
+def _graph_chunk(chunk_id: str) -> dict:
+    return {
+        "chunk_id": chunk_id,
+        "doc_id": "doc1",
+        "chunk_text": f"graph text {chunk_id}",
+        "score": 0.0,
+        "category": "test",
+        "lang": "en",
+        "source_type": "crawler",
+        "metadata": {},
+        "citation": {"title": "GraphDoc", "url": "https://graph.com", "year": 2025, "month": 3},
+    }
+
+
+def test_workflow_fuse_passthrough_when_graph_context_empty() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.MIX)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=FakeGraphRetriever(),
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert len(repo.get_chunks_by_ids_calls) == 0
+    assert state["fused_hits"][0]["chunk_id"] == "c1"
+
+
+def test_workflow_fuse_fetches_graph_chunks_and_merges() -> None:
+    graph_ctx = GraphContext(
+        entities=[GraphEntity(entity_id="e1", name="E1", type="Work", description="desc")],
+        relations=[],
+        source_chunk_ids=["gc1"],
+    )
+    chunk_map = {"gc1": _graph_chunk("gc1")}
+    repo = FakeRepository(_sample_hits(), chunk_map=chunk_map)
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.LOCAL)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=FakeGraphRetriever(context=graph_ctx),
+    )
+
+    state = workflow.run(query="query", top_k=10, filters={})
+    assert len(repo.get_chunks_by_ids_calls) == 1
+    assert "gc1" in repo.get_chunks_by_ids_calls[0]
+    chunk_ids = {h["chunk_id"] for h in state["fused_hits"]}
+    assert "c1" in chunk_ids
+    assert "gc1" in chunk_ids
+
+
+def test_workflow_fuse_graceful_when_get_chunks_fails() -> None:
+    graph_ctx = GraphContext(
+        entities=[],
+        relations=[],
+        source_chunk_ids=["gc1"],
+    )
+
+    class FailingRepo(FakeRepository):
+        def get_chunks_by_ids(self, chunk_ids):
+            raise RuntimeError("db connection failed")
+
+    repo = FailingRepo(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.HYBRID)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=FakeGraphRetriever(context=graph_ctx),
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["fused_hits"][0]["chunk_id"] == "c1"
+    assert state["answer"] == "final-answer"
+
+
+def test_workflow_fuse_skipped_when_no_source_chunk_ids() -> None:
+    graph_ctx = GraphContext(
+        entities=[GraphEntity(entity_id="e1", name="E1", type="Work", description="desc")],
+        relations=[],
+        source_chunk_ids=[],
+    )
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.GLOBAL)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=FakeGraphRetriever(context=graph_ctx),
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert len(repo.get_chunks_by_ids_calls) == 0
+    assert state["fused_hits"][0]["chunk_id"] == "c1"
+
+
+def test_workflow_rerank_uses_fused_hits() -> None:
+    graph_ctx = GraphContext(
+        entities=[],
+        relations=[],
+        source_chunk_ids=["gc1"],
+    )
+    chunk_map = {"gc1": _graph_chunk("gc1")}
+    repo = FakeRepository(_sample_hits(), chunk_map=chunk_map)
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.LOCAL)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=FakeGraphRetriever(context=graph_ctx),
+    )
+
+    state = workflow.run(query="query", top_k=10, filters={})
+    reranked_ids = {h["chunk_id"] for h in state["reranked_hits"]}
+    assert "gc1" in reranked_ids or "c1" in reranked_ids
+
+
+def test_workflow_fuse_with_naive_mode_skips_graph_entirely() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.NAIVE)
+    gr = FakeGraphRetriever()
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=gr,
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert len(gr.calls) == 0
+    assert state["graph_context"].is_empty
+    assert len(repo.get_chunks_by_ids_calls) == 0
+    assert state["fused_hits"][0]["chunk_id"] == "c1"
