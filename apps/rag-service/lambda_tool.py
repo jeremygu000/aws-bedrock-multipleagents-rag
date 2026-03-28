@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 from app.answer_generator import (
     BedrockConverseAnswerGenerator,
@@ -14,6 +18,7 @@ from app.config import get_settings
 from app.query_processing import QueryProcessor
 from app.qwen_client import QwenClient
 from app.repository import PostgresRepository
+from app.reranker import LLMReranker
 from app.secrets import resolve_db_password
 from app.workflow import RagWorkflow
 
@@ -25,11 +30,13 @@ answer_generator = RoutedAnswerGenerator(
     bedrock_generator=BedrockConverseAnswerGenerator(settings),
     qwen_generator=QwenAnswerGenerator(qwen_client),
 )
+reranker = LLMReranker(settings=settings, qwen_client=qwen_client)
 workflow = RagWorkflow(
     settings=settings,
     repository=repository,
     query_processor=query_processor,
     answer_generator=answer_generator,
+    reranker=reranker,
 )
 
 
@@ -66,6 +73,7 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         # Delegate core business logic to LangGraph workflow adapter.
         return handle_rag_action(event, workflow)
     except Exception:
+        logger.exception("rag_search handler failed")
         # Do not leak internal details to Bedrock action clients.
         return {
             "messageVersion": str(event.get("messageVersion", "1.0")),

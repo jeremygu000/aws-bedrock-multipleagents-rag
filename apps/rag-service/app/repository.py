@@ -641,12 +641,8 @@ class PostgresRepository:
             session = boto3.Session()
             credentials = session.get_credentials()
             if credentials is None:
-                raise ValueError(
-                    "AWS credentials are not available for OpenSearch access."
-                )
-            kwargs["http_auth"] = AWSV4SignerAuth(
-                credentials, self._settings.aws_region, "es"
-            )
+                raise ValueError("AWS credentials are not available for OpenSearch access.")
+            kwargs["http_auth"] = AWSV4SignerAuth(credentials, self._settings.aws_region, "es")
 
         self._opensearch_client = OpenSearch(**kwargs)  # type: ignore[arg-type]
         return self._opensearch_client

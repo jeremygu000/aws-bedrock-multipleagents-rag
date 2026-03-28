@@ -174,7 +174,7 @@ class Settings(BaseSettings):
         user = quote_plus(self.db_user)
         encoded_password = quote_plus(password)
         return (
-            f"postgresql://{user}:{encoded_password}@{self.db_host}:{self.db_port}/{self.db_name}"
+            f"postgresql+psycopg://{user}:{encoded_password}@{self.db_host}:{self.db_port}/{self.db_name}"
             f"?sslmode={self.db_ssl_mode}&connect_timeout={self.db_connect_timeout_s}"
         )
 
