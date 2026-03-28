@@ -72,7 +72,7 @@ class GraphRetriever:
             A ``GraphContext`` with deduplicated entities and relations.
         """
         mode = RetrievalMode(self._settings.retrieval_mode)
-        if mode == RetrievalMode.CHUNKS_ONLY:
+        if mode.skip_graph:
             return GraphContext()
 
         # Embed the query once — reused by all strategies

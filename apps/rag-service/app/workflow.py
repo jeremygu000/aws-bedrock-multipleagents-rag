@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
 from .answer_generator import ModelRoute, RoutedAnswerGenerator
 from .config import Settings
-from .models import RetrieveRequest
+from .graph_retriever import GraphRetriever
+from .models import GraphContext, RetrievalMode, RetrieveRequest
 from .query_processing import QueryProcessor
 from .repository import PostgresRepository
 from .reranker import LLMReranker
+
+logger = logging.getLogger(__name__)
 
 
 class RagWorkflowState(TypedDict, total=False):
@@ -24,10 +28,12 @@ class RagWorkflowState(TypedDict, total=False):
     complexity: str
     hl_keywords: list[str]
     ll_keywords: list[str]
+    retrieval_mode: str
     rewritten_query: str
     query_embedding: list[float] | None
     request: RetrieveRequest
     hits: list[dict[str, Any]]
+    graph_context: GraphContext
     reranked_hits: list[dict[str, Any]]
     citations: list[dict[str, Any]]
     preferred_model: ModelRoute
@@ -45,6 +51,7 @@ class RagWorkflow:
         query_processor: QueryProcessor,
         answer_generator: RoutedAnswerGenerator,
         reranker: LLMReranker,
+        graph_retriever: GraphRetriever | None = None,
     ) -> None:
         """Create and compile graph with injected services."""
 
@@ -53,14 +60,17 @@ class RagWorkflow:
         self._query_processor = query_processor
         self._answer_generator = answer_generator
         self._reranker = reranker
+        self._graph_retriever = graph_retriever
 
         graph = StateGraph(RagWorkflowState)
 
         graph.add_node("detect_intent", self._node_detect_intent)
         graph.add_node("extract_keywords", self._node_extract_keywords)
+        graph.add_node("determine_mode", self._node_determine_mode)
         graph.add_node("rewrite_query", self._node_rewrite_query)
         graph.add_node("build_request", self._node_build_request)
         graph.add_node("retrieve", self._node_retrieve)
+        graph.add_node("graph_retrieve", self._node_graph_retrieve)
         graph.add_node("rerank", self._node_rerank)
         graph.add_node("build_citations", self._node_build_citations)
         graph.add_node("choose_model", self._node_choose_model)
@@ -68,10 +78,12 @@ class RagWorkflow:
 
         graph.add_edge(START, "detect_intent")
         graph.add_edge("detect_intent", "extract_keywords")
-        graph.add_edge("extract_keywords", "rewrite_query")
+        graph.add_edge("extract_keywords", "determine_mode")
+        graph.add_edge("determine_mode", "rewrite_query")
         graph.add_edge("rewrite_query", "build_request")
         graph.add_edge("build_request", "retrieve")
-        graph.add_edge("retrieve", "rerank")
+        graph.add_edge("retrieve", "graph_retrieve")
+        graph.add_edge("graph_retrieve", "rerank")
         graph.add_edge("rerank", "build_citations")
         graph.add_edge("build_citations", "choose_model")
         graph.add_edge("choose_model", "generate_answer")
@@ -100,6 +112,15 @@ class RagWorkflow:
         result = self._query_processor.extract_keywords(state["query"])
         return {"hl_keywords": result.hl_keywords, "ll_keywords": result.ll_keywords}
 
+    def _node_determine_mode(self, state: RagWorkflowState) -> RagWorkflowState:
+        mode = self._query_processor.determine_retrieval_mode(
+            intent=state.get("intent", "factual"),
+            complexity=state.get("complexity", "medium"),
+            hl_keywords=state.get("hl_keywords", []),
+            ll_keywords=state.get("ll_keywords", []),
+        )
+        return {"retrieval_mode": mode.value}
+
     def _node_rewrite_query(self, state: RagWorkflowState) -> RagWorkflowState:
         rewritten = self._query_processor.rewrite_query(
             query=state["query"],
@@ -126,6 +147,27 @@ class RagWorkflow:
     def _node_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
         hits = self._repository.retrieve(state["request"])
         return {"hits": hits}
+
+    def _node_graph_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
+        mode_str = state.get("retrieval_mode", "mix")
+        try:
+            mode = RetrievalMode(mode_str)
+        except ValueError:
+            mode = RetrievalMode.MIX
+
+        if mode.skip_graph or not self._graph_retriever:
+            return {"graph_context": GraphContext()}
+
+        strategy = mode.graph_strategy or "hybrid"
+        query = state.get("rewritten_query") or state["query"]
+
+        try:
+            graph_context = self._graph_retriever.retrieve(query, strategy=strategy)
+        except Exception:
+            logger.exception("Graph retrieval failed, falling back to empty context")
+            graph_context = GraphContext()
+
+        return {"graph_context": graph_context}
 
     def _node_rerank(self, state: RagWorkflowState) -> RagWorkflowState:
         hits = state.get("hits", [])

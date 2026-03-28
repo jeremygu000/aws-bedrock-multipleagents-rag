@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from .config import Settings
-from .models import KeywordResult
+from .models import KeywordResult, RetrievalMode
 from .qwen_client import QwenClient
 
 
@@ -136,6 +136,57 @@ class QueryProcessor:
         if len(embedding) != self._settings.embedding_dimensions:
             return None
         return embedding
+
+    def determine_retrieval_mode(
+        self,
+        intent: str,
+        complexity: str,
+        hl_keywords: list[str],
+        ll_keywords: list[str],
+    ) -> RetrievalMode:
+        """Select retrieval mode based on query characteristics.
+
+        Routing rules (evaluated in order):
+        1. Low complexity + factual intent → NAIVE (chunks only)
+        2. High complexity + both keyword types present → HYBRID
+        3. Analytical/comparison intent + hl_keywords dominant → GLOBAL
+        4. Entity-specific (ll_keywords present, more than hl) → LOCAL
+        5. Default → MIX
+
+        Args:
+            intent: Detected query intent (factual, analytical, procedural, etc.).
+            complexity: Query complexity level (low, medium, high).
+            hl_keywords: High-level thematic keywords extracted from the query.
+            ll_keywords: Low-level entity keywords extracted from the query.
+
+        Returns:
+            The ``RetrievalMode`` that best matches the query profile.
+        """
+        if not self._settings.enable_graph_retrieval:
+            return RetrievalMode.NAIVE
+
+        has_hl = len(hl_keywords) > 0
+        has_ll = len(ll_keywords) > 0
+        hl_dominant = has_hl and len(hl_keywords) > len(ll_keywords)
+
+        # Rule 1: Simple factual queries don't need graph context
+        if complexity == "low" and intent == "factual":
+            return RetrievalMode.NAIVE
+
+        # Rule 2: Complex queries with both keyword types → full hybrid
+        if complexity == "high" and has_hl and has_ll:
+            return RetrievalMode.HYBRID
+
+        # Rule 3: Analytical / comparison queries with thematic keywords → global
+        if intent in ("analytical", "comparison") and hl_dominant:
+            return RetrievalMode.GLOBAL
+
+        # Rule 4: Entity-specific queries → local graph traversal
+        if has_ll and len(ll_keywords) >= len(hl_keywords):
+            return RetrievalMode.LOCAL
+
+        # Rule 5: Default fallback
+        return RetrievalMode.MIX
 
     def _heuristic_intent(self, query: str) -> dict[str, Any]:
         """Fallback intent/complexity classifier based on simple lexical cues."""

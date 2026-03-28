@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.config import Settings
+from app.models import RetrievalMode
 from app.query_processing import QueryProcessor, _safe_json
 
 
@@ -132,3 +133,89 @@ def test_rewrite_query_includes_keywords() -> None:
     assert rewritten == "expanded rewrite"
     assert "ACME" in qwen.calls[0][1]
     assert "Q3" in qwen.calls[0][1]
+
+
+# ---------------------------------------------------------------------------
+# determine_retrieval_mode tests
+# ---------------------------------------------------------------------------
+
+
+def test_determine_mode_returns_naive_when_graph_disabled() -> None:
+    qp = QueryProcessor(
+        settings=Settings(RAG_ENABLE_GRAPH_RETRIEVAL="false"),
+        qwen_client=FakeQwen(configured=False),
+    )
+    mode = qp.determine_retrieval_mode("analytical", "high", ["theme"], ["entity"])
+    assert mode == RetrievalMode.NAIVE
+
+
+def test_determine_mode_naive_for_low_complexity_factual() -> None:
+    qp = QueryProcessor(
+        settings=Settings(RAG_ENABLE_GRAPH_RETRIEVAL="true"),
+        qwen_client=FakeQwen(configured=False),
+    )
+    mode = qp.determine_retrieval_mode("factual", "low", [], ["entity"])
+    assert mode == RetrievalMode.NAIVE
+
+
+def test_determine_mode_hybrid_for_high_complexity_both_keywords() -> None:
+    qp = QueryProcessor(
+        settings=Settings(RAG_ENABLE_GRAPH_RETRIEVAL="true"),
+        qwen_client=FakeQwen(configured=False),
+    )
+    mode = qp.determine_retrieval_mode("analytical", "high", ["theme"], ["entity"])
+    assert mode == RetrievalMode.HYBRID
+
+
+def test_determine_mode_global_for_analytical_hl_dominant() -> None:
+    qp = QueryProcessor(
+        settings=Settings(RAG_ENABLE_GRAPH_RETRIEVAL="true"),
+        qwen_client=FakeQwen(configured=False),
+    )
+    mode = qp.determine_retrieval_mode("analytical", "medium", ["theme1", "theme2"], ["entity"])
+    assert mode == RetrievalMode.GLOBAL
+
+
+def test_determine_mode_local_for_entity_specific_query() -> None:
+    qp = QueryProcessor(
+        settings=Settings(RAG_ENABLE_GRAPH_RETRIEVAL="true"),
+        qwen_client=FakeQwen(configured=False),
+    )
+    mode = qp.determine_retrieval_mode("factual", "medium", [], ["ACME Corp", "Q3 2024"])
+    assert mode == RetrievalMode.LOCAL
+
+
+def test_determine_mode_local_when_ll_equals_hl() -> None:
+    qp = QueryProcessor(
+        settings=Settings(RAG_ENABLE_GRAPH_RETRIEVAL="true"),
+        qwen_client=FakeQwen(configured=False),
+    )
+    mode = qp.determine_retrieval_mode("factual", "medium", ["theme"], ["entity"])
+    assert mode == RetrievalMode.LOCAL
+
+
+def test_determine_mode_mix_as_default_fallback() -> None:
+    qp = QueryProcessor(
+        settings=Settings(RAG_ENABLE_GRAPH_RETRIEVAL="true"),
+        qwen_client=FakeQwen(configured=False),
+    )
+    mode = qp.determine_retrieval_mode("procedural", "medium", ["step1", "step2"], [])
+    assert mode == RetrievalMode.MIX
+
+
+def test_determine_mode_mix_for_no_keywords() -> None:
+    qp = QueryProcessor(
+        settings=Settings(RAG_ENABLE_GRAPH_RETRIEVAL="true"),
+        qwen_client=FakeQwen(configured=False),
+    )
+    mode = qp.determine_retrieval_mode("other", "medium", [], [])
+    assert mode == RetrievalMode.MIX
+
+
+def test_determine_mode_comparison_with_hl_dominant_returns_global() -> None:
+    qp = QueryProcessor(
+        settings=Settings(RAG_ENABLE_GRAPH_RETRIEVAL="true"),
+        qwen_client=FakeQwen(configured=False),
+    )
+    mode = qp.determine_retrieval_mode("comparison", "medium", ["A", "B", "C"], ["X"])
+    assert mode == RetrievalMode.GLOBAL

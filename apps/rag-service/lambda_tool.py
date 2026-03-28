@@ -12,11 +12,12 @@ from app.answer_generator import (
 )
 from app.bedrock_action import handle_rag_action
 from app.config import get_settings
+from app.graph_retriever import GraphRetriever
 from app.query_processing import QueryProcessor
 from app.qwen_client import QwenClient
 from app.repository import PostgresRepository
 from app.reranker import LLMReranker
-from app.secrets import resolve_db_password
+from app.secrets import resolve_db_password, resolve_neo4j_password
 from app.workflow import RagWorkflow
 
 logger = logging.getLogger(__name__)
@@ -31,12 +32,46 @@ answer_generator = RoutedAnswerGenerator(
     qwen_generator=QwenAnswerGenerator(qwen_client, settings),
 )
 reranker = LLMReranker(settings=settings, qwen_client=qwen_client)
+
+
+def _build_graph_retriever() -> GraphRetriever | None:
+    """Build GraphRetriever when graph retrieval is enabled, or return None."""
+    if not settings.enable_graph_retrieval:
+        return None
+
+    from app.entity_vector_store import EntityVectorStore
+
+    vector_store = EntityVectorStore(settings)
+    neo4j_repo = None
+
+    if settings.enable_neo4j:
+        from app.graph_repository import Neo4jRepository
+
+        neo4j_password = resolve_neo4j_password(settings)
+        neo4j_repo = Neo4jRepository(
+            uri=settings.neo4j_uri,
+            username=settings.neo4j_username,
+            password=neo4j_password,
+            database=settings.neo4j_database,
+        )
+
+    return GraphRetriever(
+        qwen_client=qwen_client,
+        vector_store=vector_store,
+        neo4j_repo=neo4j_repo,
+        settings=settings,
+    )
+
+
+graph_retriever = _build_graph_retriever()
+
 workflow = RagWorkflow(
     settings=settings,
     repository=repository,
     query_processor=query_processor,
     answer_generator=answer_generator,
     reranker=reranker,
+    graph_retriever=graph_retriever,
 )
 
 

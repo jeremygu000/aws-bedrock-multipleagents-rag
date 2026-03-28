@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.answer_generator import ModelRoute
 from app.config import Settings
-from app.models import KeywordResult
+from app.models import GraphContext, GraphEntity, GraphRelation, KeywordResult, RetrievalMode
 from app.workflow import RagWorkflow
 
 
@@ -23,11 +23,13 @@ class FakeQueryProcessor:
         complexity: str = "medium",
         rewrite: str = "",
         embedding: list[float] | None = None,
+        retrieval_mode: RetrievalMode = RetrievalMode.NAIVE,
     ) -> None:
         self.intent = intent
         self.complexity = complexity
         self.rewrite = rewrite
         self.embedding = embedding
+        self.retrieval_mode = retrieval_mode
 
     def detect_intent(self, query: str):
         return {"intent": self.intent, "complexity": self.complexity}
@@ -42,6 +44,15 @@ class FakeQueryProcessor:
 
     def build_query_embedding(self, query: str) -> list[float] | None:
         return self.embedding
+
+    def determine_retrieval_mode(
+        self,
+        intent: str,
+        complexity: str,
+        hl_keywords: list[str],
+        ll_keywords: list[str],
+    ) -> RetrievalMode:
+        return self.retrieval_mode
 
 
 class FakeAnswerGenerator:
@@ -64,6 +75,23 @@ class FakeAnswerGenerator:
 class FakeReranker:
     def rerank(self, query: str, hits: list[dict], top_k: int) -> list[dict]:
         return hits[:top_k]
+
+
+class FakeGraphRetriever:
+    def __init__(
+        self,
+        context: GraphContext | None = None,
+        raise_on_call: bool = False,
+    ) -> None:
+        self._context = context or GraphContext()
+        self._raise_on_call = raise_on_call
+        self.calls: list[tuple[str, str]] = []
+
+    def retrieve(self, query: str, strategy: str = "hybrid") -> GraphContext:
+        self.calls.append((query, strategy))
+        if self._raise_on_call:
+            raise RuntimeError("graph retriever boom")
+        return self._context
 
 
 def _sample_hits(score: float = 0.2) -> list[dict]:
@@ -188,3 +216,169 @@ def test_workflow_uses_reranked_hits_for_answer() -> None:
     assert "reranked_hits" in state
     assert len(state["reranked_hits"]) == 1
     assert state["citations"][0]["sourceId"] == "c1"
+
+
+# ---------------------------------------------------------------------------
+# determine_mode + graph_retrieve workflow integration tests
+# ---------------------------------------------------------------------------
+
+
+def test_workflow_sets_retrieval_mode_in_state() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.LOCAL)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["retrieval_mode"] == "local"
+
+
+def test_workflow_graph_retrieve_skipped_when_no_retriever() -> None:
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.MIX)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=None,
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["graph_context"].is_empty
+    assert state["answer"] == "final-answer"
+
+
+def test_workflow_graph_retrieve_skipped_when_naive_mode() -> None:
+    gr = FakeGraphRetriever()
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.NAIVE)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=gr,
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["graph_context"].is_empty
+    assert len(gr.calls) == 0
+
+
+def test_workflow_graph_retrieve_calls_retriever_with_correct_strategy() -> None:
+    graph_ctx = GraphContext(
+        entities=[GraphEntity(entity_id="e1", name="Test", type="Work", description="desc")],
+        relations=[],
+    )
+    gr = FakeGraphRetriever(context=graph_ctx)
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.LOCAL)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=gr,
+    )
+
+    state = workflow.run(query="test query", top_k=5, filters={})
+    assert len(gr.calls) == 1
+    assert gr.calls[0][1] == "local"
+    assert not state["graph_context"].is_empty
+    assert state["graph_context"].entities[0].name == "Test"
+
+
+def test_workflow_graph_retrieve_uses_hybrid_for_mix_mode() -> None:
+    gr = FakeGraphRetriever()
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.MIX)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=gr,
+    )
+
+    workflow.run(query="query", top_k=5, filters={})
+    assert len(gr.calls) == 1
+    assert gr.calls[0][1] == "hybrid"
+
+
+def test_workflow_graph_retrieve_uses_rewritten_query() -> None:
+    gr = FakeGraphRetriever()
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(rewrite="rewritten for graph", retrieval_mode=RetrievalMode.GLOBAL)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=gr,
+    )
+
+    workflow.run(query="original query", top_k=5, filters={})
+    assert gr.calls[0][0] == "rewritten for graph"
+    assert gr.calls[0][1] == "global"
+
+
+def test_workflow_graph_retrieve_graceful_on_exception() -> None:
+    gr = FakeGraphRetriever(raise_on_call=True)
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.HYBRID)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=gr,
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert state["graph_context"].is_empty
+    assert state["answer"] == "final-answer"
+
+
+def test_workflow_graph_context_preserved_through_pipeline() -> None:
+    graph_ctx = GraphContext(
+        entities=[
+            GraphEntity(entity_id="e1", name="Entity1", type="Person", description="A person")
+        ],
+        relations=[
+            GraphRelation(
+                source_entity="Entity1",
+                target_entity="Entity2",
+                relation_type="WROTE",
+                evidence="Entity1 wrote something",
+            )
+        ],
+    )
+    gr = FakeGraphRetriever(context=graph_ctx)
+    repo = FakeRepository(_sample_hits())
+    qp = FakeQueryProcessor(retrieval_mode=RetrievalMode.HYBRID)
+    workflow = RagWorkflow(
+        settings=Settings(),
+        repository=repo,
+        query_processor=qp,
+        answer_generator=FakeAnswerGenerator(),
+        reranker=FakeReranker(),
+        graph_retriever=gr,
+    )
+
+    state = workflow.run(query="query", top_k=5, filters={})
+    assert len(state["graph_context"].entities) == 1
+    assert len(state["graph_context"].relations) == 1
+    assert state["graph_context"].entities[0].name == "Entity1"
+    assert state["graph_context"].relations[0].relation_type == "WROTE"

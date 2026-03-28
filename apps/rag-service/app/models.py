@@ -15,14 +15,46 @@ from pydantic import BaseModel, Field, field_validator
 class RetrievalMode(str, Enum):
     """Controls how graph context is combined with traditional retrieval.
 
-    - ``chunks_only``: Legacy mode — no graph retrieval.
+    - ``chunks_only``: Legacy mode — no graph retrieval (alias for ``naive``).
+    - ``naive``: Standard chunk retrieval only — skip graph entirely.
+    - ``local``: Entity graph + existing chunk retrieval (entity-specific queries).
+    - ``global``: Relation graph + existing chunk retrieval (analytical queries).
+    - ``hybrid``: Local + global combined (high complexity queries).
     - ``graph_only``: Return only graph-derived context (debugging).
-    - ``mix``: Merge graph context into the standard chunk pipeline (default).
+    - ``mix``: Default — all channels with RRF fusion.
     """
 
     CHUNKS_ONLY = "chunks_only"
+    NAIVE = "naive"
+    LOCAL = "local"
+    GLOBAL = "global"
+    HYBRID = "hybrid"
     GRAPH_ONLY = "graph_only"
     MIX = "mix"
+
+    @property
+    def skip_graph(self) -> bool:
+        """Return True when this mode does not use graph retrieval."""
+        return self in (RetrievalMode.CHUNKS_ONLY, RetrievalMode.NAIVE)
+
+    @property
+    def graph_strategy(self) -> str | None:
+        """Map retrieval mode to GraphRetriever strategy name.
+
+        Returns:
+            Strategy string (``local``, ``global``, ``hybrid``) or ``None``
+            when the mode does not involve graph retrieval.
+        """
+        _strategy_map: dict[RetrievalMode, str | None] = {
+            RetrievalMode.CHUNKS_ONLY: None,
+            RetrievalMode.NAIVE: None,
+            RetrievalMode.LOCAL: "local",
+            RetrievalMode.GLOBAL: "global",
+            RetrievalMode.HYBRID: "hybrid",
+            RetrievalMode.GRAPH_ONLY: "hybrid",
+            RetrievalMode.MIX: "hybrid",
+        }
+        return _strategy_map.get(self, "hybrid")
 
 
 class GraphEntity(BaseModel):
