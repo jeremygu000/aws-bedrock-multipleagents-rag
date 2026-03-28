@@ -26,14 +26,21 @@ def _sample_hits(n: int = 5) -> list[dict]:
             "chunk_id": f"c{i}",
             "chunk_text": f"content for chunk {i}",
             "score": 0.5 - i * 0.05,
-            "citation": {"title": f"Doc {i}", "url": f"https://example.com/{i}", "year": 2025, "month": 1},
+            "citation": {
+                "title": f"Doc {i}",
+                "url": f"https://example.com/{i}",
+                "year": 2025,
+                "month": 1,
+            },
         }
         for i in range(n)
     ]
 
 
 def test_rerank_sorts_by_llm_score() -> None:
-    scores_json = '[{"chunk_id":"c2","score":10},{"chunk_id":"c0","score":5},{"chunk_id":"c1","score":3}]'
+    scores_json = (
+        '[{"chunk_id":"c2","score":10},{"chunk_id":"c0","score":5},{"chunk_id":"c1","score":3}]'
+    )
     qwen = FakeQwen(configured=True, responses=[scores_json])
     reranker = LLMReranker(settings=Settings(), qwen_client=qwen)
     result = reranker.rerank("query", _sample_hits(3), top_k=3)

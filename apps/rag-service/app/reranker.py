@@ -16,9 +16,7 @@ class LLMReranker:
         self._settings = settings
         self._qwen = qwen_client
 
-    def rerank(
-        self, query: str, hits: list[dict[str, Any]], top_k: int
-    ) -> list[dict[str, Any]]:
+    def rerank(self, query: str, hits: list[dict[str, Any]], top_k: int) -> list[dict[str, Any]]:
         """Rerank hits by LLM relevance score, returning top_k results.
 
         Falls back to original hits (truncated to top_k) on any failure.
@@ -72,9 +70,7 @@ class LLMReranker:
             total_chars += len(line)
         return "\n\n".join(lines)
 
-    def _parse_scores(
-        self, raw: str, candidates: list[dict[str, Any]]
-    ) -> dict[str, float]:
+    def _parse_scores(self, raw: str, candidates: list[dict[str, Any]]) -> dict[str, float]:
         stripped = raw.strip()
         start = stripped.find("[")
         end = stripped.rfind("]")

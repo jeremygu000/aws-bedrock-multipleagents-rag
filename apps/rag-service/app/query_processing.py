@@ -51,7 +51,9 @@ class QueryProcessor:
 
         return self._heuristic_intent(query)
 
-    def rewrite_query(self, query: str, intent: str, complexity: str, ll_keywords: list[str] | None = None) -> str:
+    def rewrite_query(
+        self, query: str, intent: str, complexity: str, ll_keywords: list[str] | None = None
+    ) -> str:
         """Rewrite query for retrieval quality while preserving user intent."""
 
         if not self._settings.enable_query_rewrite:
@@ -91,7 +93,9 @@ class QueryProcessor:
         if not self._qwen.is_configured():
             return KeywordResult()
 
-        system_prompt = "You are a keyword extraction engine for enterprise search. Return valid JSON only."
+        system_prompt = (
+            "You are a keyword extraction engine for enterprise search. Return valid JSON only."
+        )
         user_prompt = (
             "Extract two levels of keywords from this query:\n"
             "- high_level_keywords: broad topics, themes, concepts\n"

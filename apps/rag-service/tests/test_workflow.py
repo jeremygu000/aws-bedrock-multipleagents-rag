@@ -35,7 +35,9 @@ class FakeQueryProcessor:
     def extract_keywords(self, query: str):
         return KeywordResult()
 
-    def rewrite_query(self, query: str, intent: str, complexity: str, ll_keywords: list[str] | None = None) -> str:
+    def rewrite_query(
+        self, query: str, intent: str, complexity: str, ll_keywords: list[str] | None = None
+    ) -> str:
         return self.rewrite or query
 
     def build_query_embedding(self, query: str) -> list[float] | None:

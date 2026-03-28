@@ -210,9 +210,7 @@ def _parse_docx(file_bytes: bytes, filename: str) -> ParsedDocument:
 
     python_docx = _docx_module
     if python_docx is None:
-        raise ImportError(
-            "python-docx is required for DOCX parsing: pip install python-docx"
-        )
+        raise ImportError("python-docx is required for DOCX parsing: pip install python-docx")
 
     doc = python_docx.Document(io.BytesIO(file_bytes))
     title = Path(filename).stem

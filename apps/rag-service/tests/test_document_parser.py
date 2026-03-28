@@ -164,9 +164,7 @@ _SAMPLE_HTML_BODY = "Main Title\nSection One\nSection Two"
 
 class TestParseHtml:
     def _get_doc(self) -> ParsedDocument:
-        bs4_mock = _make_bs4_mock(
-            _SAMPLE_HTML_TITLE, _SAMPLE_HTML_HEADINGS, _SAMPLE_HTML_BODY
-        )
+        bs4_mock = _make_bs4_mock(_SAMPLE_HTML_TITLE, _SAMPLE_HTML_HEADINGS, _SAMPLE_HTML_BODY)
         with patch("app.document_parser._BeautifulSoup", bs4_mock):
             data = read_fixture("sample.html")
             return parse_document(data, "sample.html")

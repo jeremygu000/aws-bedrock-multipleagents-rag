@@ -113,12 +113,20 @@ def test_locator_guarantee() -> None:
     sections = [_section("s1", _make_words(80), page_start=1, page_end=2)]
     parsed_with_sections = _doc(sections=sections)
     for chunk in chunk_document(parsed_with_sections, chunk_size=512, min_chunk_size=1):
-        assert chunk.page_start is not None or chunk.section_id is not None or chunk.anchor_id is not None
+        assert (
+            chunk.page_start is not None
+            or chunk.section_id is not None
+            or chunk.anchor_id is not None
+        )
 
     text = " ".join(f"Sentence number {i} ends here." for i in range(30))
     parsed_plain = _doc(text=text)
     for chunk in chunk_document(parsed_plain, chunk_size=20, chunk_overlap=0, min_chunk_size=1):
-        assert chunk.page_start is not None or chunk.section_id is not None or chunk.anchor_id is not None
+        assert (
+            chunk.page_start is not None
+            or chunk.section_id is not None
+            or chunk.anchor_id is not None
+        )
 
 
 def test_empty_document() -> None:

@@ -146,15 +146,9 @@ class Settings(BaseSettings):
     # --- Ingestion settings ---
     s3_bucket: str = Field(default="", validation_alias="RAG_S3_BUCKET")
     max_upload_size_mb: int = Field(default=50, ge=1, validation_alias="RAG_MAX_UPLOAD_SIZE_MB")
-    ingestion_chunk_size: int = Field(
-        default=512, ge=50, validation_alias="RAG_CHUNK_SIZE"
-    )
-    ingestion_chunk_overlap: int = Field(
-        default=64, ge=0, validation_alias="RAG_CHUNK_OVERLAP"
-    )
-    ingestion_chunk_min_size: int = Field(
-        default=50, ge=1, validation_alias="RAG_CHUNK_MIN_SIZE"
-    )
+    ingestion_chunk_size: int = Field(default=512, ge=50, validation_alias="RAG_CHUNK_SIZE")
+    ingestion_chunk_overlap: int = Field(default=64, ge=0, validation_alias="RAG_CHUNK_OVERLAP")
+    ingestion_chunk_min_size: int = Field(default=50, ge=1, validation_alias="RAG_CHUNK_MIN_SIZE")
     ingestion_embed_batch_size: int = Field(
         default=20, ge=1, le=100, validation_alias="RAG_EMBED_BATCH_SIZE"
     )

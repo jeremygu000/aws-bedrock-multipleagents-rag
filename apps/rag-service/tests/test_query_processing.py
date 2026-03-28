@@ -132,4 +132,3 @@ def test_rewrite_query_includes_keywords() -> None:
     assert rewritten == "expanded rewrite"
     assert "ACME" in qwen.calls[0][1]
     assert "Q3" in qwen.calls[0][1]
-
