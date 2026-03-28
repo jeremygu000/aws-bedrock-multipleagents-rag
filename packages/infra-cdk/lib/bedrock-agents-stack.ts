@@ -3,11 +3,15 @@ import * as bedrock from "aws-cdk-lib/aws-bedrock";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { PythonFunction } from "@aws-cdk/aws-lambda-python-alpha";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as opensearch from "aws-cdk-lib/aws-opensearchservice";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as s3 from "aws-cdk-lib/aws-s3";
+import * as s3n from "aws-cdk-lib/aws-s3-notifications";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as cr from "aws-cdk-lib/custom-resources";
 import type { Construct } from "constructs";
 import * as fs from "node:fs";
@@ -207,6 +211,13 @@ export class BedrockAgentsStack extends cdk.Stack {
         processEnv.RAG_ROUTE_COMPLEX_QUERY_TOKEN_THRESHOLD ?? "18",
       RAG_ENABLE_QUERY_REWRITE: processEnv.RAG_ENABLE_QUERY_REWRITE ?? "true",
       RAG_ENABLE_HYBRID_RETRIEVAL: processEnv.RAG_ENABLE_HYBRID_RETRIEVAL ?? "true",
+      RAG_S3_BUCKET: processEnv.RAG_S3_BUCKET ?? "",
+      RAG_INGESTION_QUEUE_URL: processEnv.RAG_INGESTION_QUEUE_URL ?? "",
+      RAG_CHUNK_SIZE: processEnv.RAG_CHUNK_SIZE ?? "512",
+      RAG_CHUNK_OVERLAP: processEnv.RAG_CHUNK_OVERLAP ?? "64",
+      RAG_CHUNK_MIN_SIZE: processEnv.RAG_CHUNK_MIN_SIZE ?? "50",
+      RAG_EMBED_BATCH_SIZE: processEnv.RAG_EMBED_BATCH_SIZE ?? "20",
+      RAG_MAX_UPLOAD_SIZE_MB: processEnv.RAG_MAX_UPLOAD_SIZE_MB ?? "50",
     };
 
     // Explicit local override only. Avoid injecting plaintext password by default.
@@ -254,6 +265,106 @@ export class BedrockAgentsStack extends cdk.Stack {
       value: `https://${ragSearchDomain.domainEndpoint}`,
       description: "OpenSearch domain endpoint for BM25 sparse retrieval.",
     });
+
+    // ── Document Ingestion Pipeline ──────────────────────────────────────────
+
+    // S3 bucket for document uploads.
+    const ingestionBucket = new s3.Bucket(this, "IngestionBucket", {
+      bucketName: processEnv.RAG_S3_BUCKET || undefined,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      versioned: false,
+      lifecycleRules: [
+        {
+          prefix: "uploads/",
+          expiration: cdk.Duration.days(90),
+        },
+      ],
+    });
+
+    // Dead-letter queue for failed ingestion messages.
+    const ingestionDlq = new sqs.Queue(this, "IngestionDLQ", {
+      retentionPeriod: cdk.Duration.days(14),
+      visibilityTimeout: cdk.Duration.seconds(300),
+    });
+
+    // Main ingestion queue with DLQ after 3 receive attempts.
+    const ingestionQueue = new sqs.Queue(this, "IngestionQueue", {
+      visibilityTimeout: cdk.Duration.seconds(300),
+      retentionPeriod: cdk.Duration.days(4),
+      deadLetterQueue: {
+        queue: ingestionDlq,
+        maxReceiveCount: 3,
+      },
+    });
+
+    // Trigger ingestion queue for every object created under uploads/.
+    ingestionBucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED,
+      new s3n.SqsDestination(ingestionQueue),
+      { prefix: "uploads/" },
+    );
+
+    const ingestionLogGroup = new logs.LogGroup(this, "IngestionFnLogGroup", {
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Ingestion Lambda: processes documents from SQS, writes embeddings to OpenSearch.
+    const ingestionFn = new PythonFunction(this, "IngestionFn", {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      entry: ragPythonEntry,
+      index: "ingestion_handler.py",
+      handler: "handler",
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 1024,
+      tracing: lambda.Tracing.ACTIVE,
+      logGroup: ingestionLogGroup,
+      environment: {
+        ...ragSearchFnEnv,
+        RAG_S3_BUCKET: ingestionBucket.bucketName,
+        RAG_INGESTION_QUEUE_URL: ingestionQueue.queueUrl,
+        RAG_CHUNK_SIZE: processEnv.RAG_CHUNK_SIZE ?? "512",
+        RAG_CHUNK_OVERLAP: processEnv.RAG_CHUNK_OVERLAP ?? "64",
+        RAG_CHUNK_MIN_SIZE: processEnv.RAG_CHUNK_MIN_SIZE ?? "50",
+        RAG_EMBED_BATCH_SIZE: processEnv.RAG_EMBED_BATCH_SIZE ?? "20",
+        RAG_MAX_UPLOAD_SIZE_MB: processEnv.RAG_MAX_UPLOAD_SIZE_MB ?? "50",
+      },
+    });
+
+    // Wire SQS as the Lambda event source (one document per invocation).
+    ingestionFn.addEventSource(
+      new lambdaEventSources.SqsEventSource(ingestionQueue, {
+        batchSize: 1,
+        reportBatchItemFailures: true,
+      }),
+    );
+
+    // IAM: ingestion Lambda reads uploaded docs and writes embeddings to OpenSearch.
+    ingestionBucket.grantRead(ingestionFn);
+    ragSearchDomain.grantReadWrite(ingestionFn);
+
+    // IAM: ragSearchFn needs S3 read/write for sync-mode upload endpoint.
+    ingestionBucket.grantReadWrite(ragSearchFn);
+
+    // Secrets access for ingestion Lambda (mirrors ragSearchFn secret grants).
+    if (ragDbPasswordSecretArn) {
+      const ragDbPasswordSecret2 = secretsmanager.Secret.fromSecretCompleteArn(
+        this,
+        "IngestionDbPasswordSecret",
+        ragDbPasswordSecretArn,
+      );
+      ragDbPasswordSecret2.grantRead(ingestionFn);
+    }
+    if (qwenApiKeySecretArn) {
+      const qwenApiKeySecret2 = secretsmanager.Secret.fromSecretCompleteArn(
+        this,
+        "IngestionQwenApiKeySecret",
+        qwenApiKeySecretArn,
+      );
+      qwenApiKeySecret2.grantRead(ingestionFn);
+    }
 
     const supervisorToolLogGroup = new logs.LogGroup(this, "SupervisorToolFnLogGroup", {
       retention: logs.RetentionDays.ONE_WEEK,
@@ -540,5 +651,17 @@ export class BedrockAgentsStack extends cdk.Stack {
     new cdk.CfnOutput(this, "QaAliasArn", { value: qaAlias.attrAgentAliasArn });
     new cdk.CfnOutput(this, "GatewayFunctionUrl", { value: gatewayUrl.url });
     new cdk.CfnOutput(this, "GatewayFunctionName", { value: gatewayFn.functionName });
+    new cdk.CfnOutput(this, "IngestionBucketName", {
+      value: ingestionBucket.bucketName,
+      description: "S3 bucket for document uploads.",
+    });
+    new cdk.CfnOutput(this, "IngestionQueueUrl", {
+      value: ingestionQueue.queueUrl,
+      description: "SQS queue URL for async ingestion.",
+    });
+    new cdk.CfnOutput(this, "IngestionDLQUrl", {
+      value: ingestionDlq.queueUrl,
+      description: "Dead letter queue for failed ingestion messages.",
+    });
   }
 }
