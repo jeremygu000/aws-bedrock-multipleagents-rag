@@ -29,12 +29,20 @@ lint = [
   "black>=25.1.0,<26",
   "ruff>=0.13.0,<1",
 ]
+eval = [
+  "ragas>=0.2.0,<1",
+  "deepeval>=2.0.0,<3",
+  "datasets>=3.0.0,<4",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["apps/rag-service"]
 testpaths = ["apps/rag-service/tests"]
-addopts = "-q --ignore=packages --ignore=node_modules"
+addopts = "-q --ignore=packages --ignore=node_modules -m 'not eval'"
 norecursedirs = ["cdk.out", ".venv", "dist", "*.egg-info", "layers"]
+markers = [
+  "eval: marks tests as evaluation benchmarks (require RAG_EVAL_ENABLED=true and eval deps)",
+]
 
 [tool.black]
 line-length = 100

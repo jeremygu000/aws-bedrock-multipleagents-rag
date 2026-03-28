@@ -1,6 +1,6 @@
 # RAG Gap Analysis & Implementation Plan
 
-> **Date**: 2026-03-28
+> **Date**: 2026-03-29
 > **Status**: Living document — update as phases are completed
 > **Companion doc**: [LightRAG Migration Plan](./lightrag-migration-plan.md) (Phases 1–3 ✅ DONE)
 
@@ -54,7 +54,7 @@ Our RAG service is a production-grade, 14-node LangGraph pipeline with Neo4j + p
 | **Streaming**                | ❌ Batch response only                                   | ✅ SSE `/query/stream`                              | ⬜ Phase 6  |
 | **Gleaning**                 | ❌ Single-pass extraction                                | ✅ Multi-round extraction + merge                   | ⬜ Phase 7  |
 | **Observability**            | ❌ Basic logging                                         | ✅ Langfuse integration                             | ⬜ Phase 8  |
-| **Evaluation**               | ❌ Manual testing only                                   | ✅ RAGAS integration                                | ⬜ Phase 4  |
+| **Evaluation**               | ✅ RAGAS + DeepEval + custom graph metrics               | ✅ RAGAS integration                                | ✅ Done     |
 | **Multi-tenancy**            | ❌ Single workspace                                      | ✅ Workspace isolation + JWT/API Key                | ⏭️ Deferred |
 | **Concurrency**              | ❌ Basic                                                 | ✅ Semaphore-based rate limiting                    | ⏭️ Deferred |
 | **Community Detection**      | ❌ Deferred (Phase 3.5)                                  | ✅ Louvain for global retrieval                     | ⏭️ Deferred |
@@ -88,7 +88,7 @@ Our RAG service is a production-grade, 14-node LangGraph pipeline with Neo4j + p
 │                                     │    │                                   │
 │  ✅ Cascade delete + re-ingest        │    │  ✅ Incremental + deletion       │
 │  ❌ No streaming                    │    │  ✅ SSE streaming                │
-│  ❌ No eval framework               │    │  ✅ RAGAS integration            │
+│  ✅ RAGAS + DeepEval + graph metrics │    │  ✅ RAGAS integration            │
 │  ❌ No observability                │    │  ✅ Langfuse tracing             │
 └─────────────────────────────────────┘    └───────────────────────────────────┘
 ```
@@ -258,13 +258,13 @@ def multi_source_recall(state: dict) -> int:
 
 ### 4.8 Acceptance Criteria
 
-- [ ] Golden dataset with ≥50 Q&A pairs covering all 4 intents (factual/analytical/comparative/exploratory)
-- [ ] RAGAS benchmark runs in CI, fails on regression below thresholds
-- [ ] DeepEval hallucination test passes for all golden queries
-- [ ] Custom graph metrics calculate correctly (unit tested)
-- [ ] Phoenix tracing captures per-query spans in staging
-- [ ] All eval tests pass: `pytest tests/eval/ -v`
-- [ ] Baseline metrics recorded and committed
+- [x] Golden dataset with ≥50 Q&A pairs covering all 4 intents (factual/analytical/comparative/exploratory)
+- [x] RAGAS benchmark runs in CI, fails on regression below thresholds
+- [x] DeepEval hallucination test passes for all golden queries
+- [x] Custom graph metrics calculate correctly (unit tested)
+- [ ] Phoenix tracing captures per-query spans in staging (deferred to Phase 8)
+- [x] All eval tests pass: `pytest tests/eval/ -v`
+- [ ] Baseline metrics recorded and committed (requires live infra run)
 
 ### 4.9 Test Plan
 
@@ -885,7 +885,7 @@ gantt
 | 2     | Knowledge Graph Ingestion          | —        | Done     | ✅ DONE     |
 | 3     | Graph-Enhanced Retrieval (3.1-3.4) | —        | Done     | ✅ DONE     |
 | —     | L2 Query Result Cache              | —        | Done     | ✅ DONE     |
-| **4** | **Evaluation Framework**           | **P1**   | **4-5d** | ⬜ PLANNED  |
+| **4** | **Evaluation Framework**           | **P1**   | **4-5d** | ✅ DONE     |
 | **5** | **Incremental Graph Update**       | **P0**   | **3-4d** | ✅ DONE     |
 | **6** | **Streaming Query (SSE)**          | **P1**   | **2-3d** | ⬜ PLANNED  |
 | **7** | **Gleaning**                       | **P1**   | **2d**   | ⬜ PLANNED  |

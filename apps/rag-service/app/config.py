@@ -281,6 +281,44 @@ class Settings(BaseSettings):
     )
     ingestion_queue_url: str = Field(default="", validation_alias="RAG_INGESTION_QUEUE_URL")
 
+    # --- Evaluation framework settings (Phase 4) ---
+    enable_eval_tracing: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_EVAL_TRACING",
+        description="Enable evaluation tracing for production monitoring",
+    )
+    eval_faithfulness_threshold: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_EVAL_FAITHFULNESS_THRESHOLD",
+    )
+    eval_answer_relevancy_threshold: float = Field(
+        default=0.80,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_EVAL_ANSWER_RELEVANCY_THRESHOLD",
+    )
+    eval_context_precision_threshold: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_EVAL_CONTEXT_PRECISION_THRESHOLD",
+    )
+    eval_context_recall_threshold: float = Field(
+        default=0.80,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_EVAL_CONTEXT_RECALL_THRESHOLD",
+    )
+    eval_hallucination_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_EVAL_HALLUCINATION_THRESHOLD",
+        description="DeepEval hallucination metric threshold (lower = stricter)",
+    )
+
     model_config = SettingsConfigDict(
         extra="ignore",
         case_sensitive=False,

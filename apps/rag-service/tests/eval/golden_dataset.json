@@ -1,0 +1,663 @@
+{
+  "version": "1.0",
+  "created": "2026-03-29",
+  "entries": [
+    {
+      "id": "eval_001",
+      "query": "What is the ISRC code for Blinding Lights by The Weeknd?",
+      "expected_answer": "The ISRC code for Blinding Lights by The Weeknd is USUM72003254. This track was released in November 2019 as part of the After Hours album.",
+      "expected_contexts": ["doc_isrc_001_chunk_0", "doc_track_metadata_001_chunk_2"],
+      "expected_entities": ["the_weeknd", "blinding_lights", "after_hours_album"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["metadata", "isrc", "track"]
+    },
+    {
+      "id": "eval_002",
+      "query": "Compare streaming performance: which had more Spotify streams in 2024, Billie Eilish's Happier Than Ever or The Weeknd's Blinding Lights?",
+      "expected_answer": "Blinding Lights by The Weeknd achieved approximately 2.8 billion Spotify streams by 2024, surpassing Happier Than Ever's 1.9 billion streams. This makes Blinding Lights one of the most-streamed songs on the platform.",
+      "expected_contexts": [
+        "doc_streaming_stats_001_chunk_1",
+        "doc_streaming_stats_001_chunk_3",
+        "doc_track_performance_002_chunk_0"
+      ],
+      "expected_entities": ["the_weeknd", "blinding_lights", "billie_eilish", "happier_than_ever"],
+      "intent": "comparative",
+      "complexity": "moderate",
+      "tags": ["streaming", "comparison", "artist"]
+    },
+    {
+      "id": "eval_003",
+      "query": "Who is the record label for Taylor Swift's Folklore album?",
+      "expected_answer": "Folklore was released under Republic Records. Taylor Swift signed with Republic Records in 2018 and released several albums through this label including Folklore in July 2020.",
+      "expected_contexts": ["doc_label_info_001_chunk_0", "doc_album_metadata_001_chunk_1"],
+      "expected_entities": ["taylor_swift", "folklore_album", "republic_records"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["label", "album", "metadata"]
+    },
+    {
+      "id": "eval_004",
+      "query": "How have streaming trends evolved for hip-hop music over the past decade?",
+      "expected_answer": "Hip-hop has shown explosive growth in streaming, increasing from 15% of platform streams in 2014 to over 30% by 2024. Artists like Drake and The Weeknd have been key drivers, with hip-hop and trap sub-genres consistently ranking in the top 5 across major platforms.",
+      "expected_contexts": [
+        "doc_genre_trends_002_chunk_1",
+        "doc_streaming_analysis_001_chunk_2",
+        "doc_hip_hop_report_001_chunk_0"
+      ],
+      "expected_entities": ["hip_hop_genre", "drake", "trap_genre"],
+      "intent": "analytical",
+      "complexity": "complex",
+      "tags": ["trend", "genre", "analysis", "streaming"]
+    },
+    {
+      "id": "eval_005",
+      "query": "What were the top 3 genres by streaming volume in 2023?",
+      "expected_answer": "The top 3 genres by streaming volume in 2023 were Pop (32% of total streams), Hip-Hop (28%), and Rock (15%). Pop maintained its dominance through mainstream artists and playlist placement strategies.",
+      "expected_contexts": ["doc_genre_stats_001_chunk_0", "doc_streaming_report_2023_chunk_1"],
+      "expected_entities": ["pop_genre", "hip_hop_genre", "rock_genre"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["genre", "metadata", "streaming"]
+    },
+    {
+      "id": "eval_006",
+      "query": "When was Abbey Road by The Beatles released and how many tracks does it contain?",
+      "expected_answer": "Abbey Road was released on September 26, 1969, and contains 17 tracks (including hidden tracks). It is one of The Beatles' most iconic albums and features classics like Come Together and Something.",
+      "expected_contexts": ["doc_album_metadata_002_chunk_0", "doc_beatles_discography_chunk_1"],
+      "expected_entities": ["the_beatles", "abbey_road_album", "come_together"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["album", "release", "metadata", "historical"]
+    },
+    {
+      "id": "eval_007",
+      "query": "Compare the chart performance of Adele's 25 versus her album 30 on the Billboard 200.",
+      "expected_answer": "Both albums achieved tremendous chart success. 25 debuted at number one and spent 10 weeks at the top, while 30 also debuted at number one and spent 8 weeks at the top. 25 had stronger overall sales volume, becoming one of the best-selling albums of the decade.",
+      "expected_contexts": [
+        "doc_billboard_chart_001_chunk_2",
+        "doc_album_performance_001_chunk_0",
+        "doc_adele_discography_chunk_1"
+      ],
+      "expected_entities": ["adele", "25_album", "30_album", "billboard_200"],
+      "intent": "comparative",
+      "complexity": "moderate",
+      "tags": ["comparison", "release", "artist", "metadata"]
+    },
+    {
+      "id": "eval_008",
+      "query": "What are the key musical influences behind the Afrobeats genre?",
+      "expected_answer": "Afrobeats draws from traditional West African percussion, rhythm patterns, and call-and-response vocals combined with modern production techniques. It incorporates elements from funk, soul, highlife, and traditional Nigerian music, with artists like Fela Kuti establishing foundational principles that contemporary artists like Wizkid and Burna Boy have evolved.",
+      "expected_contexts": [
+        "doc_afrobeats_history_001_chunk_0",
+        "doc_genre_analysis_002_chunk_2",
+        "doc_fela_kuti_influence_chunk_0"
+      ],
+      "expected_entities": ["afrobeats_genre", "fela_kuti", "wizkid", "burna_boy"],
+      "intent": "exploratory",
+      "complexity": "complex",
+      "tags": ["genre", "analysis", "historical", "artist"]
+    },
+    {
+      "id": "eval_009",
+      "query": "List the ISRC codes for the first three tracks on Ed Sheeran's Divide album.",
+      "expected_answer": "The first three tracks on Divide are Eraser (GBUM71505395), Castle on the Hill (GBUM71505396), and Thinking Out Loud (GBUM71505397). These tracks were released in March 2017.",
+      "expected_contexts": ["doc_divide_tracklist_chunk_0", "doc_isrc_database_001_chunk_1"],
+      "expected_entities": ["ed_sheeran", "divide_album", "eraser", "castle_on_the_hill"],
+      "intent": "factual",
+      "complexity": "moderate",
+      "tags": ["isrc", "album", "metadata", "track"]
+    },
+    {
+      "id": "eval_010",
+      "query": "How has the average song length in popular music changed since 2000?",
+      "expected_answer": "Average song length has decreased from approximately 3:50 in 2000 to 3:15 in 2024. This trend reflects algorithmic playlist preferences and streaming economics, where shorter songs can be replayed more frequently. Radio-friendly songs continue to dominate commercial releases.",
+      "expected_contexts": [
+        "doc_song_length_analysis_001_chunk_1",
+        "doc_streaming_economics_chunk_2",
+        "doc_chart_trends_002_chunk_0"
+      ],
+      "expected_entities": ["streaming_platforms", "radio_formats"],
+      "intent": "analytical",
+      "complexity": "moderate",
+      "tags": ["trend", "analysis", "metadata"]
+    },
+    {
+      "id": "eval_011",
+      "query": "What is the release date of Dua Lipa's debut album?",
+      "expected_answer": "Dua Lipa's self-titled debut album was released on June 2, 2017. It features hit singles like New Rules and IDGAF and helped establish her as a major pop artist.",
+      "expected_contexts": ["doc_dua_lipa_discography_chunk_0", "doc_album_releases_2017_chunk_1"],
+      "expected_entities": ["dua_lipa", "dua_lipa_album", "new_rules"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["release", "album", "artist"]
+    },
+    {
+      "id": "eval_012",
+      "query": "Compare the critical reception and commercial performance of The Weeknd's Starboy versus After Hours.",
+      "expected_answer": "Starboy (2016) received strong reviews and commercial success with 7 million copies sold. After Hours (2020) had similar critical acclaim with innovative production and visual concepts, achieving over 10 million streams. After Hours demonstrated stronger streaming performance while Starboy had higher physical sales.",
+      "expected_contexts": [
+        "doc_album_review_001_chunk_0",
+        "doc_sales_data_001_chunk_2",
+        "doc_weeknd_discography_chunk_1"
+      ],
+      "expected_entities": ["the_weeknd", "starboy_album", "after_hours_album"],
+      "intent": "comparative",
+      "complexity": "complex",
+      "tags": ["comparison", "artist", "release", "analysis"]
+    },
+    {
+      "id": "eval_013",
+      "query": "Which artists have released music under independent labels in the past 5 years and what were their commercial outcomes?",
+      "expected_answer": "Several notable artists have pursued independent releases recently. Tyler, the Creator's label Odd Future Records has released successful projects, while other artists like The 1975 have negotiated hybrid deals. Independent releases have achieved competitive commercial success, with some charting higher than expected and maintaining stronger artistic control.",
+      "expected_contexts": [
+        "doc_independent_labels_001_chunk_1",
+        "doc_label_trends_2019_2024_chunk_0",
+        "doc_artist_autonomy_chunk_2"
+      ],
+      "expected_entities": ["tyler_the_creator", "the_1975", "odd_future_records"],
+      "intent": "analytical",
+      "complexity": "complex",
+      "tags": ["label", "trend", "analysis", "artist"]
+    },
+    {
+      "id": "eval_014",
+      "query": "What is the primary genre classification for Kendrick Lamar's Damn album?",
+      "expected_answer": "Damn is primarily classified as hip-hop with trap and alternative rap influences. The album incorporates diverse production styles ranging from trap beats to neo-soul samples, released in April 2017.",
+      "expected_contexts": ["doc_damn_album_review_chunk_0", "doc_kendrick_discography_chunk_1"],
+      "expected_entities": ["kendrick_lamar", "damn_album", "trap_genre"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["genre", "album", "artist", "metadata"]
+    },
+    {
+      "id": "eval_015",
+      "query": "How has social media influenced music discovery and artist growth?",
+      "expected_answer": "Social media platforms like TikTok, Instagram, and Twitter have revolutionized music discovery by enabling organic viral growth. Artists can reach global audiences without traditional label backing, as seen with Olivia Rodrigo and Billie Eilish. Algorithm-driven recommendations now rival traditional radio in shaping chart performance.",
+      "expected_contexts": [
+        "doc_social_media_impact_001_chunk_0",
+        "doc_music_discovery_trends_chunk_2",
+        "doc_tikitok_viral_analysis_chunk_1"
+      ],
+      "expected_entities": ["tiktok", "olivia_rodrigo", "billie_eilish", "social_media"],
+      "intent": "exploratory",
+      "complexity": "moderate",
+      "tags": ["trend", "analysis", "artist", "streaming"]
+    },
+    {
+      "id": "eval_016",
+      "query": "What streaming platform had the highest market share for music in 2024?",
+      "expected_answer": "Spotify maintained the largest market share in 2024 with approximately 35% of global music streaming. Apple Music holds around 18%, followed by Amazon Music, YouTube Music, and other platforms.",
+      "expected_contexts": [
+        "doc_streaming_market_2024_chunk_0",
+        "doc_spotify_market_analysis_chunk_1"
+      ],
+      "expected_entities": ["spotify", "apple_music", "amazon_music", "youtube_music"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["streaming", "metadata"]
+    },
+    {
+      "id": "eval_017",
+      "query": "Compare the album art designs and visual concepts of Pink Floyd's Dark Side of the Moon versus The Wall.",
+      "expected_answer": "Dark Side of the Moon features Hipgnosis's iconic prism design representing light refraction and complexity. The Wall uses elaborate brick imagery and visual representations of emotional barriers. Both albums established Pink Floyd's commitment to thematic visual concepts that enhanced their musical narratives.",
+      "expected_contexts": [
+        "doc_pink_floyd_visual_analysis_chunk_0",
+        "doc_album_art_design_chunk_2",
+        "doc_hipgnosis_design_chunk_1"
+      ],
+      "expected_entities": ["pink_floyd", "dark_side_of_the_moon", "the_wall_album", "hipgnosis"],
+      "intent": "comparative",
+      "complexity": "moderate",
+      "tags": ["comparison", "album", "artist", "historical"]
+    },
+    {
+      "id": "eval_018",
+      "query": "What are the key characteristics that define the K-pop genre and its global influence?",
+      "expected_answer": "K-pop combines Korean and English language lyrics, synchronized choreography, visual aesthetics, and sophisticated production. Key characteristics include multi-member groups, rigorous training systems, and strategic global marketing. Groups like BTS and BLACKPINK have expanded K-pop's global influence significantly since 2010.",
+      "expected_contexts": [
+        "doc_kpop_genre_analysis_chunk_0",
+        "doc_bts_global_impact_chunk_1",
+        "doc_korean_music_industry_chunk_2"
+      ],
+      "expected_entities": ["kpop_genre", "bts", "blackpink"],
+      "intent": "exploratory",
+      "complexity": "moderate",
+      "tags": ["genre", "analysis", "artist", "trend"]
+    },
+    {
+      "id": "eval_019",
+      "query": "What was Beyonce's first solo album release date?",
+      "expected_answer": "Beyonce's first solo album Dangerously in Love was released on June 24, 2003. The album featured hit singles like Crazy in Love featuring Jay-Z and Baby Boy, establishing her as a solo superstar.",
+      "expected_contexts": ["doc_beyonce_discography_chunk_0", "doc_album_releases_2003_chunk_1"],
+      "expected_entities": ["beyonce", "dangerously_in_love", "crazy_in_love"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["release", "artist", "album"]
+    },
+    {
+      "id": "eval_020",
+      "query": "Analyze the production evolution in Drake's album releases from 2009 to 2023.",
+      "expected_answer": "Drake's production evolved from introspective soul samples in Thank Me Later (2009) to trap and R&B fusion in Views (2016) and finally electronic-influenced production in Certified Lover Boy (2021). His collaborations with producers like 40, DJ Mustard, and Metro Boomin shaped distinct sonic identities across albums.",
+      "expected_contexts": [
+        "doc_drake_production_analysis_chunk_0",
+        "doc_producer_collaborations_chunk_2",
+        "doc_trap_evolution_chunk_1"
+      ],
+      "expected_entities": ["drake", "thank_me_later", "views_album", "certified_lover_boy"],
+      "intent": "analytical",
+      "complexity": "complex",
+      "tags": ["artist", "analysis", "trend"]
+    },
+    {
+      "id": "eval_021",
+      "query": "Which record label produced the most chart-topping albums in 2022?",
+      "expected_answer": "Universal Music Group had the most chart-topping albums in 2022 with 12 number-one albums across its various subsidiary labels. Sony Music came second with 8 number-one albums, reflecting the consolidated nature of the music industry.",
+      "expected_contexts": [
+        "doc_label_chart_performance_2022_chunk_0",
+        "doc_industry_consolidation_chunk_1"
+      ],
+      "expected_entities": ["universal_music_group", "sony_music"],
+      "intent": "factual",
+      "complexity": "moderate",
+      "tags": ["label", "metadata", "release"]
+    },
+    {
+      "id": "eval_022",
+      "query": "Compare the festival headlining trends between Coachella and Glastonbury from 2010-2024.",
+      "expected_answer": "Coachella has predominantly featured rock and electronic acts with pop crossover, while Glastonbury showcases more diverse genres including folk, rock, and indie. Both festivals increasingly booked female headliners from 2018 onwards. Coachella trends toward emerging artists while Glastonbury favors established legacy acts.",
+      "expected_contexts": [
+        "doc_coachella_headliners_chunk_0",
+        "doc_glastonbury_history_chunk_2",
+        "doc_festival_trend_analysis_chunk_1"
+      ],
+      "expected_entities": ["coachella", "glastonbury"],
+      "intent": "comparative",
+      "complexity": "complex",
+      "tags": ["comparison", "trend", "analysis", "artist"]
+    },
+    {
+      "id": "eval_023",
+      "query": "What is the ISRC code for Shape of You by Ed Sheeran?",
+      "expected_answer": "The ISRC code for Shape of You by Ed Sheeran is GBUM71702191. The track was released in January 2017 and became one of the most-streamed songs globally.",
+      "expected_contexts": ["doc_isrc_database_002_chunk_0", "doc_ed_sheeran_tracks_chunk_1"],
+      "expected_entities": ["ed_sheeran", "shape_of_you"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["isrc", "metadata", "track"]
+    },
+    {
+      "id": "eval_024",
+      "query": "How has the pricing model for music streaming services evolved and what impact has this had on artist royalties?",
+      "expected_answer": "Streaming services evolved from free ad-supported models to premium subscriptions (9.99-14.99 USD monthly). Artist royalties have decreased relative to physical sales, averaging 0.003-0.005 USD per stream. Higher-tier family and student plans have improved platform economics without significantly increasing per-stream rates.",
+      "expected_contexts": [
+        "doc_streaming_economics_analysis_chunk_0",
+        "doc_royalty_rates_chunk_2",
+        "doc_pricing_strategy_chunk_1"
+      ],
+      "expected_entities": ["spotify", "streaming_economics", "artist_royalties"],
+      "intent": "analytical",
+      "complexity": "complex",
+      "tags": ["streaming", "analysis", "trend"]
+    },
+    {
+      "id": "eval_025",
+      "query": "Which artist has the most Grammy Awards as of 2024?",
+      "expected_answer": "Beyonce holds the record with 32 Grammy Awards as of 2024, surpassing Georg Solti's previous record of 31. Her wins span multiple categories including Best Pop Album, Best Rap Album, and Best Music Video.",
+      "expected_contexts": ["doc_grammy_records_2024_chunk_0", "doc_beyonce_achievements_chunk_1"],
+      "expected_entities": ["beyonce", "grammy_awards"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["metadata", "artist", "historical"]
+    },
+    {
+      "id": "eval_026",
+      "query": "Compare the lyrical themes and narrative depth of Kendrick Lamar's good kid, m.A.A.d city versus his later album Mr. Morale & The Big Steppers.",
+      "expected_answer": "Good kid, m.A.A.d city presents interconnected stories of Compton street life with character development across tracks. Mr. Morale & The Big Steppers shifts to introspective examinations of personal trauma, spirituality, and societal issues. Both albums showcase sophisticated storytelling with differing scope: local narrative versus universal themes.",
+      "expected_contexts": [
+        "doc_kendrick_narrative_analysis_chunk_0",
+        "doc_album_themes_comparison_chunk_2",
+        "doc_lyrical_depth_study_chunk_1"
+      ],
+      "expected_entities": [
+        "kendrick_lamar",
+        "good_kid_maad_city",
+        "mr_morale_and_the_big_steppers"
+      ],
+      "intent": "comparative",
+      "complexity": "complex",
+      "tags": ["comparison", "artist", "analysis"]
+    },
+    {
+      "id": "eval_027",
+      "query": "What percentage of music industry revenue came from streaming in 2023?",
+      "expected_answer": "Streaming generated 65% of total music industry revenue in 2023, marking continued growth from previous years. This includes both audio streaming (52% of total) and video streaming (13% of total).",
+      "expected_contexts": [
+        "doc_music_industry_revenue_2023_chunk_0",
+        "doc_streaming_revenue_share_chunk_1"
+      ],
+      "expected_entities": ["streaming", "music_industry"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["streaming", "metadata"]
+    },
+    {
+      "id": "eval_028",
+      "query": "How have gender representation trends evolved in music production and engineering over the last 10 years?",
+      "expected_answer": "Female representation in music production increased from 2% in 2014 to approximately 8% in 2024. Notable producers like Sylvia Massy and Disclosure's sister Sasha Gradova have gained prominence. Industry initiatives continue advocating for greater inclusion, though significant gender gaps remain in technical roles.",
+      "expected_contexts": [
+        "doc_gender_representation_music_chunk_0",
+        "doc_women_producers_analysis_chunk_2",
+        "doc_studio_diversity_chunk_1"
+      ],
+      "expected_entities": ["sylvia_massy", "sasha_gradova"],
+      "intent": "analytical",
+      "complexity": "moderate",
+      "tags": ["trend", "analysis"]
+    },
+    {
+      "id": "eval_029",
+      "query": "When was The Beatles album Let It Be released?",
+      "expected_answer": "Let It Be was released on May 8, 1970, posthumously remixed by Phil Spector. It was The Beatles' final album released during their lifetime, featuring iconic tracks like Let It Be and Get Back.",
+      "expected_contexts": ["doc_beatles_discography_chunk_2", "doc_let_it_be_release_chunk_0"],
+      "expected_entities": ["the_beatles", "let_it_be_album"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["release", "album", "historical"]
+    },
+    {
+      "id": "eval_030",
+      "query": "Compare streaming revenue models: Spotify's pay-per-stream versus Apple Music's percentage-of-subscription approach.",
+      "expected_answer": "Spotify uses a pro-rata system where total monthly revenue is divided among streamed songs. Apple Music distributes a percentage of subscription revenue to artists. Apple Music typically pays higher per-stream rates (0.007 USD) compared to Spotify (0.003-0.005 USD) but has smaller subscriber base.",
+      "expected_contexts": [
+        "doc_spotify_revenue_model_chunk_0",
+        "doc_apple_music_payout_structure_chunk_1",
+        "doc_streaming_payout_comparison_chunk_2"
+      ],
+      "expected_entities": ["spotify", "apple_music"],
+      "intent": "comparative",
+      "complexity": "moderate",
+      "tags": ["streaming", "comparison"]
+    },
+    {
+      "id": "eval_031",
+      "query": "What influences shaped the lo-fi hip-hop genre and its rise in popularity during the 2010s?",
+      "expected_answer": "Lo-fi hip-hop draws from 1990s boom-bap production, jazz samples, and introspective lyrics combined with intentional audio degradation and tape texture. The genre gained popularity through YouTube livestreams, study playlists, and anime-inspired aesthetics. Artists like J Dilla, Nujabes, and later Tomppabeats influenced the lo-fi movement.",
+      "expected_contexts": [
+        "doc_lofi_genre_history_chunk_0",
+        "doc_j_dilla_influence_chunk_1",
+        "doc_youtube_lofi_study_trend_chunk_2"
+      ],
+      "expected_entities": ["lofi_hip_hop", "j_dilla", "nujabes", "tomppabeats"],
+      "intent": "exploratory",
+      "complexity": "moderate",
+      "tags": ["genre", "analysis", "historical", "trend"]
+    },
+    {
+      "id": "eval_032",
+      "query": "Which female artist had the highest total streams in 2024?",
+      "expected_answer": "Ariana Grande accumulated the highest total streams for a female artist in 2024 with approximately 8.2 billion streams. Taylor Swift maintained strong streaming numbers exceeding 6 billion streams, while Billie Eilish reached 5.1 billion streams.",
+      "expected_contexts": [
+        "doc_streaming_leaders_2024_chunk_0",
+        "doc_artist_streaming_statistics_chunk_1"
+      ],
+      "expected_entities": ["ariana_grande", "taylor_swift", "billie_eilish"],
+      "intent": "factual",
+      "complexity": "moderate",
+      "tags": ["streaming", "artist", "metadata"]
+    },
+    {
+      "id": "eval_033",
+      "query": "Compare the commercial performance metrics of Spotify-exclusive releases versus multi-platform simultaneous releases.",
+      "expected_answer": "Multi-platform simultaneous releases typically outperform single-platform exclusives by 40-60% in overall reach and streaming volume. However, exclusivity deals provide larger upfront payments. Artists increasingly avoid exclusivity to maximize audience access, with platforms like Apple Music offering competitive compensation packages.",
+      "expected_contexts": [
+        "doc_exclusive_release_analysis_chunk_0",
+        "doc_multi_platform_strategy_chunk_1",
+        "doc_streaming_exclusivity_impact_chunk_2"
+      ],
+      "expected_entities": ["spotify", "apple_music", "streaming_strategy"],
+      "intent": "comparative",
+      "complexity": "complex",
+      "tags": ["comparison", "streaming", "strategy"]
+    },
+    {
+      "id": "eval_034",
+      "query": "What are the defining characteristics of grime music and its cultural origins?",
+      "expected_answer": "Grime originated in East London during the early 2000s, combining fast-paced rap (140+ BPM) with garage and drum and bass influences. Characteristics include rapid fire delivery, UK slang, local area codes, and distinctive production featuring chopped electronic sounds. Artists like Wiley and Dizzee Rascal established the genre's identity.",
+      "expected_contexts": [
+        "doc_grime_genre_history_chunk_0",
+        "doc_london_grime_origins_chunk_1",
+        "doc_wiley_dizzee_influence_chunk_2"
+      ],
+      "expected_entities": ["grime_genre", "wiley", "dizzee_rascal"],
+      "intent": "exploratory",
+      "complexity": "moderate",
+      "tags": ["genre", "analysis", "historical"]
+    },
+    {
+      "id": "eval_035",
+      "query": "What was the total number of unique artists who charted on Billboard Hot 100 in 2023?",
+      "expected_answer": "Approximately 180 unique artists charted on the Billboard Hot 100 in 2023. This represents consistent diversity in the chart, though concentrated around major label acts and established artists.",
+      "expected_contexts": [
+        "doc_billboard_hot_100_2023_chunk_0",
+        "doc_chart_diversity_analysis_chunk_1"
+      ],
+      "expected_entities": ["billboard_hot_100"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["metadata", "chart"]
+    },
+    {
+      "id": "eval_036",
+      "query": "Analyze how different regions show varying genre preferences and what drives these differences.",
+      "expected_answer": "Regional music preferences reflect cultural heritage, local radio formats, and demographic factors. Latin America shows strong reggaeton and trap latino adoption. Asia favors K-pop and C-pop. Africa dominates Afrobeats and Amapiano. Streaming algorithms increasingly influence these patterns through localized playlists and recommendations.",
+      "expected_contexts": [
+        "doc_regional_music_preferences_chunk_0",
+        "doc_geographic_streaming_analysis_chunk_2",
+        "doc_cultural_influence_music_chunk_1"
+      ],
+      "expected_entities": ["reggaeton", "kpop", "afrobeats", "amapiano"],
+      "intent": "analytical",
+      "complexity": "complex",
+      "tags": ["analysis", "trend", "genre", "streaming"]
+    },
+    {
+      "id": "eval_037",
+      "query": "Who produced most of the tracks on The Weeknd's Blinding Lights album?",
+      "expected_answer": "The Blinding Lights album was primarily produced by Oscar Holter, DaHeala, Illangelo, and Max Martin. Oscar Holter and DaHeala handled production on the title track, while Max Martin contributed production and writing expertise on multiple album cuts.",
+      "expected_contexts": [
+        "doc_blinding_lights_production_chunk_0",
+        "doc_weeknd_producers_chunk_1"
+      ],
+      "expected_entities": ["the_weeknd", "oscar_holter", "daheala", "illangelo", "max_martin"],
+      "intent": "factual",
+      "complexity": "moderate",
+      "tags": ["album", "metadata", "artist"]
+    },
+    {
+      "id": "eval_038",
+      "query": "How have collaborations between Western and non-Western artists reshaped global music markets since 2015?",
+      "expected_answer": "Cross-cultural collaborations have become major chart drivers. Artists like Bad Bunny with Drake, Beyonce with Kendrick Lamar, and The Weeknd with Weeknd have achieved massive global success by blending styles. These collaborations opened markets for non-English artists and increased genre-blending across all regions.",
+      "expected_contexts": [
+        "doc_cross_cultural_collaboration_chunk_0",
+        "doc_global_market_shifts_chunk_2",
+        "doc_language_barrier_breakdown_chunk_1"
+      ],
+      "expected_entities": ["bad_bunny", "drake", "beyonce", "kendrick_lamar"],
+      "intent": "analytical",
+      "complexity": "complex",
+      "tags": ["analysis", "trend", "artist", "collaboration"]
+    },
+    {
+      "id": "eval_039",
+      "query": "When did Michael Jackson's Thriller album become the best-selling album of all time?",
+      "expected_answer": "Thriller became the best-selling album of all time in 1982, achieving this status within the first year of release. It has sold approximately 70 million copies worldwide across all formats and remains unchallenged.",
+      "expected_contexts": ["doc_thriller_sales_record_chunk_0", "doc_best_selling_albums_chunk_1"],
+      "expected_entities": ["michael_jackson", "thriller_album"],
+      "intent": "factual",
+      "complexity": "simple",
+      "tags": ["album", "release", "historical", "metadata"]
+    },
+    {
+      "id": "eval_040",
+      "query": "Compare the marketing strategies and promotional approaches used by Taylor Swift versus The Weeknd for major album releases.",
+      "expected_answer": "Taylor Swift employs strategic announcement patterns, surprise tracks, and fan-focused social engagement with multi-era promotional campaigns. The Weeknd uses visual albums, cinematic videos, and character-driven narratives across releases. Taylor Swift emphasizes direct fan communication while The Weeknd prioritizes visual storytelling.",
+      "expected_contexts": [
+        "doc_taylor_swift_marketing_chunk_0",
+        "doc_weeknd_promotion_strategy_chunk_1",
+        "doc_artist_marketing_comparison_chunk_2"
+      ],
+      "expected_entities": ["taylor_swift", "the_weeknd"],
+      "intent": "comparative",
+      "complexity": "moderate",
+      "tags": ["comparison", "artist", "strategy"]
+    },
+    {
+      "id": "eval_041",
+      "query": "What are the main factors that influence playlist placement algorithms on Spotify?",
+      "expected_answer": "Spotify's playlist algorithms consider artist popularity, listener engagement metrics, skip rates, completion rates, saves, and shares. Production quality, metadata accuracy, and playlist history contribute. Track tempo, energy levels, and danceability factor into genre-specific playlists.",
+      "expected_contexts": [
+        "doc_spotify_algorithm_analysis_chunk_0",
+        "doc_playlist_placement_factors_chunk_1"
+      ],
+      "expected_entities": ["spotify", "playlist_algorithm"],
+      "intent": "exploratory",
+      "complexity": "moderate",
+      "tags": ["streaming", "analysis", "trend"]
+    },
+    {
+      "id": "eval_042",
+      "query": "How have live streaming concerts evolved as a revenue model since the COVID-19 pandemic?",
+      "expected_answer": "Live streaming evolved from pandemic necessity to legitimate revenue stream. Artists generated 500 million USD in 2021 from virtual concerts alone. Platforms like YouTube Music and Twitch enabled direct fan engagement. Ticket prices ranged 15-50 USD, with artists retaining 50-70% revenue after platform fees.",
+      "expected_contexts": [
+        "doc_live_streaming_revenue_chunk_0",
+        "doc_virtual_concert_analysis_chunk_2",
+        "doc_pandemic_music_trends_chunk_1"
+      ],
+      "expected_entities": ["youtube_music", "twitch", "live_streaming"],
+      "intent": "analytical",
+      "complexity": "moderate",
+      "tags": ["streaming", "trend", "analysis"]
+    },
+    {
+      "id": "eval_043",
+      "query": "Which record label invested most heavily in Latin music talent development from 2020-2024?",
+      "expected_answer": "Universal Music Group's Latin division invested most heavily, acquiring multiple independent Latin labels and signing emerging artists. Sony Music and Warner Music also expanded Latin rosters, but Universal maintained market leadership with artists like Bad Bunny and Karol G.",
+      "expected_contexts": [
+        "doc_latin_music_investment_chunk_0",
+        "doc_label_acquisition_strategy_chunk_1"
+      ],
+      "expected_entities": [
+        "universal_music_group",
+        "sony_music",
+        "warner_music",
+        "bad_bunny",
+        "karol_g"
+      ],
+      "intent": "factual",
+      "complexity": "moderate",
+      "tags": ["label", "artist", "trend"]
+    },
+    {
+      "id": "eval_044",
+      "query": "Explore the intersection between music and visual art in albums like The Midnight Marauders or OK Computer.",
+      "expected_answer": "Albums like A Tribe Called Quest's Midnight Marauders feature integral visual artwork reflecting lyrical themes and cultural identity. Radiohead's OK Computer uses abstract digital aesthetics matching algorithmic and industrial sonic textures. Visual presentation becomes narrative extension, enhancing conceptual cohesion.",
+      "expected_contexts": [
+        "doc_music_visual_art_nexus_chunk_0",
+        "doc_album_art_concept_chunk_1",
+        "doc_radiohead_visual_identity_chunk_2"
+      ],
+      "expected_entities": [
+        "a_tribe_called_quest",
+        "midnight_marauders",
+        "radiohead",
+        "ok_computer"
+      ],
+      "intent": "exploratory",
+      "complexity": "complex",
+      "tags": ["analysis", "album", "art", "historical"]
+    },
+    {
+      "id": "eval_045",
+      "query": "What is the average turnaround time from recording to release for major label albums in 2024?",
+      "expected_answer": "Average turnaround time is 6-9 months for major label albums in 2024. This includes production, mixing, mastering, marketing planning, and promotional campaigns. Independent releases average 3-4 months due to reduced approval processes.",
+      "expected_contexts": [
+        "doc_album_production_timeline_chunk_0",
+        "doc_label_release_schedule_chunk_1"
+      ],
+      "expected_entities": ["major_label", "album_production"],
+      "intent": "factual",
+      "complexity": "moderate",
+      "tags": ["metadata", "label", "release"]
+    },
+    {
+      "id": "eval_046",
+      "query": "Compare how different streaming platforms use AI and machine learning differently for music recommendations.",
+      "expected_answer": "Spotify uses collaborative filtering and audio analysis for personalized recommendations. Apple Music combines editorial playlists with AI enhancement. Amazon Music emphasizes context-aware listening (time, activity). YouTube Music integrates watch history with listening patterns. Each platform's approach reflects different data and editorial philosophies.",
+      "expected_contexts": [
+        "doc_streaming_ai_recommendations_chunk_0",
+        "doc_music_ml_algorithms_chunk_1",
+        "doc_platform_comparison_ml_chunk_2"
+      ],
+      "expected_entities": ["spotify", "apple_music", "amazon_music", "youtube_music"],
+      "intent": "comparative",
+      "complexity": "complex",
+      "tags": ["comparison", "streaming", "technology", "analysis"]
+    },
+    {
+      "id": "eval_047",
+      "query": "What are the core elements of trap music production and which producers established the genre?",
+      "expected_answer": "Trap music features hi-hats (808 snares), kick drums (sub-bass 808s), dark melodies, and rapid tempos (140+ BPM). Southernplayalisticadillacmuzik by OutKast pioneered the sound. Producers like T.I., Jeezy, and Lex Luger established trap's sonic blueprint during 2000s-2010s.",
+      "expected_contexts": [
+        "doc_trap_production_elements_chunk_0",
+        "doc_trap_history_chunk_1",
+        "doc_luger_influence_chunk_2"
+      ],
+      "expected_entities": ["trap_genre", "ti", "jeezy", "lex_luger"],
+      "intent": "exploratory",
+      "complexity": "moderate",
+      "tags": ["genre", "production", "analysis", "historical"]
+    },
+    {
+      "id": "eval_048",
+      "query": "Compare streaming subscriber growth rates between Spotify and Apple Music from 2020-2024.",
+      "expected_answer": "Spotify grew from 320 million subscribers in 2020 to 550 million in 2024 (72% growth). Apple Music grew from 60 million to 95 million (58% growth). Spotify's subscriber advantage reflects earlier market entry and cross-platform accessibility.",
+      "expected_contexts": [
+        "doc_subscriber_growth_2020_2024_chunk_0",
+        "doc_streaming_market_analysis_chunk_1"
+      ],
+      "expected_entities": ["spotify", "apple_music"],
+      "intent": "comparative",
+      "complexity": "moderate",
+      "tags": ["streaming", "comparison", "metadata"]
+    },
+    {
+      "id": "eval_049",
+      "query": "What cultural significance does the album format maintain in the streaming era despite singles dominance?",
+      "expected_answer": "Albums remain important for artistic statement and narrative structure despite singles-focused streaming. Concept albums like Tyler, the Creator's Igor and Frank Ocean's Blonde demonstrate albums retain cultural prestige. They provide deeper fan engagement, allow artistic risk-taking, and maintain quality control over entire projects.",
+      "expected_contexts": [
+        "doc_album_cultural_value_chunk_0",
+        "doc_concept_album_analysis_chunk_1",
+        "doc_streaming_era_album_chunk_2"
+      ],
+      "expected_entities": ["tyler_the_creator", "igor", "frank_ocean", "blonde_album"],
+      "intent": "exploratory",
+      "complexity": "moderate",
+      "tags": ["analysis", "album", "trend"]
+    },
+    {
+      "id": "eval_050",
+      "query": "How have music distribution rights and publishing ownership become key assets for artists post-2020?",
+      "expected_answer": "Artists increasingly retain publishing rights and catalog ownership for long-term revenue stability. Major artists like Taylor Swift re-recording albums and Jack Johnson owning master rights demonstrate this shift. Ownership provides ongoing royalties and control over licensing, making artist equity more valuable than single-track revenues.",
+      "expected_contexts": [
+        "doc_artist_rights_ownership_chunk_0",
+        "doc_music_publishing_strategy_chunk_1",
+        "doc_taylor_swift_re_recording_chunk_2"
+      ],
+      "expected_entities": ["taylor_swift", "jack_johnson", "music_publishing", "master_rights"],
+      "intent": "analytical",
+      "complexity": "complex",
+      "tags": ["analysis", "artist", "rights", "trend"]
+    }
+  ]
+}
