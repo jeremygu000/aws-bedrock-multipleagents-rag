@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     opensearch_endpoint: str = Field(default="", validation_alias="RAG_OPENSEARCH_ENDPOINT")
     opensearch_index: str = Field(default="kb_chunks", validation_alias="RAG_OPENSEARCH_INDEX")
     opensearch_timeout_s: int = Field(default=10, validation_alias="RAG_OPENSEARCH_TIMEOUT_S")
+    opensearch_use_sigv4: bool = Field(default=True, validation_alias="RAG_OPENSEARCH_USE_SIGV4")
     default_rrf_k: int = Field(default=60, validation_alias="RAG_RRF_K")
     answer_model_id: str = Field(
         default="amazon.nova-lite-v1:0",

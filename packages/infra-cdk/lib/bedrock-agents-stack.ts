@@ -204,6 +204,8 @@ export class BedrockAgentsStack extends cdk.Stack {
         (ragSearchDomain ? `https://${ragSearchDomain.domainEndpoint}` : ""),
       RAG_OPENSEARCH_INDEX: processEnv.RAG_OPENSEARCH_INDEX ?? "kb_chunks",
       RAG_OPENSEARCH_TIMEOUT_S: processEnv.RAG_OPENSEARCH_TIMEOUT_S ?? "10",
+      RAG_OPENSEARCH_USE_SIGV4:
+        processEnv.RAG_OPENSEARCH_USE_SIGV4 ?? (ragSearchDomain ? "true" : "false"),
       RAG_ANSWER_MODEL_ID: processEnv.RAG_ANSWER_MODEL_ID ?? FOUNDATION_MODEL_ID,
       RAG_ANSWER_MAX_TOKENS: processEnv.RAG_ANSWER_MAX_TOKENS ?? "500",
       RAG_ANSWER_TEMPERATURE: processEnv.RAG_ANSWER_TEMPERATURE ?? "0.05",

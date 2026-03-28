@@ -603,36 +603,52 @@ class PostgresRepository:
         return normalized
 
     def _get_opensearch_client(self) -> OpenSearch:
-        """Lazily construct and cache OpenSearch client with SigV4 auth."""
+        """Lazily construct and cache OpenSearch/Elasticsearch client.
+
+        When ``opensearch_use_sigv4`` is *True* (default) the client authenticates
+        with AWS IAM SigV4 — suitable for managed AWS OpenSearch domains.
+        When *False* the client connects without authentication — suitable for
+        self-hosted Elasticsearch / OpenSearch (e.g. Docker on EC2).
+        """
 
         if self._opensearch_client is not None:
             return self._opensearch_client
         if not self._settings.opensearch_endpoint.strip():
             raise ValueError("RAG_OPENSEARCH_ENDPOINT is not configured.")
-        if not self._settings.aws_region:
-            raise ValueError(
-                "AWS region is not configured. Set RAG_AWS_REGION, AWS_REGION, or AWS_DEFAULT_REGION."
-            )
 
         endpoint = self._settings.opensearch_endpoint.strip()
         parsed = urlparse(endpoint if "://" in endpoint else f"https://{endpoint}")
         if not parsed.hostname:
             raise ValueError("Invalid OpenSearch endpoint.")
 
-        session = boto3.Session()
-        credentials = session.get_credentials()
-        if credentials is None:
-            raise ValueError("AWS credentials are not available for OpenSearch access.")
+        use_ssl = parsed.scheme != "http"
+        default_port = 443 if use_ssl else 9200
 
-        auth = AWSV4SignerAuth(credentials, self._settings.aws_region, "es")
-        self._opensearch_client = OpenSearch(
-            hosts=[{"host": parsed.hostname, "port": parsed.port or 443}],
-            http_auth=auth,
-            use_ssl=(parsed.scheme != "http"),
-            verify_certs=True,
-            timeout=self._settings.opensearch_timeout_s,
-            connection_class=RequestsHttpConnection,
-        )
+        kwargs: dict[str, object] = {
+            "hosts": [{"host": parsed.hostname, "port": parsed.port or default_port}],
+            "use_ssl": use_ssl,
+            "verify_certs": use_ssl,
+            "timeout": self._settings.opensearch_timeout_s,
+            "connection_class": RequestsHttpConnection,
+        }
+
+        if self._settings.opensearch_use_sigv4:
+            if not self._settings.aws_region:
+                raise ValueError(
+                    "AWS region is not configured. "
+                    "Set RAG_AWS_REGION, AWS_REGION, or AWS_DEFAULT_REGION."
+                )
+            session = boto3.Session()
+            credentials = session.get_credentials()
+            if credentials is None:
+                raise ValueError(
+                    "AWS credentials are not available for OpenSearch access."
+                )
+            kwargs["http_auth"] = AWSV4SignerAuth(
+                credentials, self._settings.aws_region, "es"
+            )
+
+        self._opensearch_client = OpenSearch(**kwargs)  # type: ignore[arg-type]
         return self._opensearch_client
 
     def _get_engine(self) -> Engine:
