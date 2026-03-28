@@ -225,6 +225,18 @@ export class BedrockAgentsStack extends cdk.Stack {
       ragSearchFnEnv.RAG_DB_PASSWORD = processEnv.RAG_DB_PASSWORD;
     }
 
+    // Directories and caches excluded from PythonFunction Docker bundling.
+    const pythonAssetExcludes = [
+      ".venv",
+      ".pytest_cache",
+      ".ruff_cache",
+      "__pycache__",
+      "tests",
+      "layers",
+      "hybrid_rag_service.egg-info",
+      ".mypy_cache",
+    ];
+
     // RAG action Lambda now points to Python service entrypoint.
     const ragSearchFn = new PythonFunction(this, "RagSearchFn", {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -236,6 +248,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       tracing: lambda.Tracing.ACTIVE,
       logGroup: ragSearchLogGroup,
       environment: ragSearchFnEnv,
+      bundling: { assetExcludes: pythonAssetExcludes },
     });
     ragSearchDomain.grantReadWrite(ragSearchFn);
 
@@ -339,6 +352,7 @@ export class BedrockAgentsStack extends cdk.Stack {
         RAG_EMBED_BATCH_SIZE: processEnv.RAG_EMBED_BATCH_SIZE ?? "20",
         RAG_MAX_UPLOAD_SIZE_MB: processEnv.RAG_MAX_UPLOAD_SIZE_MB ?? "50",
       },
+      bundling: { assetExcludes: pythonAssetExcludes },
     });
 
     // Wire SQS as the Lambda event source (one document per invocation).
