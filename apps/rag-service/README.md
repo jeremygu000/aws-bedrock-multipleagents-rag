@@ -10,21 +10,35 @@ This service is the Python runtime for the hybrid RAG path:
 - LangGraph workflow orchestration for retrieval + answer synthesis
 - AWS Bedrock Runtime `converse` for grounded answer generation
 
+### Phase 1 — LightRAG Enhancements (Complete)
+
+Techniques ported from [LightRAG (EMNLP 2025)](https://github.com/hkuds/lightrag):
+
+- **Keyword extraction**: dual-level extraction (high-level themes + low-level entities) via Qwen, used to expand query rewriting with entity context
+- **LLM reranking**: Qwen-based relevance scoring with token-budget awareness and graceful fallback to retrieval order
+- **Structured evidence prompts**: `--- Evidence [N] ---` blocks with source metadata for grounded answer synthesis
+
 ## 0. Workflow Overview
 
-Current `rag_search` runtime flow:
+Current `rag_search` runtime flow (9-node LangGraph pipeline):
+
+```text
+detect_intent → extract_keywords → rewrite_query → build_request → retrieve → rerank → build_citations → choose_model → generate_answer
+```
 
 1. Bedrock Action Group invokes `lambda_tool.handler`
 2. `lambda_tool` delegates to `handle_rag_action`
 3. `handle_rag_action` runs `RagWorkflow` (LangGraph)
 4. Workflow nodes:
    - `detect_intent`: classify intent/complexity (Qwen preferred, heuristic fallback)
-   - `rewrite_query`: retrieval rewrite (Qwen preferred, pass-through fallback)
+   - `extract_keywords`: dual-level keyword extraction — high-level themes + low-level entities (Qwen, skip on failure)
+   - `rewrite_query`: retrieval rewrite with keyword context (Qwen preferred, pass-through fallback)
    - `build_request`: normalize query/topK/filters and build query embedding when available
-   - `retrieve`: fetch strict-citation hits from PostgreSQL (`hybrid` by default, sparse fallback)
+   - `retrieve`: fetch strict-citation hits from OpenSearch sparse + pgvector dense, fused via RRF
+   - `rerank`: LLM-based relevance scoring with token budget (Qwen, graceful fallback to retrieval order)
    - `build_citations`: map hits to compact citation payload
    - `choose_model`: route default `nova-lite` vs `qwen-plus` for hard/low-confidence cases
-   - `generate_answer`: synthesize answer via routed model
+   - `generate_answer`: synthesize answer with structured evidence prompts via routed model
 5. Response is returned in Bedrock action envelope with:
    - `answer`
    - `citations[]` (`sourceId`, `title`, `url`, `snippet`)
@@ -34,7 +48,9 @@ Key files:
 - `apps/rag-service/lambda_tool.py`
 - `apps/rag-service/app/bedrock_action.py`
 - `apps/rag-service/app/workflow.py`
-- `apps/rag-service/app/repository.py`
+- `apps/rag-service/app/query_processing.py` (intent detection, keyword extraction, query rewrite)
+- `apps/rag-service/app/repository.py` (OpenSearch + pgvector hybrid retrieval)
+- `apps/rag-service/app/reranker.py` (LLM reranking)
 - `apps/rag-service/app/answer_generator.py`
 
 ## 1. Install
@@ -77,6 +93,14 @@ The service reads `RAG_*` variables first, then falls back to existing `RDS_*` v
 - `RAG_ROUTE_COMPLEX_QUERY_TOKEN_THRESHOLD` (default: `18`)
 - `RAG_ENABLE_QUERY_REWRITE` (default: `true`)
 - `RAG_ENABLE_HYBRID_RETRIEVAL` (default: `true`)
+- `RAG_ENABLE_KEYWORD_EXTRACTION` (default: `true`)
+  - enable dual-level keyword extraction before query rewrite
+- `RAG_ENABLE_RERANKING` (default: `true`)
+  - enable LLM-based reranking of retrieval results
+- `RAG_RERANK_CANDIDATE_COUNT` (default: `20`)
+  - number of candidates to retrieve before reranking down to `k_final`
+- `RAG_RERANK_MAX_TOKENS` (default: `30000`)
+  - token budget for the reranking context window
 
 For Bedrock Action Group Lambda execution, the same variables are used via Lambda environment config.
 
@@ -112,6 +136,11 @@ through Qwen embeddings when configured and dimensions match `RAG_EMBED_DIM`.
 When `RAG_SPARSE_BACKEND=opensearch`, sparse candidates come from OpenSearch BM25 and are fused
 with PostgreSQL dense candidates. If OpenSearch is unavailable, the service falls back to
 PostgreSQL sparse retrieval to keep runtime resilient.
+
+When reranking is enabled (`RAG_ENABLE_RERANKING=true`), retrieved candidates are scored by
+Qwen for relevance before being passed to answer generation. The reranker respects a
+configurable token budget (`RAG_RERANK_MAX_TOKENS`) and falls back gracefully to retrieval
+order on failure.
 
 ## 5. Lambda Entry
 

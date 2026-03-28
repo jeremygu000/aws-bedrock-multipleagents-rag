@@ -155,7 +155,11 @@ Current status:
 
 - FastAPI retrieval endpoint (`/retrieve`) for local dev
 - Lambda handler (`lambda_tool.py`) used by CDK `RagSearchFn`
-- PostgreSQL sparse/hybrid retrieval contract with strict citation fields
+- Hybrid retrieval: OpenSearch BM25 (sparse) + pgvector (dense) fused via RRF
+- LightRAG-inspired keyword extraction (dual-level: high-level themes + low-level entities)
+- LLM reranking with Qwen scoring, token-budget awareness, and graceful fallback
+- Structured evidence prompts for grounded answer synthesis
+- Feature flags for progressive rollout (`RAG_ENABLE_KEYWORD_EXTRACTION`, `RAG_ENABLE_RERANKING`)
 
 ### `packages/tool-rag-search` (legacy)
 
@@ -247,15 +251,32 @@ API endpoints:
 
 The retrieval response includes strict citation fields (`url`, `year`, `month`, and locator fields).
 
-Bedrock `rag_search` action workflow (current implementation):
+Bedrock `rag_search` action workflow (current 9-node LangGraph pipeline):
 
-1. Lambda entry: `apps/rag-service/lambda_tool.py`
-2. Action adapter: `apps/rag-service/app/bedrock_action.py`
-3. LangGraph orchestration: `apps/rag-service/app/workflow.py`
-4. Query pre-processing (`intent detection` + `query rewrite`, Qwen preferred): `apps/rag-service/app/query_processing.py`
-5. Model routing (`Nova Lite` default, `Qwen Plus` for complex/low-confidence cases): `apps/rag-service/app/workflow.py`
-6. Retrieval: `apps/rag-service/app/repository.py`
-7. Answer synthesis backends: Bedrock Runtime `converse` (Nova Lite) and Qwen API (DashScope compatible): `apps/rag-service/app/answer_generator.py`
+```text
+detect_intent → extract_keywords → rewrite_query → build_request → retrieve → rerank → build_citations → choose_model → generate_answer
+```
+
+1. **Lambda entry**: `apps/rag-service/lambda_tool.py`
+2. **Action adapter**: `apps/rag-service/app/bedrock_action.py`
+3. **LangGraph orchestration**: `apps/rag-service/app/workflow.py`
+4. **Intent detection**: classify complexity (Qwen preferred, heuristic fallback)
+5. **Keyword extraction** _(Phase 1 — LightRAG)_: dual-level keyword extraction (high-level themes + low-level entities) for entity-aware query expansion
+6. **Query rewrite**: retrieval-optimized rewrite with keyword context (Qwen preferred, pass-through fallback)
+7. **Hybrid retrieval**: OpenSearch BM25 sparse + pgvector dense, fused via weighted RRF
+8. **LLM reranking** _(Phaßse 1 — LightRAG)_: Qwen-based relevance scoring with token-budget awareness and graceful fallback
+9. **Model routing**: `Nova Lite` default, `Qwen Plus` fßor complex/low-confidence cases
+10. **Answer synthesis**: structured evidence prompts with Bedrock `converse` or Qwen DashScope
+
+### LightRAG Migration Roadmap
+
+This project is progressively porting techniques from [LightRAG (EMNLP 2025)](https://github.com/hkuds/lightrag) into the RAG pipeline. The full 3-phase plan is documented in [`docs/lightrag-migration-plan.md`](docs/lightrag-migration-plan.md).
+
+| Phase                                      | Status      | Description                                                                                     |
+| ------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------- |
+| **Phase 1**: Query Enhancement + Reranking | ✅ Complete | Keyword extraction, entity-aware query expansion, LLM reranking, structured evidence prompts    |
+| **Phase 2**: Knowledge Graph Construction  | 🔲 Planned  | Entity/relation extraction with Qwen Plus, Neo4j graph storage, incremental ingestion pipeline  |
+| **Phase 3**: Graph-Enhanced Retrieval      | 🔲 Planned  | Multi-mode search (naive + local + global + hybrid), graph-aware reranking, community summaries |
 
 Diff the stack:
 
@@ -427,6 +448,21 @@ These are useful project-level settings, but they are not all wired into the cod
   - likely needed when `packages/tool-work-search/src/mcpClient.ts` is replaced with a real MCP or HTTP call
 - `RAG_BACKEND_ENDPOINT`
   - likely needed when `packages/tool-rag-search/src/ragClient.ts` is replaced with a real RAG backend
+
+### RAG Service Feature Flags
+
+These flags control Phase 1 (LightRAG) features in `apps/rag-service`:
+
+- `RAG_ENABLE_KEYWORD_EXTRACTION` (default: `true`)
+  - enable dual-level keyword extraction before query rewrite
+- `RAG_ENABLE_RERANKING` (default: `true`)
+  - enable LLM-based reranking of retrieval results
+- `RAG_RERANK_CANDIDATE_COUNT` (default: `20`)
+  - number of candidates to retrieve before reranking
+- `RAG_RERANK_MAX_TOKENS` (default: `30000`)
+  - token budget for reranking context window
+
+See `apps/rag-service/README.md` for the full list of `RAG_*` / `QWEN_*` variables.
 
 ### Verify Your AWS Identity
 
