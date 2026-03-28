@@ -5,9 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
 from app.answer_generator import (
     BedrockConverseAnswerGenerator,
     QwenAnswerGenerator,
@@ -21,6 +18,9 @@ from app.repository import PostgresRepository
 from app.reranker import LLMReranker
 from app.secrets import resolve_db_password
 from app.workflow import RagWorkflow
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 settings = get_settings()
 repository = PostgresRepository(settings)
