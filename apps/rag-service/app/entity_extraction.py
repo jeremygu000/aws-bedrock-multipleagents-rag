@@ -30,6 +30,8 @@ from .prompts import (
     ENTITY_DESCRIPTION_SUMMARIZE_USER_PROMPT_TEMPLATE,
     ENTITY_EXTRACTION_SYSTEM_PROMPT,
     ENTITY_EXTRACTION_USER_PROMPT_TEMPLATE,
+    GLEANING_SYSTEM_PROMPT,
+    GLEANING_USER_PROMPT_TEMPLATE,
     JSON_REPAIR_SYSTEM_PROMPT,
     JSON_REPAIR_USER_PROMPT_TEMPLATE,
 )
@@ -62,8 +64,9 @@ _DATE_PATTERNS: list[re.Pattern[str]] = [
 class EntityExtractor:
     """Two-stage entity/relation extractor: rule-first + LLM structured extraction."""
 
-    def __init__(self, qwen_client: QwenClient) -> None:
+    def __init__(self, qwen_client: QwenClient, gleaning_rounds: int = 0) -> None:
         self._qwen = qwen_client
+        self._gleaning_rounds = gleaning_rounds
 
     def extract(
         self,
@@ -93,6 +96,26 @@ class EntityExtractor:
                     relations=[],
                 ),
                 trace,
+            )
+
+        if self._gleaning_rounds > 0:
+            current_entities = list(llm_result.entities)
+            current_relations = list(llm_result.relations)
+
+            for round_num in range(1, self._gleaning_rounds + 1):
+                new_entities, new_relations = self._gleaning_round(
+                    chunk_id, chunk_text, current_entities, current_relations, round_num
+                )
+                if not new_entities and not new_relations:
+                    break
+                current_entities = self._merge_gleaned_entities(current_entities, new_entities)
+                current_relations = self._merge_gleaned_relations(current_relations, new_relations)
+
+            llm_result = llm_result.model_copy(
+                update={
+                    "entities": current_entities,
+                    "relations": current_relations,
+                }
             )
 
         merged_entities = self._merge_rule_entities(rule_entities, llm_result.entities)
@@ -184,7 +207,6 @@ class EntityExtractor:
 
     @staticmethod
     def _strip_markdown_fences(text: str) -> str:
-        """Strip ```json ... ``` fences that LLMs sometimes wrap around JSON output."""
         stripped = text.strip()
         if stripped.startswith("```"):
             first_newline = stripped.find("\n")
@@ -193,6 +215,110 @@ class EntityExtractor:
             if stripped.endswith("```"):
                 stripped = stripped[:-3]
         return stripped.strip()
+
+    def _gleaning_round(
+        self,
+        chunk_id: str,
+        chunk_text: str,
+        existing_entities: list[ExtractedEntity],
+        existing_relations: list[ExtractedRelation],
+        round_num: int,
+    ) -> tuple[list[ExtractedEntity], list[ExtractedRelation]]:
+        existing_entity_summary = "\n".join(
+            (
+                f"- {e.name} ({e.type.value}): {e.description}"
+                if e.description
+                else f"- {e.name} ({e.type.value})"
+            )
+            for e in existing_entities
+        )
+        existing_relation_summary = (
+            "\n".join(
+                f"- {r.source_entity_id} --[{r.type.value}]--> {r.target_entity_id}: {r.evidence}"
+                for r in existing_relations
+            )
+            or "(none)"
+        )
+
+        user_prompt = GLEANING_USER_PROMPT_TEMPLATE.format(
+            existing_entities=existing_entity_summary or "(none)",
+            existing_relations=existing_relation_summary,
+            chunk_id=chunk_id,
+            chunk_text=chunk_text,
+            round=round_num,
+        )
+
+        try:
+            raw_response = self._qwen.chat(GLEANING_SYSTEM_PROMPT, user_prompt)
+            raw_json = self._strip_markdown_fences(raw_response)
+            data = json.loads(raw_json)
+
+            new_entities = [ExtractedEntity.model_validate(e) for e in data.get("entities", [])]
+            new_relations = [ExtractedRelation.model_validate(r) for r in data.get("relations", [])]
+
+            logger.info(
+                "Gleaning round %d for chunk %s: found %d new entities, %d new relations",
+                round_num,
+                chunk_id,
+                len(new_entities),
+                len(new_relations),
+            )
+            return new_entities, new_relations
+        except Exception as exc:
+            logger.warning("Gleaning round %d failed for chunk %s: %s", round_num, chunk_id, exc)
+            return [], []
+
+    @staticmethod
+    def _merge_gleaned_entities(
+        existing: list[ExtractedEntity],
+        new: list[ExtractedEntity],
+    ) -> list[ExtractedEntity]:
+        by_key: dict[str, ExtractedEntity] = {}
+        for e in existing:
+            key = e.canonical_key if e.canonical_key else e.name.lower()
+            by_key[key] = e
+
+        for e in new:
+            key = e.canonical_key if e.canonical_key else e.name.lower()
+            if key in by_key:
+                old = by_key[key]
+                merged_desc = (
+                    f"{old.description} {e.description}".strip()
+                    if e.description
+                    else old.description
+                )
+                merged_aliases = sorted(set(old.aliases + e.aliases) - {old.name})
+                merged_mentions = old.mentions + e.mentions
+                by_key[key] = old.model_copy(
+                    update={
+                        "description": merged_desc,
+                        "confidence": max(old.confidence, e.confidence),
+                        "aliases": merged_aliases,
+                        "mentions": merged_mentions,
+                    }
+                )
+            else:
+                by_key[key] = e
+
+        return list(by_key.values())
+
+    @staticmethod
+    def _merge_gleaned_relations(
+        existing: list[ExtractedRelation],
+        new: list[ExtractedRelation],
+    ) -> list[ExtractedRelation]:
+        seen: set[tuple[str, str, str]] = set()
+        for r in existing:
+            seen.add((r.source_entity_id, r.target_entity_id, r.type.value))
+
+        merged = list(existing)
+        for r in new:
+            key = (r.source_entity_id, r.target_entity_id, r.type.value)
+            if key not in seen:
+                seen.add(key)
+                merged.append(r)
+
+        return merged
 
     @staticmethod
     def _merge_rule_entities(

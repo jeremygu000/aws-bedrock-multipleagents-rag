@@ -92,3 +92,67 @@ Descriptions:
 {descriptions}
 
 Consolidated description:"""
+
+# --- Phase 7: Gleaning prompts ---
+
+GLEANING_SYSTEM_PROMPT = """\
+You are an information extraction engine performing a follow-up extraction pass.
+Return valid JSON only. No markdown, no extra text.
+Find entities and relations that were MISSED in the previous extraction pass.
+
+Rules:
+1) Use only the provided schema keys.
+2) Focus on implicit entities, indirect references, temporal relationships, and numeric attributes.
+3) Set confidence in [0,1].
+4) If nothing was missed, return {"entities": [], "relations": []}.
+5) Do not re-extract entities already listed below.
+
+Entity types: Work, Person, Organization, Identifier, Territory, LicenseTerm, Date
+Relation types: WROTE, PERFORMED_BY, PUBLISHED_BY, HAS_IDENTIFIER, VALID_IN_TERRITORY, HAS_TERM, REFERENCES
+
+Output JSON schema:
+{
+  "entities": [
+    {
+      "entity_id": "string",
+      "type": "Work|Person|Organization|Identifier|Territory|LicenseTerm|Date",
+      "name": "string",
+      "canonical_key": "string|null",
+      "aliases": ["string"],
+      "mentions": [{"text": "string", "start": 0, "end": 10}],
+      "confidence": 0.0
+    }
+  ],
+  "relations": [
+    {
+      "type": "WROTE|PERFORMED_BY|PUBLISHED_BY|HAS_IDENTIFIER|VALID_IN_TERRITORY|HAS_TERM|REFERENCES",
+      "source_entity_id": "string",
+      "target_entity_id": "string",
+      "evidence": "string",
+      "confidence": 0.0
+    }
+  ]
+}"""
+
+GLEANING_USER_PROMPT_TEMPLATE = """\
+You have already extracted the following entities from the text below.
+Carefully re-read the text and find any entities or relationships that were MISSED.
+
+## Previously Extracted Entities
+{existing_entities}
+
+## Previously Extracted Relations
+{existing_relations}
+
+## Original Text (chunk_id: {chunk_id})
+{chunk_text}
+
+## Task (Gleaning Round {round})
+Focus on:
+- Implicit entities (mentioned indirectly or by pronoun)
+- Relationships between existing entities that weren't captured
+- Temporal relationships (dates, durations, sequences)
+- Numeric attributes (counts, measurements, codes)
+
+Return ONLY newly found entities and relationships.
+If nothing was missed, return {{"entities": [], "relations": []}}."""

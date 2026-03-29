@@ -325,6 +325,18 @@ class TestConfigFlag:
         settings = Settings()
         assert settings.entity_summary_max_tokens == 500
 
+    def test_extraction_gleaning_rounds_default(self) -> None:
+        from app.config import Settings
+
+        settings = Settings()
+        assert settings.extraction_gleaning_rounds == 0
+
+    def test_extraction_gleaning_rounds_can_be_set(self) -> None:
+        from app.config import Settings
+
+        settings = Settings(RAG_EXTRACTION_GLEANING_ROUNDS="2")
+        assert settings.extraction_gleaning_rounds == 2
+
 
 # ── Helpers for Phase 2.2 tests ──────────────────────────────────────────
 
@@ -912,3 +924,252 @@ class TestMergeRelations:
         merged_rels = dedup.merge_relations([chunk], [e1, e2])
 
         assert merged_rels[0].source_chunk_ids == ["c1"]
+
+
+# ── Gleaning tests (Phase 7) ────────────────────────────────────────────
+
+
+class TestGleaning:
+    """Tests for gleaning (multi-round entity extraction) — Phase 7."""
+
+    def test_gleaning_disabled_noop(self):
+        """rounds=0 produces identical output — chat called exactly once (for initial extraction)."""
+        mock = _make_qwen_mock(VALID_LLM_RESPONSE)
+        extractor = EntityExtractor(mock, gleaning_rounds=0)
+        result, trace = extractor.extract("chunk-001", "doc-001", "John Smith wrote Yesterday")
+
+        assert trace.validation_status == "valid"
+        # Only 1 chat call = initial extraction, no gleaning
+        assert mock.chat.call_count == 1
+        assert len(result.entities) >= 2  # John Smith + Yesterday from VALID_LLM_RESPONSE
+
+    def test_gleaning_one_round_finds_more(self):
+        """Round 1 extracts additional entities that get merged into result."""
+        # Initial extraction returns John Smith + Yesterday
+        # Gleaning round returns a new entity (Organization: "BMI")
+        gleaning_response = json.dumps(
+            {
+                "entities": [
+                    {
+                        "entity_id": "g1",
+                        "type": "Organization",
+                        "name": "BMI",
+                        "canonical_key": "bmi",
+                        "aliases": [],
+                        "mentions": [{"text": "BMI", "start": 30, "end": 33}],
+                        "confidence": 0.85,
+                    }
+                ],
+                "relations": [],
+            }
+        )
+        mock = MagicMock()
+        mock.chat.side_effect = [VALID_LLM_RESPONSE, gleaning_response]
+
+        extractor = EntityExtractor(mock, gleaning_rounds=1)
+        result, trace = extractor.extract(
+            "chunk-001", "doc-001", "John Smith wrote Yesterday for BMI"
+        )
+
+        assert trace.validation_status == "valid"
+        assert mock.chat.call_count == 2  # initial + 1 gleaning round
+        names = {e.name for e in result.entities}
+        assert "BMI" in names
+        assert "John Smith" in names
+        assert "Yesterday" in names
+
+    def test_merge_deduplicates_by_key(self):
+        """Same entity returned in gleaning round is merged, not duplicated."""
+        # Gleaning returns "John Smith" again (same canonical_key) with extra description
+        gleaning_response = json.dumps(
+            {
+                "entities": [
+                    {
+                        "entity_id": "g1",
+                        "type": "Person",
+                        "name": "John Smith",
+                        "canonical_key": "john_smith",
+                        "aliases": ["Johnny"],
+                        "mentions": [{"text": "John Smith", "start": 0, "end": 10}],
+                        "confidence": 0.98,
+                        "description": "A prolific songwriter",
+                    }
+                ],
+                "relations": [],
+            }
+        )
+        mock = MagicMock()
+        mock.chat.side_effect = [VALID_LLM_RESPONSE, gleaning_response]
+
+        extractor = EntityExtractor(mock, gleaning_rounds=1)
+        result, trace = extractor.extract("chunk-001", "doc-001", "John Smith wrote Yesterday")
+
+        assert trace.validation_status == "valid"
+        # Count Person entities named John Smith — should be exactly 1 (deduped)
+        john_entities = [e for e in result.entities if e.canonical_key == "john_smith"]
+        assert len(john_entities) == 1
+        # Should have higher confidence from merge (max)
+        assert john_entities[0].confidence == 0.98
+        # Should have "Johnny" in aliases from gleaning
+        assert "Johnny" in john_entities[0].aliases
+
+    def test_merge_combines_descriptions(self):
+        """Descriptions from initial and gleaning rounds are combined."""
+        # Create a response where initial entity has description "Original desc"
+        initial_response = json.dumps(
+            {
+                "chunk_id": "c1",
+                "entities": [
+                    {
+                        "entity_id": "e1",
+                        "type": "Person",
+                        "name": "Alice",
+                        "canonical_key": "alice",
+                        "aliases": [],
+                        "mentions": [{"text": "Alice", "start": 0, "end": 5}],
+                        "confidence": 0.9,
+                        "description": "Original desc",
+                    }
+                ],
+                "relations": [],
+            }
+        )
+        gleaning_response = json.dumps(
+            {
+                "entities": [
+                    {
+                        "entity_id": "g1",
+                        "type": "Person",
+                        "name": "Alice",
+                        "canonical_key": "alice",
+                        "aliases": [],
+                        "mentions": [],
+                        "confidence": 0.8,
+                        "description": "Additional info",
+                    }
+                ],
+                "relations": [],
+            }
+        )
+        mock = MagicMock()
+        mock.chat.side_effect = [initial_response, gleaning_response]
+
+        extractor = EntityExtractor(mock, gleaning_rounds=1)
+        result, _ = extractor.extract("c1", "d1", "Alice is here")
+
+        alice_entities = [e for e in result.entities if e.canonical_key == "alice"]
+        assert len(alice_entities) == 1
+        assert "Original desc" in alice_entities[0].description
+        assert "Additional info" in alice_entities[0].description
+
+    def test_merge_accumulates_aliases(self):
+        """Aliases from initial and gleaning rounds are unioned."""
+        initial_response = json.dumps(
+            {
+                "chunk_id": "c1",
+                "entities": [
+                    {
+                        "entity_id": "e1",
+                        "type": "Person",
+                        "name": "Robert",
+                        "canonical_key": "robert",
+                        "aliases": ["Rob"],
+                        "mentions": [{"text": "Robert", "start": 0, "end": 6}],
+                        "confidence": 0.9,
+                    }
+                ],
+                "relations": [],
+            }
+        )
+        gleaning_response = json.dumps(
+            {
+                "entities": [
+                    {
+                        "entity_id": "g1",
+                        "type": "Person",
+                        "name": "Robert",
+                        "canonical_key": "robert",
+                        "aliases": ["Bob", "Bobby"],
+                        "mentions": [],
+                        "confidence": 0.85,
+                    }
+                ],
+                "relations": [],
+            }
+        )
+        mock = MagicMock()
+        mock.chat.side_effect = [initial_response, gleaning_response]
+
+        extractor = EntityExtractor(mock, gleaning_rounds=1)
+        result, _ = extractor.extract("c1", "d1", "Robert aka Rob and Bob")
+
+        robert = [e for e in result.entities if e.canonical_key == "robert"][0]
+        assert "Rob" in robert.aliases
+        assert "Bob" in robert.aliases
+        assert "Bobby" in robert.aliases
+        # Name itself should not be in aliases
+        assert "Robert" not in robert.aliases
+
+    def test_gleaning_respects_max_rounds(self):
+        """Stops at configured limit even if every round finds something."""
+        # Each gleaning round returns a new entity
+        initial = VALID_LLM_RESPONSE
+        round1 = json.dumps(
+            {
+                "entities": [
+                    {
+                        "entity_id": "g1",
+                        "type": "Organization",
+                        "name": "BMI",
+                        "canonical_key": "bmi",
+                        "aliases": [],
+                        "mentions": [{"text": "BMI", "start": 30, "end": 33}],
+                        "confidence": 0.8,
+                    }
+                ],
+                "relations": [],
+            }
+        )
+        round2 = json.dumps(
+            {
+                "entities": [
+                    {
+                        "entity_id": "g2",
+                        "type": "Territory",
+                        "name": "USA",
+                        "canonical_key": "usa",
+                        "aliases": [],
+                        "mentions": [{"text": "USA", "start": 40, "end": 43}],
+                        "confidence": 0.7,
+                    }
+                ],
+                "relations": [],
+            }
+        )
+        mock = MagicMock()
+        mock.chat.side_effect = [initial, round1, round2]
+
+        extractor = EntityExtractor(mock, gleaning_rounds=2)
+        result, _ = extractor.extract("c1", "d1", "John Smith wrote Yesterday for BMI in the USA")
+
+        # 1 initial + 2 gleaning rounds = 3 calls
+        assert mock.chat.call_count == 3
+        names = {e.name for e in result.entities}
+        assert "BMI" in names
+        assert "USA" in names
+
+    def test_gleaning_empty_round_stops(self):
+        """If a round finds nothing, no more rounds are attempted."""
+        # Round 1 returns empty → should stop, never reach round 2
+        empty_response = json.dumps({"entities": [], "relations": []})
+        mock = MagicMock()
+        mock.chat.side_effect = [VALID_LLM_RESPONSE, empty_response]
+
+        extractor = EntityExtractor(
+            mock, gleaning_rounds=3
+        )  # configured for 3, but should stop after 1
+        result, trace = extractor.extract("c1", "d1", "John Smith wrote Yesterday")
+
+        assert trace.validation_status == "valid"
+        # 1 initial + 1 gleaning (empty) = 2 calls total (NOT 4)
+        assert mock.chat.call_count == 2

@@ -35,6 +35,7 @@ Our RAG service is a production-grade, 14-node LangGraph pipeline with Neo4j + p
 - ✅ Phase 4: Evaluation Framework (RAGAS + DeepEval + custom graph metrics)
 - ✅ Phase 5: Incremental Graph Update (cascade delete + re-ingest)
 - ✅ Phase 6: Streaming Query SSE (`GET /retrieve/stream` with token streaming)
+- ✅ Phase 7: Gleaning (multi-round entity extraction, configurable 0–5 rounds)
 
 **This document** covers Phases 4–8: closing the remaining gaps against LightRAG.
 
@@ -55,7 +56,7 @@ Our RAG service is a production-grade, 14-node LangGraph pipeline with Neo4j + p
 | **Query Caching**            | L2 semantic cache (pgvector cosine ≥ 0.95)               | None                                                | ✅ Ahead    |
 | **Incremental Graph Update** | ✅ Cascade delete + re-ingest                            | ✅ `adelete_by_doc_id()` + auto KG regen            | ✅ Done     |
 | **Streaming**                | ✅ SSE `GET /retrieve/stream` (Bedrock + Qwen)           | ✅ SSE `/query/stream`                              | ✅ Done     |
-| **Gleaning**                 | ❌ Single-pass extraction                                | ✅ Multi-round extraction + merge                   | ⬜ Phase 7  |
+| **Gleaning**                 | ✅ Multi-round extraction + merge (0–5 rounds)           | ✅ Multi-round extraction + merge                   | ✅ Done     |
 | **Observability**            | ❌ Basic logging                                         | ✅ Langfuse integration                             | ⬜ Phase 8  |
 | **Evaluation**               | ✅ RAGAS + DeepEval + custom graph metrics               | ✅ RAGAS integration                                | ✅ Done     |
 | **Multi-tenancy**            | ❌ Single workspace                                      | ✅ Workspace isolation + JWT/API Key                | ⏭️ Deferred |
@@ -91,6 +92,7 @@ Our RAG service is a production-grade, 14-node LangGraph pipeline with Neo4j + p
 │                                     │    │                                   │
 │  ✅ Cascade delete + re-ingest        │    │  ✅ Incremental + deletion       │
 │  ✅ SSE streaming (Phase 6)          │    │  ✅ SSE streaming                │
+│  ✅ Gleaning extraction (Phase 7)    │    │  ✅ Multi-round gleaning         │
 │  ✅ RAGAS + DeepEval + graph metrics │    │  ✅ RAGAS integration            │
 │  ❌ No observability                │    │  ✅ Langfuse tracing             │
 └─────────────────────────────────────┘    └───────────────────────────────────┘
@@ -600,11 +602,12 @@ async def retrieve_stream(query: str, top_k: int = 10):
 
 ---
 
-## Phase 7 — Gleaning (Multi-Round Entity Extraction) (P1)
+## Phase 7 — Gleaning (Multi-Round Entity Extraction) (P1) ✅ DONE
 
 > **Priority**: P1 — 15-30% more entities from complex documents
 > **Effort**: 2 days
 > **Dependencies**: None (builds on existing entity extraction)
+> **Status**: ✅ Complete — config, prompts, extraction loop, merge logic, tests (494 pass)
 
 ### 7.0 Why
 
@@ -738,13 +741,13 @@ extraction_gleaning_rounds: int = Field(
 
 ### 7.7 Acceptance Criteria
 
-- [ ] `RAG_EXTRACTION_GLEANING_ROUNDS=0` → no change in behavior (backward compatible)
-- [ ] `RAG_EXTRACTION_GLEANING_ROUNDS=1` → measurably more entities extracted from complex documents
-- [ ] Duplicate entities merged correctly (same canonical_key → descriptions combined)
-- [ ] New aliases accumulated, not replaced
-- [ ] Confidence scores take max of existing and new
-- [ ] Token budget respected (no runaway extraction)
-- [ ] All tests pass: `pytest tests/test_entity_extraction.py -v`
+- [x] `RAG_EXTRACTION_GLEANING_ROUNDS=0` → no change in behavior (backward compatible)
+- [x] `RAG_EXTRACTION_GLEANING_ROUNDS=1` → measurably more entities extracted from complex documents
+- [x] Duplicate entities merged correctly (same canonical_key → descriptions combined)
+- [x] New aliases accumulated, not replaced
+- [x] Confidence scores take max of existing and new
+- [x] Token budget respected (no runaway extraction)
+- [x] All tests pass: `pytest tests/test_entity_extraction.py -v`
 
 ### 7.8 Test Plan
 
@@ -892,7 +895,7 @@ gantt
 | **4** | **Evaluation Framework**           | **P1**   | **4-5d** | ✅ DONE     |
 | **5** | **Incremental Graph Update**       | **P0**   | **3-4d** | ✅ DONE     |
 | **6** | **Streaming Query (SSE)**          | **P1**   | **2-3d** | ✅ DONE     |
-| **7** | **Gleaning**                       | **P1**   | **2d**   | ⬜ PLANNED  |
+| **7** | **Gleaning**                       | **P1**   | **2d**   | ✅ DONE     |
 | **8** | **Observability**                  | **P2**   | **2-3d** | ⬜ PLANNED  |
 | 3.5   | Community Detection                | P3       | 2-3d     | ⏭️ DEFERRED |
 

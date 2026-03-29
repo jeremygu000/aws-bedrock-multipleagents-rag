@@ -183,6 +183,13 @@ class Settings(BaseSettings):
         validation_alias="RAG_ENTITY_EXTRACTION_EMBED_BATCH_SIZE",
         description="Batch size for embedding entity/relation descriptions during ingestion",
     )
+    extraction_gleaning_rounds: int = Field(
+        default=0,
+        ge=0,
+        le=5,
+        validation_alias="RAG_EXTRACTION_GLEANING_ROUNDS",
+        description="Number of gleaning rounds for entity extraction (0 = disabled, 1-2 recommended)",
+    )
 
     # --- Neo4j graph database settings ---
     enable_neo4j: bool = Field(
