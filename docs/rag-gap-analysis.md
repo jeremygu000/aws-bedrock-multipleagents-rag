@@ -26,12 +26,15 @@
 
 Our RAG service is a production-grade, 14-node LangGraph pipeline with Neo4j + pgvector dual storage, weighted RRF fusion, Qwen LLM reranking, intent-aware answer generation, and L2 semantic query caching. Compared to open-source [LightRAG](https://github.com/HKUDS/LightRAG) (15k+ ⭐), we lead in retrieval quality (reranking, fusion, sparse BM25, citations) but trail in operational features (incremental updates, streaming, observability, evaluation).
 
-**Completed** (Phases 1–3 + L2 Cache):
+**Completed** (Phases 1–3 + L2 Cache + Phases 4–6):
 
 - ✅ Phase 1: Reranker (Qwen LLM)
 - ✅ Phase 2: Knowledge Graph Ingestion (Neo4j + entity extraction)
 - ✅ Phase 3: Graph-Enhanced Retrieval (3.1–3.4)
 - ✅ L2 Query Result Cache (semantic similarity)
+- ✅ Phase 4: Evaluation Framework (RAGAS + DeepEval + custom graph metrics)
+- ✅ Phase 5: Incremental Graph Update (cascade delete + re-ingest)
+- ✅ Phase 6: Streaming Query SSE (`GET /retrieve/stream` with token streaming)
 
 **This document** covers Phases 4–8: closing the remaining gaps against LightRAG.
 
@@ -51,7 +54,7 @@ Our RAG service is a production-grade, 14-node LangGraph pipeline with Neo4j + p
 | **Citations**                | Granular source mapping with scores                      | Basic source references                             | ✅ Ahead    |
 | **Query Caching**            | L2 semantic cache (pgvector cosine ≥ 0.95)               | None                                                | ✅ Ahead    |
 | **Incremental Graph Update** | ✅ Cascade delete + re-ingest                            | ✅ `adelete_by_doc_id()` + auto KG regen            | ✅ Done     |
-| **Streaming**                | ❌ Batch response only                                   | ✅ SSE `/query/stream`                              | ⬜ Phase 6  |
+| **Streaming**                | ✅ SSE `GET /retrieve/stream` (Bedrock + Qwen)           | ✅ SSE `/query/stream`                              | ✅ Done     |
 | **Gleaning**                 | ❌ Single-pass extraction                                | ✅ Multi-round extraction + merge                   | ⬜ Phase 7  |
 | **Observability**            | ❌ Basic logging                                         | ✅ Langfuse integration                             | ⬜ Phase 8  |
 | **Evaluation**               | ✅ RAGAS + DeepEval + custom graph metrics               | ✅ RAGAS integration                                | ✅ Done     |
@@ -87,7 +90,7 @@ Our RAG service is a production-grade, 14-node LangGraph pipeline with Neo4j + p
 │  L2 semantic cache                  │    │  No caching                      │
 │                                     │    │                                   │
 │  ✅ Cascade delete + re-ingest        │    │  ✅ Incremental + deletion       │
-│  ❌ No streaming                    │    │  ✅ SSE streaming                │
+│  ✅ SSE streaming (Phase 6)          │    │  ✅ SSE streaming                │
 │  ✅ RAGAS + DeepEval + graph metrics │    │  ✅ RAGAS integration            │
 │  ❌ No observability                │    │  ✅ Langfuse tracing             │
 └─────────────────────────────────────┘    └───────────────────────────────────┘
@@ -442,11 +445,12 @@ async def update_document(doc_id: str, content: str) -> UpdateDocumentResponse:
 
 ---
 
-## Phase 6 — Streaming Query (SSE) (P1)
+## Phase 6 — Streaming Query (SSE) (P1) ✅ DONE
 
 > **Priority**: P1 — Critical for UX (5-15s blank screen currently)
 > **Effort**: 2–3 days
 > **Dependencies**: Bedrock `invoke_model_with_response_stream` API
+> **Status**: ✅ Complete — 485 tests pass, lint clean
 
 ### 6.0 Why
 
@@ -573,13 +577,13 @@ async def retrieve_stream(query: str, top_k: int = 10):
 
 ### 6.6 Acceptance Criteria
 
-- [ ] `GET /retrieve/stream` returns SSE stream with metadata → tokens → done
-- [ ] First token arrives within 1 second of pipeline completion
-- [ ] Existing `POST /retrieve` batch endpoint unchanged (backward compatible)
-- [ ] Complete assembled answer stored in L2 cache after streaming
-- [ ] Errors during streaming emit `event: error` and close connection
-- [ ] Feature flag `RAG_ENABLE_STREAMING` controls availability
-- [ ] All tests pass: `pytest tests/test_streaming.py -v`
+- [x] `GET /retrieve/stream` returns SSE stream with metadata → tokens → done
+- [x] First token arrives within 1 second of pipeline completion
+- [x] Existing `POST /retrieve` batch endpoint unchanged (backward compatible)
+- [x] Complete assembled answer stored in L2 cache after streaming
+- [x] Errors during streaming emit `event: error` and close connection
+- [x] Feature flag `RAG_ENABLE_STREAMING` controls availability
+- [x] All tests pass: `pytest tests/test_streaming.py -v`
 
 ### 6.7 Test Plan
 
@@ -887,7 +891,7 @@ gantt
 | —     | L2 Query Result Cache              | —        | Done     | ✅ DONE     |
 | **4** | **Evaluation Framework**           | **P1**   | **4-5d** | ✅ DONE     |
 | **5** | **Incremental Graph Update**       | **P0**   | **3-4d** | ✅ DONE     |
-| **6** | **Streaming Query (SSE)**          | **P1**   | **2-3d** | ⬜ PLANNED  |
+| **6** | **Streaming Query (SSE)**          | **P1**   | **2-3d** | ✅ DONE     |
 | **7** | **Gleaning**                       | **P1**   | **2d**   | ⬜ PLANNED  |
 | **8** | **Observability**                  | **P2**   | **2-3d** | ⬜ PLANNED  |
 | 3.5   | Community Detection                | P3       | 2-3d     | ⏭️ DEFERRED |

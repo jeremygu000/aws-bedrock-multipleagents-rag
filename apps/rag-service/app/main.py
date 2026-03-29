@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import boto3
-from fastapi import FastAPI, Form, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException, Query, Request, UploadFile
 from psycopg import Error as PsycopgError
+from sse_starlette.sse import EventSourceResponse
 
+from .answer_generator import (
+    BedrockConverseAnswerGenerator,
+    QwenAnswerGenerator,
+    RoutedAnswerGenerator,
+)
 from .config import get_settings
 from .document_manager import delete_document
 from .document_parser import _EXTENSION_TO_MIME, SUPPORTED_MIME_TYPES
@@ -21,13 +29,76 @@ from .ingestion_models import (
     UploadResponse,
 )
 from .ingestion_repository import IngestionRepository
-from .models import RetrieveRequest, RetrieveResponse
+from .models import (
+    GraphContext,
+    RetrieveRequest,
+    RetrieveResponse,
+    StreamDone,
+    StreamError,
+    StreamMetadata,
+    StreamToken,
+)
+from .query_cache import QueryCache
+from .query_processing import QueryProcessor
+from .qwen_client import QwenClient
 from .repository import PostgresRepository
+from .reranker import LLMReranker
+from .workflow import RagWorkflow
 
 settings = get_settings()
 repository = PostgresRepository(settings)
 ingestion_repo = IngestionRepository(settings)
 logger = logging.getLogger(__name__)
+
+qwen_client = QwenClient(settings)
+query_processor = QueryProcessor(settings=settings, qwen_client=qwen_client)
+answer_generator = RoutedAnswerGenerator(
+    bedrock_generator=BedrockConverseAnswerGenerator(settings),
+    qwen_generator=QwenAnswerGenerator(qwen_client, settings),
+)
+reranker = LLMReranker(settings=settings, qwen_client=qwen_client)
+
+
+def _build_workflow() -> RagWorkflow:
+    graph_retriever = None
+    if settings.enable_graph_retrieval:
+        from .entity_vector_store import EntityVectorStore
+        from .graph_retriever import GraphRetriever
+
+        vector_store = EntityVectorStore(settings)
+        neo4j_repo = None
+        if settings.enable_neo4j:
+            from .graph_repository import Neo4jRepository
+            from .secrets import resolve_neo4j_password
+
+            neo4j_password = resolve_neo4j_password(settings)
+            neo4j_repo = Neo4jRepository(
+                uri=settings.neo4j_uri,
+                username=settings.neo4j_username,
+                password=neo4j_password,
+                database=settings.neo4j_database,
+            )
+        graph_retriever = GraphRetriever(
+            qwen_client=qwen_client,
+            vector_store=vector_store,
+            neo4j_repo=neo4j_repo,
+            settings=settings,
+        )
+
+    query_cache = QueryCache(settings) if settings.enable_query_cache else None
+
+    return RagWorkflow(
+        settings=settings,
+        repository=repository,
+        query_processor=query_processor,
+        answer_generator=answer_generator,
+        reranker=reranker,
+        graph_retriever=graph_retriever,
+        query_cache=query_cache,
+    )
+
+
+workflow = _build_workflow()
 
 app = FastAPI(title=settings.app_name)
 
@@ -175,3 +246,141 @@ def delete_document_endpoint(doc_id: str) -> DeleteDocumentResponse:
     except Exception as exc:
         logger.exception("Document deletion failed for %s: %s", doc_id, exc)
         raise HTTPException(status_code=500, detail="Document deletion failed") from exc
+
+
+@app.get("/retrieve/stream")
+async def retrieve_stream(
+    request: Request,
+    query: str = Query(..., min_length=1),
+    top_k: int = Query(default=8, ge=1, le=50),
+) -> EventSourceResponse:
+    if not settings.enable_streaming:
+        raise HTTPException(status_code=404, detail="Streaming is disabled")
+
+    async def _event_generator() -> AsyncIterator[dict[str, str]]:
+        start_time = time.monotonic()
+        total_tokens = 0
+        full_answer_parts: list[str] = []
+
+        try:
+            state = workflow.run_until_generate(query, top_k, filters={})
+        except Exception as exc:
+            logger.exception("Pipeline failed during streaming: %s", exc)
+            yield {
+                "event": "error",
+                "data": StreamError(error="pipeline_error", detail=str(exc)).model_dump_json(),
+            }
+            return
+
+        if state.get("cache_hit"):
+            metadata = StreamMetadata(
+                intent=state.get("intent", ""),
+                complexity=state.get("complexity", ""),
+                retrieval_mode="",
+                model=state.get("answer_model", "cache"),
+                citations=state.get("citations", []),
+            )
+            yield {"event": "metadata", "data": metadata.model_dump_json()}
+            cached_answer = state.get("answer", "")
+            yield {
+                "event": "token",
+                "data": StreamToken(text=cached_answer).model_dump_json(),
+            }
+            total_tokens = len(cached_answer.split())
+            elapsed_ms = (time.monotonic() - start_time) * 1000
+            yield {
+                "event": "done",
+                "data": StreamDone(
+                    total_tokens=total_tokens,
+                    latency_ms=round(elapsed_ms, 1),
+                    cache_stored=False,
+                ).model_dump_json(),
+            }
+            return
+
+        hl = state.get("hl_keywords", [])
+        ll = state.get("ll_keywords", [])
+        keywords = list(dict.fromkeys(hl + ll))
+        graph_context: GraphContext | None = state.get("graph_context")
+        hits = state.get("reranked_hits") or state.get("hits", [])
+        preferred_model = state.get("preferred_model", "nova-lite")
+
+        try:
+            token_stream, used_model = workflow.answer_generator.generate_stream(
+                query=query,
+                hits=hits,
+                preferred_model=preferred_model,
+                intent=state.get("intent", "factual"),
+                complexity=state.get("complexity", "medium"),
+                keywords=keywords or None,
+                graph_context=graph_context,
+            )
+        except Exception as exc:
+            logger.exception("Stream generation setup failed: %s", exc)
+            yield {
+                "event": "error",
+                "data": StreamError(error="generation_error", detail=str(exc)).model_dump_json(),
+            }
+            return
+
+        metadata = StreamMetadata(
+            intent=state.get("intent", "factual"),
+            complexity=state.get("complexity", "medium"),
+            retrieval_mode=state.get("retrieval_mode", "mix"),
+            model=used_model,
+            citations=state.get("citations", []),
+        )
+        yield {"event": "metadata", "data": metadata.model_dump_json()}
+
+        try:
+            for chunk in token_stream:
+                if await request.is_disconnected():
+                    break
+                total_tokens += 1
+                full_answer_parts.append(chunk)
+                yield {
+                    "event": "token",
+                    "data": StreamToken(text=chunk).model_dump_json(),
+                }
+        except Exception as exc:
+            logger.exception("Token streaming failed: %s", exc)
+            yield {
+                "event": "error",
+                "data": StreamError(error="stream_error", detail=str(exc)).model_dump_json(),
+            }
+            return
+
+        cache_stored = False
+        full_answer = "".join(full_answer_parts)
+        if full_answer and workflow.query_cache and settings.enable_query_cache:
+            embedding = state.get("query_embedding")
+            if embedding:
+                try:
+                    source_doc_ids = list({h.get("doc_id", "") for h in hits if h.get("doc_id")})
+                    workflow.query_cache.store(
+                        query_original=query,
+                        query_rewritten=state.get("rewritten_query"),
+                        query_embedding=embedding,
+                        answer=full_answer,
+                        citations=state.get("citations", []),
+                        model_used=used_model,
+                        source_doc_ids=source_doc_ids,
+                    )
+                    cache_stored = True
+                except Exception:
+                    logger.exception("Failed to store streamed result in cache")
+
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        yield {
+            "event": "done",
+            "data": StreamDone(
+                total_tokens=total_tokens,
+                latency_ms=round(elapsed_ms, 1),
+                cache_stored=cache_stored,
+            ).model_dump_json(),
+        }
+
+    return EventSourceResponse(
+        _event_generator(),
+        headers={"X-Accel-Buffering": "no"},
+    )

@@ -107,6 +107,44 @@ class RagWorkflow:
 
         self._graph = graph.compile()
 
+        # Build a second graph that stops after choose_model (for streaming).
+        pre_gen_graph = StateGraph(RagWorkflowState)
+        for name in [
+            "check_cache",
+            "detect_intent",
+            "extract_keywords",
+            "determine_mode",
+            "rewrite_query",
+            "build_request",
+            "retrieve",
+            "graph_retrieve",
+            "fuse",
+            "rerank",
+            "build_citations",
+            "choose_model",
+        ]:
+            pre_gen_graph.add_node(name, getattr(self, f"_node_{name}"))
+
+        pre_gen_graph.add_edge(START, "check_cache")
+        pre_gen_graph.add_conditional_edges(
+            "check_cache",
+            self._route_after_cache_check,
+            {"cache_hit": END, "cache_miss": "detect_intent"},
+        )
+        pre_gen_graph.add_edge("detect_intent", "extract_keywords")
+        pre_gen_graph.add_edge("extract_keywords", "determine_mode")
+        pre_gen_graph.add_edge("determine_mode", "rewrite_query")
+        pre_gen_graph.add_edge("rewrite_query", "build_request")
+        pre_gen_graph.add_edge("build_request", "retrieve")
+        pre_gen_graph.add_edge("retrieve", "graph_retrieve")
+        pre_gen_graph.add_edge("graph_retrieve", "fuse")
+        pre_gen_graph.add_edge("fuse", "rerank")
+        pre_gen_graph.add_edge("rerank", "build_citations")
+        pre_gen_graph.add_edge("build_citations", "choose_model")
+        pre_gen_graph.add_edge("choose_model", END)
+
+        self._pre_generate_graph = pre_gen_graph.compile()
+
     def run(self, query: str, top_k: int, filters: dict[str, Any]) -> RagWorkflowState:
         """Execute workflow and return final state."""
 
@@ -116,6 +154,26 @@ class RagWorkflow:
             "filters": filters,
         }
         return self._graph.invoke(initial_state)
+
+    def run_until_generate(
+        self, query: str, top_k: int, filters: dict[str, Any]
+    ) -> RagWorkflowState:
+        """Execute pipeline up to (and including) choose_model, skipping generate_answer/store_cache."""
+
+        initial_state: RagWorkflowState = {
+            "query": query,
+            "top_k": top_k,
+            "filters": filters,
+        }
+        return self._pre_generate_graph.invoke(initial_state)
+
+    @property
+    def answer_generator(self) -> RoutedAnswerGenerator:
+        return self._answer_generator
+
+    @property
+    def query_cache(self) -> QueryCache | None:
+        return self._query_cache
 
     def _node_detect_intent(self, state: RagWorkflowState) -> RagWorkflowState:
         detection = self._query_processor.detect_intent(state["query"])

@@ -319,6 +319,13 @@ class Settings(BaseSettings):
         description="DeepEval hallucination metric threshold (lower = stricter)",
     )
 
+    # --- Streaming SSE settings (Phase 6) ---
+    enable_streaming: bool = Field(
+        default=True,
+        validation_alias="RAG_ENABLE_STREAMING",
+        description="Feature flag to enable GET /retrieve/stream SSE endpoint",
+    )
+
     model_config = SettingsConfigDict(
         extra="ignore",
         case_sensitive=False,

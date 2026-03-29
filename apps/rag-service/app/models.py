@@ -213,3 +213,31 @@ class KeywordResult(BaseModel):
     ll_keywords: list[str] = Field(
         default_factory=list, description="Low-level specific entities/terms"
     )
+
+
+# ---------------------------------------------------------------------------
+# Streaming SSE types (Phase 6)
+# ---------------------------------------------------------------------------
+
+
+class StreamMetadata(BaseModel):
+    intent: str
+    complexity: str
+    retrieval_mode: str
+    model: str
+    citations: list[dict[str, Any]]
+
+
+class StreamToken(BaseModel):
+    text: str
+
+
+class StreamDone(BaseModel):
+    total_tokens: int = 0
+    latency_ms: float = 0.0
+    cache_stored: bool = False
+
+
+class StreamError(BaseModel):
+    error: str
+    detail: str = ""

@@ -7,6 +7,7 @@ query rewriting, and answer fallback without adding heavy framework coupling.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from typing import Any
 from urllib import error, request
 
@@ -69,6 +70,82 @@ class QwenClient:
 
         parsed = json.loads(raw)
         return self._extract_text(parsed)
+
+    def stream_chat(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
+        """Call Qwen chat-completions API with streaming and yield text chunks."""
+
+        if not self.is_configured():
+            raise ValueError("Qwen API key is not configured.")
+        api_key = self._get_api_key()
+
+        base_url = self._settings.qwen_base_url.rstrip("/")
+        url = f"{base_url}/chat/completions"
+        payload = {
+            "model": self._settings.qwen_model_id,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": self._settings.qwen_temperature,
+            "max_tokens": self._settings.qwen_max_tokens,
+            "stream": True,
+        }
+        body = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            url=url,
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+        )
+        try:
+            resp = request.urlopen(req, timeout=60)
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ValueError(f"Qwen API HTTP error: {exc.code} {detail}") from exc
+        except error.URLError as exc:
+            raise ValueError(f"Qwen API connection error: {exc}") from exc
+
+        try:
+            yield from self._parse_sse_stream(resp)
+        finally:
+            resp.close()
+
+    def _parse_sse_stream(self, resp: Any) -> Iterator[str]:
+        """Parse SSE lines from an HTTP response and yield text deltas."""
+
+        buffer = ""
+        for raw_line in resp:
+            line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+            buffer += line
+            while "\n" in buffer:
+                sse_line, buffer = buffer.split("\n", 1)
+                sse_line = sse_line.rstrip("\r")
+                if not sse_line.startswith("data: "):
+                    continue
+                data_str = sse_line[6:]
+                if data_str.strip() == "[DONE]":
+                    return
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+                delta = self._extract_stream_delta(chunk)
+                if delta:
+                    yield delta
+
+    @staticmethod
+    def _extract_stream_delta(chunk: dict[str, Any]) -> str:
+        """Extract text delta from a streaming chunk."""
+
+        choices = chunk.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return ""
+        delta = choices[0].get("delta", {})
+        content = delta.get("content")
+        return content if isinstance(content, str) else ""
 
     def embedding(self, text: str | list[str]) -> list[float] | list[list[float]]:
         """Call Qwen embeddings API.

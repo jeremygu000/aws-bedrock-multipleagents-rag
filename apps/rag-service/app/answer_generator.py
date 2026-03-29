@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
 from typing import Any, Literal
 
 import boto3
@@ -9,6 +11,8 @@ import boto3
 from .config import Settings
 from .models import GraphContext
 from .qwen_client import QwenClient
+
+logger = logging.getLogger(__name__)
 
 ModelRoute = Literal["nova-lite", "qwen-plus"]
 
@@ -184,6 +188,69 @@ class BedrockConverseAnswerGenerator:
         self._client = boto3.client("bedrock-runtime", region_name=self._settings.aws_region)
         return self._client
 
+    def generate_stream(
+        self,
+        query: str,
+        hits: list[dict[str, Any]],
+        intent: str = "factual",
+        complexity: str = "medium",
+        keywords: list[str] | None = None,
+        graph_context: GraphContext | None = None,
+    ) -> Iterator[str]:
+        """Stream answer tokens using Bedrock converse_stream API."""
+
+        if not hits:
+            yield "I could not find grounded passages for this query in the current knowledge base."
+            return
+
+        context_block = _build_context_block(
+            hits,
+            max_chars=self._settings.answer_evidence_max_chars,
+            include_scores=self._settings.enable_relevance_scores_in_evidence,
+        )
+        graph_evidence = _build_graph_evidence_block(graph_context)
+        has_graph = bool(graph_evidence)
+        system_prompt = _get_intent_system_prompt(
+            intent, self._settings, has_graph_context=has_graph
+        )
+        keyword_line = ""
+        if keywords:
+            keyword_line = f"Key topics: {', '.join(keywords)}\n"
+
+        evidence_parts: list[str] = []
+        if graph_evidence:
+            evidence_parts.append(f"=== KNOWLEDGE GRAPH ===\n{graph_evidence}")
+        evidence_parts.append(f"=== TEXT EVIDENCE ===\n{context_block}")
+        evidence_section = "\n\n".join(evidence_parts)
+
+        user_prompt = (
+            f"User query:\n{query}\n\n"
+            f"{keyword_line}"
+            f"Evidence:\n{evidence_section}\n\n"
+            "Write a concise answer with clear citation markers."
+        )
+
+        client = self._get_client()
+        response = client.converse_stream(
+            modelId=self._settings.answer_model_id,
+            system=[{"text": system_prompt}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"text": user_prompt}],
+                }
+            ],
+            inferenceConfig={
+                "maxTokens": self._settings.answer_max_tokens,
+                "temperature": self._settings.answer_temperature,
+            },
+        )
+        for event in response.get("stream", []):
+            delta = event.get("contentBlockDelta", {}).get("delta", {})
+            text = delta.get("text")
+            if text:
+                yield text
+
 
 class QwenAnswerGenerator:
     """Generate grounded answers with Qwen chat completions."""
@@ -246,6 +313,49 @@ class QwenAnswerGenerator:
         if not answer:
             return "I could not produce a grounded answer from the current evidence."
         return answer
+
+    def generate_stream(
+        self,
+        query: str,
+        hits: list[dict[str, Any]],
+        intent: str = "factual",
+        complexity: str = "medium",
+        keywords: list[str] | None = None,
+        graph_context: GraphContext | None = None,
+    ) -> Iterator[str]:
+        """Stream answer tokens using Qwen chat-completions streaming."""
+
+        if not hits:
+            yield "I could not find grounded passages for this query in the current knowledge base."
+            return
+
+        context_block = _build_context_block(
+            hits,
+            max_chars=self._settings.answer_evidence_max_chars,
+            include_scores=self._settings.enable_relevance_scores_in_evidence,
+        )
+        graph_evidence = _build_graph_evidence_block(graph_context)
+        has_graph = bool(graph_evidence)
+        system_prompt = _get_intent_system_prompt(
+            intent, self._settings, has_graph_context=has_graph
+        )
+        keyword_line = ""
+        if keywords:
+            keyword_line = f"Key topics: {', '.join(keywords)}\n"
+
+        evidence_parts: list[str] = []
+        if graph_evidence:
+            evidence_parts.append(f"=== KNOWLEDGE GRAPH ===\n{graph_evidence}")
+        evidence_parts.append(f"=== TEXT EVIDENCE ===\n{context_block}")
+        evidence_section = "\n\n".join(evidence_parts)
+
+        user_prompt = (
+            f"User query:\n{query}\n\n"
+            f"{keyword_line}"
+            f"Evidence:\n{evidence_section}\n\n"
+            "Write a concise answer with clear citation markers."
+        )
+        yield from self._qwen.stream_chat(system_prompt, user_prompt)
 
 
 class RoutedAnswerGenerator:
@@ -333,7 +443,6 @@ class RoutedAnswerGenerator:
                     )
                 raise
 
-        # If Qwen is preferred but unavailable, default to Bedrock.
         return (
             self._bedrock.generate(
                 query,
@@ -345,6 +454,64 @@ class RoutedAnswerGenerator:
             ),
             "nova-lite",
         )
+
+    def generate_stream(
+        self,
+        query: str,
+        hits: list[dict[str, Any]],
+        preferred_model: ModelRoute,
+        intent: str = "factual",
+        complexity: str = "medium",
+        keywords: list[str] | None = None,
+        graph_context: GraphContext | None = None,
+    ) -> tuple[Iterator[str], ModelRoute]:
+        """Stream answer using preferred model with automatic fallback.
+
+        Returns an iterator of text chunks and the actual model used.
+        Unlike generate(), fallback only applies at connection time — once
+        streaming starts, the chosen backend is committed.
+        """
+
+        gen_kwargs: dict[str, Any] = {
+            "query": query,
+            "hits": hits,
+            "intent": intent,
+            "complexity": complexity,
+            "keywords": keywords,
+            "graph_context": graph_context,
+        }
+
+        if preferred_model == "qwen-plus" and self._qwen.is_available():
+            try:
+                stream = self._qwen.generate_stream(**gen_kwargs)
+                first_chunk = next(stream)
+
+                def _qwen_stream() -> Iterator[str]:
+                    yield first_chunk
+                    yield from stream
+
+                return _qwen_stream(), "qwen-plus"
+            except Exception:
+                logger.warning("Qwen stream failed, falling back to Bedrock")
+                return self._bedrock.generate_stream(**gen_kwargs), "nova-lite"
+
+        if preferred_model == "nova-lite":
+            try:
+                stream = self._bedrock.generate_stream(**gen_kwargs)
+                first_chunk = next(stream)
+
+                def _bedrock_stream() -> Iterator[str]:
+                    yield first_chunk
+                    yield from stream
+
+                return _bedrock_stream(), "nova-lite"
+            except Exception:
+                if self._qwen.is_available():
+                    logger.warning("Bedrock stream failed, falling back to Qwen")
+                    return self._qwen.generate_stream(**gen_kwargs), "qwen-plus"
+                raise
+
+        return self._bedrock.generate_stream(**gen_kwargs), "nova-lite"
 
 
 def _build_context_block(

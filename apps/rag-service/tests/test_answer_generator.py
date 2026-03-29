@@ -284,3 +284,119 @@ def test_build_graph_evidence_block_entities_only() -> None:
     assert "TestOrg" in block
     assert "### Entities" in block
     assert "### Relations" not in block
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Streaming generation tests
+# ---------------------------------------------------------------------------
+
+
+def test_bedrock_stream_no_hits_yields_default() -> None:
+    generator = BedrockConverseAnswerGenerator(Settings())
+    chunks = list(generator.generate_stream("query", []))
+    assert len(chunks) == 1
+    assert "could not find grounded passages" in chunks[0].lower()
+
+
+def test_bedrock_stream_yields_chunks(monkeypatch) -> None:
+    generator = BedrockConverseAnswerGenerator(Settings(RAG_AWS_REGION="ap-southeast-2"))
+
+    class FakeClient:
+        def converse_stream(self, **kwargs):
+            return {
+                "stream": [
+                    {"contentBlockDelta": {"delta": {"text": "hello "}}},
+                    {"contentBlockDelta": {"delta": {"text": "world"}}},
+                ]
+            }
+
+    monkeypatch.setattr(generator, "_get_client", lambda: FakeClient())
+    chunks = list(generator.generate_stream("query", _sample_hits()))
+    assert chunks == ["hello ", "world"]
+
+
+def test_qwen_stream_no_hits_yields_default() -> None:
+    class FakeQwenClient:
+        def is_configured(self):
+            return True
+
+        def stream_chat(self, system_prompt, user_prompt):
+            return iter(["should not be called"])
+
+    generator = QwenAnswerGenerator(FakeQwenClient(), Settings())
+    chunks = list(generator.generate_stream("query", []))
+    assert len(chunks) == 1
+    assert "could not find grounded passages" in chunks[0].lower()
+
+
+def test_qwen_stream_delegates_to_client() -> None:
+    class FakeQwenClient:
+        def is_configured(self):
+            return True
+
+        def stream_chat(self, system_prompt, user_prompt):
+            return iter(["qwen-chunk-1", "qwen-chunk-2"])
+
+    generator = QwenAnswerGenerator(FakeQwenClient(), Settings())
+    chunks = list(generator.generate_stream("query", _sample_hits()))
+    assert chunks == ["qwen-chunk-1", "qwen-chunk-2"]
+
+
+def test_routed_stream_prefers_qwen() -> None:
+    class FakeBedrock:
+        def generate_stream(self, **kwargs):
+            return iter(["bedrock-chunk"])
+
+    class FakeQwen:
+        def is_available(self):
+            return True
+
+        def generate_stream(self, **kwargs):
+            return iter(["qwen-chunk"])
+
+    router = RoutedAnswerGenerator(FakeBedrock(), FakeQwen())
+    stream, model = router.generate_stream(
+        query="q", hits=_sample_hits(), preferred_model="qwen-plus"
+    )
+    assert list(stream) == ["qwen-chunk"]
+    assert model == "qwen-plus"
+
+
+def test_routed_stream_fallback_qwen_to_bedrock() -> None:
+    class FakeBedrock:
+        def generate_stream(self, **kwargs):
+            return iter(["bedrock-fallback"])
+
+    class FakeQwen:
+        def is_available(self):
+            return True
+
+        def generate_stream(self, **kwargs):
+            raise RuntimeError("qwen stream failed")
+
+    router = RoutedAnswerGenerator(FakeBedrock(), FakeQwen())
+    stream, model = router.generate_stream(
+        query="q", hits=_sample_hits(), preferred_model="qwen-plus"
+    )
+    assert list(stream) == ["bedrock-fallback"]
+    assert model == "nova-lite"
+
+
+def test_routed_stream_nova_fallback_to_qwen() -> None:
+    class FakeBedrock:
+        def generate_stream(self, **kwargs):
+            raise RuntimeError("bedrock stream failed")
+
+    class FakeQwen:
+        def is_available(self):
+            return True
+
+        def generate_stream(self, **kwargs):
+            return iter(["qwen-fallback"])
+
+    router = RoutedAnswerGenerator(FakeBedrock(), FakeQwen())
+    stream, model = router.generate_stream(
+        query="q", hits=_sample_hits(), preferred_model="nova-lite"
+    )
+    assert list(stream) == ["qwen-fallback"]
+    assert model == "qwen-plus"
