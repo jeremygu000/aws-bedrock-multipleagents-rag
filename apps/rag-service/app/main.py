@@ -6,6 +6,7 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import boto3
@@ -43,9 +44,11 @@ from .query_processing import QueryProcessor
 from .qwen_client import QwenClient
 from .repository import PostgresRepository
 from .reranker import LLMReranker
+from .tracing import REQUEST_LATENCY, get_tracing, init_tracing
 from .workflow import RagWorkflow
 
 settings = get_settings()
+init_tracing(settings)
 repository = PostgresRepository(settings)
 ingestion_repo = IngestionRepository(settings)
 logger = logging.getLogger(__name__)
@@ -100,7 +103,14 @@ def _build_workflow() -> RagWorkflow:
 
 workflow = _build_workflow()
 
-app = FastAPI(title=settings.app_name)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    yield
+    get_tracing().shutdown()
+
+
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 
 @app.get("/healthz")
@@ -108,29 +118,35 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/metrics")
+def metrics():
+    from prometheus_client import REGISTRY, generate_latest
+    from prometheus_client.openmetrics.exposition import CONTENT_TYPE_LATEST
+    from starlette.responses import Response
+
+    return Response(content=generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.post("/retrieve", response_model=RetrieveResponse)
 def retrieve(request: RetrieveRequest) -> RetrieveResponse:
-    """Run sparse/hybrid retrieval and return strict citation hits.
-
-    Error mapping:
-    - ValueError -> 400 (invalid input/config)
-    - PsycopgError -> 500 (database execution failure)
-    """
-
+    start = time.perf_counter()
     try:
-        hits = repository.retrieve(request)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except PsycopgError as error:
-        raise HTTPException(status_code=500, detail="database query failed") from error
+        try:
+            hits = repository.retrieve(request)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except PsycopgError as error:
+            raise HTTPException(status_code=500, detail="database query failed") from error
 
-    mode = "hybrid" if request.query_embedding else "sparse"
-    return RetrieveResponse(
-        query=request.query,
-        mode=mode,
-        hit_count=len(hits),
-        hits=hits,
-    )
+        mode = "hybrid" if request.query_embedding else "sparse"
+        return RetrieveResponse(
+            query=request.query,
+            mode=mode,
+            hit_count=len(hits),
+            hits=hits,
+        )
+    finally:
+        REQUEST_LATENCY.observe(time.perf_counter() - start)
 
 
 @app.post("/upload", response_model=UploadResponse, status_code=202)
@@ -259,6 +275,7 @@ async def retrieve_stream(
 
     async def _event_generator() -> AsyncIterator[dict[str, str]]:
         start_time = time.monotonic()
+        req_start = time.perf_counter()
         total_tokens = 0
         full_answer_parts: list[str] = []
 
@@ -371,6 +388,7 @@ async def retrieve_stream(
                     logger.exception("Failed to store streamed result in cache")
 
         elapsed_ms = (time.monotonic() - start_time) * 1000
+        REQUEST_LATENCY.observe(time.perf_counter() - req_start)
         yield {
             "event": "done",
             "data": StreamDone(

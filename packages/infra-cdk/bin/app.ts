@@ -5,6 +5,7 @@ import * as cdk from "aws-cdk-lib";
 import { BedrockAgentsStack } from "../lib/bedrock-agents-stack.js";
 import { MonitoringEc2Stack } from "../lib/monitoring-ec2-stack.js";
 import { Neo4jDataStack } from "../lib/neo4j-data-stack.js";
+import { PhoenixEc2Stack } from "../lib/phoenix-ec2-stack.js";
 
 /**
  * CDK entrypoint for all deployable stacks in this repository.
@@ -64,6 +65,25 @@ const monitoringRetainDataOnDelete =
     ? undefined
     : String(monitoringRetainDataContext).toLowerCase() === "true";
 
+const phoenixInstanceType = app.node.tryGetContext("phoenixInstanceType") as string | undefined;
+const phoenixAllowedIngressCidr = app.node.tryGetContext("phoenixAllowedIngressCidr") as
+  | string
+  | undefined;
+const phoenixRootVolumeSizeContext = app.node.tryGetContext("phoenixRootVolumeSizeGiB") as
+  | string
+  | number
+  | undefined;
+const phoenixRootVolumeSizeGiB =
+  phoenixRootVolumeSizeContext === undefined ? undefined : Number(phoenixRootVolumeSizeContext);
+const phoenixRetainDataContext = app.node.tryGetContext("phoenixRetainDataOnDelete") as
+  | string
+  | boolean
+  | undefined;
+const phoenixRetainDataOnDelete =
+  phoenixRetainDataContext === undefined
+    ? undefined
+    : String(phoenixRetainDataContext).toLowerCase() === "true";
+
 // Create standalone Neo4j infrastructure so compute lifecycle is independent from app stack.
 // Standalone data stack for Neo4j persistence and access endpoints.
 new Neo4jDataStack(app, "Neo4jDataStack", {
@@ -98,6 +118,20 @@ new MonitoringEc2Stack(app, "MonitoringEc2Stack", {
       ? monitoringRootVolumeSizeGiB
       : undefined,
   retainDataOnDelete: monitoringRetainDataOnDelete,
+});
+
+new PhoenixEc2Stack(app, "PhoenixEc2Stack", {
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION,
+  },
+  instanceType: phoenixInstanceType,
+  allowedIngressCidr: phoenixAllowedIngressCidr,
+  rootVolumeSizeGiB:
+    phoenixRootVolumeSizeGiB !== undefined && Number.isFinite(phoenixRootVolumeSizeGiB)
+      ? phoenixRootVolumeSizeGiB
+      : undefined,
+  retainDataOnDelete: phoenixRetainDataOnDelete,
 });
 
 // Create application layer resources (Bedrock agents + action Lambdas).

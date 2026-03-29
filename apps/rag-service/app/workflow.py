@@ -1,9 +1,8 @@
-"""LangGraph workflow for retrieval, routing, and grounded answer generation."""
-
 from __future__ import annotations
 
 import logging
-from typing import Any, TypedDict
+import time
+from typing import Any, Callable, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
@@ -16,6 +15,13 @@ from .query_cache import QueryCache
 from .query_processing import QueryProcessor
 from .repository import PostgresRepository
 from .reranker import LLMReranker
+from .tracing import (
+    CACHE_OPERATIONS,
+    PIPELINE_NODE_ERRORS,
+    PIPELINE_NODE_LATENCY,
+    RETRIEVAL_HIT_COUNT,
+    get_tracing,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +181,28 @@ class RagWorkflow:
     def query_cache(self) -> QueryCache | None:
         return self._query_cache
 
+    def _traced_node(
+        self,
+        name: str,
+        func: Callable[[RagWorkflowState], RagWorkflowState],
+        state: RagWorkflowState,
+    ) -> RagWorkflowState:
+        tracing = get_tracing()
+        start = time.perf_counter()
+        with tracing.span(name, node=name):
+            try:
+                result = func(state)
+                elapsed = time.perf_counter() - start
+                PIPELINE_NODE_LATENCY.labels(node=name).observe(elapsed)
+                return result
+            except Exception:
+                PIPELINE_NODE_ERRORS.labels(node=name).inc()
+                raise
+
     def _node_detect_intent(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("detect_intent", self._impl_detect_intent, state)
+
+    def _impl_detect_intent(self, state: RagWorkflowState) -> RagWorkflowState:
         detection = self._query_processor.detect_intent(state["query"])
         return {
             "intent": str(detection.get("intent", "factual")),
@@ -183,10 +210,16 @@ class RagWorkflow:
         }
 
     def _node_extract_keywords(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("extract_keywords", self._impl_extract_keywords, state)
+
+    def _impl_extract_keywords(self, state: RagWorkflowState) -> RagWorkflowState:
         result = self._query_processor.extract_keywords(state["query"])
         return {"hl_keywords": result.hl_keywords, "ll_keywords": result.ll_keywords}
 
     def _node_determine_mode(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("determine_mode", self._impl_determine_mode, state)
+
+    def _impl_determine_mode(self, state: RagWorkflowState) -> RagWorkflowState:
         mode = self._query_processor.determine_retrieval_mode(
             intent=state.get("intent", "factual"),
             complexity=state.get("complexity", "medium"),
@@ -196,6 +229,9 @@ class RagWorkflow:
         return {"retrieval_mode": mode.value}
 
     def _node_rewrite_query(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("rewrite_query", self._impl_rewrite_query, state)
+
+    def _impl_rewrite_query(self, state: RagWorkflowState) -> RagWorkflowState:
         rewritten = self._query_processor.rewrite_query(
             query=state["query"],
             intent=state.get("intent", "factual"),
@@ -205,6 +241,9 @@ class RagWorkflow:
         return {"rewritten_query": rewritten}
 
     def _node_build_request(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("build_request", self._impl_build_request, state)
+
+    def _impl_build_request(self, state: RagWorkflowState) -> RagWorkflowState:
         top_k = state["top_k"]
         retrieval_query = state.get("rewritten_query") or state["query"]
         query_embedding = self._query_processor.build_query_embedding(retrieval_query)
@@ -219,10 +258,17 @@ class RagWorkflow:
         return {"request": request, "query_embedding": query_embedding}
 
     def _node_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("retrieve", self._impl_retrieve, state)
+
+    def _impl_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
         hits = self._repository.retrieve(state["request"])
+        RETRIEVAL_HIT_COUNT.observe(len(hits))
         return {"hits": hits}
 
     def _node_graph_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("graph_retrieve", self._impl_graph_retrieve, state)
+
+    def _impl_graph_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
         mode_str = state.get("retrieval_mode", "mix")
         try:
             mode = RetrievalMode(mode_str)
@@ -244,8 +290,9 @@ class RagWorkflow:
         return {"graph_context": graph_context}
 
     def _node_fuse(self, state: RagWorkflowState) -> RagWorkflowState:
-        """Fuse traditional retrieval hits with graph-derived chunk hits via weighted RRF."""
+        return self._traced_node("fuse", self._impl_fuse, state)
 
+    def _impl_fuse(self, state: RagWorkflowState) -> RagWorkflowState:
         graph_context: GraphContext = state.get("graph_context", GraphContext())
         traditional_hits = state.get("hits", [])
 
@@ -273,6 +320,9 @@ class RagWorkflow:
         return {"fused_hits": fused}
 
     def _node_rerank(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("rerank", self._impl_rerank, state)
+
+    def _impl_rerank(self, state: RagWorkflowState) -> RagWorkflowState:
         hits = state.get("fused_hits") or state.get("hits", [])
         top_k = state.get("top_k", 8)
         reranked = self._reranker.rerank(
@@ -283,6 +333,9 @@ class RagWorkflow:
         return {"reranked_hits": reranked}
 
     def _node_build_citations(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("build_citations", self._impl_build_citations, state)
+
+    def _impl_build_citations(self, state: RagWorkflowState) -> RagWorkflowState:
         citations = [
             {
                 "sourceId": hit["chunk_id"],
@@ -295,6 +348,9 @@ class RagWorkflow:
         return {"citations": citations}
 
     def _node_choose_model(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("choose_model", self._impl_choose_model, state)
+
+    def _impl_choose_model(self, state: RagWorkflowState) -> RagWorkflowState:
         hits = state.get("reranked_hits") or state.get("hits", [])
         top_score = float(hits[0]["score"]) if hits else 0.0
         complexity = state.get("complexity", "medium")
@@ -312,6 +368,9 @@ class RagWorkflow:
         return {"preferred_model": preferred_model}
 
     def _node_generate_answer(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("generate_answer", self._impl_generate_answer, state)
+
+    def _impl_generate_answer(self, state: RagWorkflowState) -> RagWorkflowState:
         hl = state.get("hl_keywords", [])
         ll = state.get("ll_keywords", [])
         keywords = list(dict.fromkeys(hl + ll))
@@ -328,6 +387,9 @@ class RagWorkflow:
         return {"answer": answer, "answer_model": used_model}
 
     def _node_check_cache(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("check_cache", self._impl_check_cache, state)
+
+    def _impl_check_cache(self, state: RagWorkflowState) -> RagWorkflowState:
         if not self._query_cache or not self._settings.enable_query_cache:
             return {"cache_hit": False}
 
@@ -345,11 +407,14 @@ class RagWorkflow:
             result = self._query_cache.lookup(embedding)
         except Exception:
             logger.exception("Cache lookup failed, continuing without cache")
+            CACHE_OPERATIONS.labels(result="miss").inc()
             return {"cache_hit": False, "query_embedding": embedding}
 
         if result is None:
+            CACHE_OPERATIONS.labels(result="miss").inc()
             return {"cache_hit": False, "query_embedding": embedding}
 
+        CACHE_OPERATIONS.labels(result="hit").inc()
         return {
             "cache_hit": True,
             "answer": result["answer"],
@@ -365,6 +430,9 @@ class RagWorkflow:
         return "cache_miss"
 
     def _node_store_cache(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("store_cache", self._impl_store_cache, state)
+
+    def _impl_store_cache(self, state: RagWorkflowState) -> RagWorkflowState:
         if not self._query_cache or not self._settings.enable_query_cache:
             return {}
 

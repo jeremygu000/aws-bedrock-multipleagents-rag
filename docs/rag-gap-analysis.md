@@ -763,7 +763,7 @@ extraction_gleaning_rounds: int = Field(
 
 ---
 
-## Phase 8 — Observability (Tracing + Metrics) (P2)
+## Phase 8 — Observability (Tracing + Metrics) (P2) ✅
 
 > **Priority**: P2 — Needed for production debugging and performance optimization
 > **Effort**: 2–3 days
@@ -826,14 +826,14 @@ flowchart LR
 
 ### 8.5 Acceptance Criteria
 
-- [ ] Every pipeline node emits a trace span with latency
-- [ ] LLM calls record token counts (input + output)
-- [ ] Cache hits/misses recorded as counters
-- [ ] Tracing disabled by default (`RAG_ENABLE_TRACING=false`)
-- [ ] Tracing errors never crash the pipeline (graceful degradation)
-- [ ] `/metrics` endpoint returns Prometheus-format metrics
+- [x] Every pipeline node emits a trace span with latency
+- [x] LLM calls record token counts (input + output)
+- [x] Cache hits/misses recorded as counters
+- [x] Tracing disabled by default (`RAG_ENABLE_TRACING=false`)
+- [x] Tracing errors never crash the pipeline (graceful degradation)
+- [x] `/metrics` endpoint returns Prometheus-format metrics
 - [ ] Dashboard shows per-node latency breakdown
-- [ ] All tests pass: `pytest tests/test_tracing.py -v`
+- [x] All tests pass: `pytest tests/test_tracing.py -v`
 
 ---
 

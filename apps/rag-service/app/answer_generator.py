@@ -11,6 +11,7 @@ import boto3
 from .config import Settings
 from .models import GraphContext
 from .qwen_client import QwenClient
+from .tracing import LLM_TOKEN_USAGE
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +172,13 @@ class BedrockConverseAnswerGenerator:
                 "temperature": self._settings.answer_temperature,
             },
         )
+        usage = response.get("usage", {})
+        input_tokens = usage.get("inputTokens", 0)
+        output_tokens = usage.get("outputTokens", 0)
+        if input_tokens:
+            LLM_TOKEN_USAGE.labels(model="nova-lite", direction="input").inc(input_tokens)
+        if output_tokens:
+            LLM_TOKEN_USAGE.labels(model="nova-lite", direction="output").inc(output_tokens)
         answer = _extract_bedrock_text(response)
         if not answer:
             return "I could not produce a grounded answer from the current evidence."
@@ -310,6 +318,12 @@ class QwenAnswerGenerator:
             "Write a concise answer with clear citation markers."
         )
         answer = self._qwen.chat(system_prompt, user_prompt).strip()
+        input_tokens = int(len(user_prompt.split()) * 1.3)
+        output_tokens = int(len(answer.split()) * 1.3)
+        if input_tokens:
+            LLM_TOKEN_USAGE.labels(model="qwen-plus", direction="input").inc(input_tokens)
+        if output_tokens:
+            LLM_TOKEN_USAGE.labels(model="qwen-plus", direction="output").inc(output_tokens)
         if not answer:
             return "I could not produce a grounded answer from the current evidence."
         return answer

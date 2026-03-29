@@ -5,11 +5,12 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/power-instances.sh <start|stop|status> <neo4j|grafana|all> [--wait]
+  scripts/power-instances.sh <start|stop|status> <neo4j|grafana|phoenix|all> [--wait]
 
 Examples:
   scripts/power-instances.sh stop neo4j --wait
   scripts/power-instances.sh start grafana
+  scripts/power-instances.sh start phoenix --wait
   scripts/power-instances.sh status all
 
 Environment:
@@ -41,7 +42,7 @@ esac
 
 # Validate supported targets early.
 case "$TARGET" in
-  neo4j | grafana | all) ;;
+  neo4j | grafana | phoenix | all) ;;
   *)
     echo "Invalid target: $TARGET"
     usage
@@ -161,6 +162,7 @@ apply_action() {
 # Look up stack-managed instance ids once, then execute target action(s).
 NEO4J_INSTANCE_ID="$(get_instance_id "Neo4jDataStack" "Neo4jInstanceId")"
 GRAFANA_INSTANCE_ID="$(get_instance_id "MonitoringEc2Stack" "MonitoringInstanceId")"
+PHOENIX_INSTANCE_ID="$(get_instance_id "PhoenixEc2Stack" "PhoenixInstanceId")"
 
 if [[ "$TARGET" == "neo4j" || "$TARGET" == "all" ]]; then
   apply_action "neo4j" "$NEO4J_INSTANCE_ID"
@@ -168,4 +170,8 @@ fi
 
 if [[ "$TARGET" == "grafana" || "$TARGET" == "all" ]]; then
   apply_action "grafana" "$GRAFANA_INSTANCE_ID"
+fi
+
+if [[ "$TARGET" == "phoenix" || "$TARGET" == "all" ]]; then
+  apply_action "phoenix" "$PHOENIX_INSTANCE_ID"
 fi

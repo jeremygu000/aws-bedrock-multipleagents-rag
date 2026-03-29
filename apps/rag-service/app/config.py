@@ -333,6 +333,28 @@ class Settings(BaseSettings):
         description="Feature flag to enable GET /retrieve/stream SSE endpoint",
     )
 
+    # --- Observability / Tracing settings (Phase 8) ---
+    enable_tracing: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_TRACING",
+        description="Enable OpenTelemetry tracing for pipeline observability",
+    )
+    tracing_provider: Literal["phoenix", "otlp", "none"] = Field(
+        default="phoenix",
+        validation_alias="RAG_TRACING_PROVIDER",
+        description="Tracing backend: phoenix (Arize), otlp (generic OTLP), none",
+    )
+    tracing_endpoint: str = Field(
+        default="http://localhost:6006",
+        validation_alias="RAG_TRACING_ENDPOINT",
+        description="OTLP HTTP endpoint for trace export (Phoenix default: http://host:6006)",
+    )
+    tracing_service_name: str = Field(
+        default="hybrid-rag-service",
+        validation_alias="RAG_TRACING_SERVICE_NAME",
+        description="Service name used in trace resource attributes",
+    )
+
     model_config = SettingsConfigDict(
         extra="ignore",
         case_sensitive=False,
