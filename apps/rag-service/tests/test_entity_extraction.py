@@ -221,17 +221,17 @@ class TestLLMExtraction:
         assert trace.validation_status == "valid"
         assert len(result.entities) >= 2
 
-    def test_invalid_json_triggers_repair(self) -> None:
+    def test_invalid_json_repaired_deterministically(self) -> None:
         mock = MagicMock()
         mock.chat.side_effect = [
             '{"chunk_id": "c1", "entities": [INVALID',
-            VALID_LLM_RESPONSE,
         ]
         extractor = EntityExtractor(mock)
         result, trace = extractor.extract("c1", "d1", "text")
 
-        assert mock.chat.call_count == 2
+        assert mock.chat.call_count == 1
         assert trace.validation_status == "valid"
+        assert result.entities == []
 
     def test_both_attempts_fail_returns_rule_entities_only(self) -> None:
         mock = MagicMock()
@@ -286,18 +286,30 @@ class TestLLMExtraction:
         assert result.relations == []
 
 
-class TestStripMarkdownFences:
+class TestExtractJsonText:
     def test_no_fences(self) -> None:
-        assert EntityExtractor._strip_markdown_fences('{"a": 1}') == '{"a": 1}'
+        assert EntityExtractor._extract_json_text('{"a": 1}') == '{"a": 1}'
 
     def test_json_fences(self) -> None:
-        assert EntityExtractor._strip_markdown_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
+        assert EntityExtractor._extract_json_text('```json\n{"a": 1}\n```') == '{"a": 1}'
 
     def test_plain_fences(self) -> None:
-        assert EntityExtractor._strip_markdown_fences('```\n{"a": 1}\n```') == '{"a": 1}'
+        assert EntityExtractor._extract_json_text('```\n{"a": 1}\n```') == '{"a": 1}'
 
     def test_whitespace_handling(self) -> None:
-        assert EntityExtractor._strip_markdown_fences('  ```json\n{"a": 1}\n```  ') == '{"a": 1}'
+        assert EntityExtractor._extract_json_text('  ```json\n{"a": 1}\n```  ') == '{"a": 1}'
+
+    def test_prose_before_json(self) -> None:
+        raw = 'Here is the extraction result:\n{"chunk_id": "c1", "entities": []}'
+        assert EntityExtractor._extract_json_text(raw) == '{"chunk_id": "c1", "entities": []}'
+
+    def test_prose_after_json(self) -> None:
+        raw = '{"chunk_id": "c1", "entities": []}\nI hope this helps!'
+        assert EntityExtractor._extract_json_text(raw) == '{"chunk_id": "c1", "entities": []}'
+
+    def test_prose_both_sides(self) -> None:
+        raw = 'Result:\n{"a": 1}\nDone.'
+        assert EntityExtractor._extract_json_text(raw) == '{"a": 1}'
 
 
 class TestConfigFlag:

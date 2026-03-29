@@ -15,6 +15,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from json_repair import repair_json
 from pydantic import ValidationError
 
 from .entity_extraction_models import (
@@ -176,45 +177,138 @@ class EntityExtractor:
         return entities
 
     def _llm_extraction(self, chunk_id: str, doc_id: str, chunk_text: str) -> ChunkExtractionResult:
-        """Stage 2: LLM structured extraction with retry-on-failure."""
+        """Stage 2: LLM structured extraction with multi-layer repair.
+
+        Parsing pipeline:
+        1. Extract JSON text from LLM response (strip fences, find object boundaries)
+        2. Try direct json.loads + Pydantic validation
+        3. On JSON syntax error: deterministic repair via json-repair library
+        4. On Pydantic validation error: lenient parse (filter bad relations)
+        5. Last resort: LLM repair call (slow but handles semantic issues)
+        """
         user_prompt = ENTITY_EXTRACTION_USER_PROMPT_TEMPLATE.format(
             chunk_id=chunk_id, doc_id=doc_id, chunk_text=chunk_text
         )
 
         raw_response = self._qwen.chat(ENTITY_EXTRACTION_SYSTEM_PROMPT, user_prompt)
-        raw_json = self._strip_markdown_fences(raw_response)
+        extracted_text = self._extract_json_text(raw_response)
 
+        # Layer 1: Direct parse
         try:
-            return self._parse_extraction_json(raw_json)
-        except (json.JSONDecodeError, ValidationError) as first_error:
-            logger.info(
-                "First parse failed for chunk %s, attempting repair: %s", chunk_id, first_error
-            )
-            return self._repair_and_parse(raw_json, str(first_error))
+            return self._parse_extraction_json(extracted_text)
+        except json.JSONDecodeError as json_err:
+            logger.info("Direct JSON parse failed for chunk %s: %s", chunk_id, json_err)
+            repaired = repair_json(extracted_text, return_objects=False)
+            if not isinstance(repaired, str):
+                repaired = json.dumps(repaired)
+            try:
+                return self._parse_extraction_json(repaired)
+            except json.JSONDecodeError as repair_err:
+                logger.info(
+                    "json-repair also failed for chunk %s: %s, trying LLM repair",
+                    chunk_id,
+                    repair_err,
+                )
+                return self._llm_repair_and_parse(extracted_text, str(json_err))
+            except ValidationError:
+                return self._lenient_parse(repaired)
+        except ValidationError as val_err:
+            logger.info("Pydantic validation failed for chunk %s: %s", chunk_id, val_err)
+            try:
+                return self._lenient_parse(extracted_text)
+            except Exception as lenient_err:
+                logger.info(
+                    "Lenient parse also failed for chunk %s: %s, trying LLM repair",
+                    chunk_id,
+                    lenient_err,
+                )
+                return self._llm_repair_and_parse(extracted_text, str(val_err))
 
-    def _repair_and_parse(self, raw_json: str, validation_error: str) -> ChunkExtractionResult:
-        """Retry once with a JSON repair prompt (spec section 2)."""
+    def _llm_repair_and_parse(self, raw_json: str, validation_error: str) -> ChunkExtractionResult:
+        """Last resort: ask the LLM to fix the JSON (spec section 2)."""
         repair_prompt = JSON_REPAIR_USER_PROMPT_TEMPLATE.format(
             raw_json=raw_json, validation_error=validation_error
         )
         repaired_response = self._qwen.chat(JSON_REPAIR_SYSTEM_PROMPT, repair_prompt)
-        repaired_json = self._strip_markdown_fences(repaired_response)
-        return self._parse_extraction_json(repaired_json)
+        repaired_text = self._extract_json_text(repaired_response)
+
+        try:
+            return self._parse_extraction_json(repaired_text)
+        except json.JSONDecodeError:
+            repaired = repair_json(repaired_text, return_objects=False)
+            return self._parse_extraction_json(repaired)
 
     def _parse_extraction_json(self, raw_json: str) -> ChunkExtractionResult:
         data = json.loads(raw_json)
         return ChunkExtractionResult.model_validate(data)
 
+    def _lenient_parse(self, raw_json: str) -> ChunkExtractionResult:
+        """Parse JSON leniently: keep valid entities, filter invalid relations.
+
+        When Pydantic strict validation fails (e.g., bad relation endpoint IDs,
+        invalid enum values), this extracts what it can instead of failing entirely.
+        """
+        data = json.loads(raw_json)
+
+        entities: list[ExtractedEntity] = []
+        for raw_entity in data.get("entities", []):
+            if not isinstance(raw_entity, dict):
+                continue
+            try:
+                entities.append(ExtractedEntity.model_validate(raw_entity))
+            except (ValidationError, Exception) as exc:
+                name = raw_entity.get("name", "?") if isinstance(raw_entity, dict) else "?"
+                logger.debug("Skipping invalid entity: %s — %s", name, exc)
+
+        entity_ids = {e.entity_id for e in entities}
+        relations: list[ExtractedRelation] = []
+        for raw_rel in data.get("relations", []):
+            if not isinstance(raw_rel, dict):
+                continue
+            try:
+                rel = ExtractedRelation.model_validate(raw_rel)
+                if rel.source_entity_id in entity_ids and rel.target_entity_id in entity_ids:
+                    relations.append(rel)
+                else:
+                    logger.debug(
+                        "Skipping relation with dangling ref: %s -> %s",
+                        raw_rel.get("source_entity_id", "?"),
+                        raw_rel.get("target_entity_id", "?"),
+                    )
+            except (ValidationError, Exception) as exc:
+                logger.debug("Skipping invalid relation: %s", exc)
+
+        chunk_id = data.get("chunk_id", "")
+        return ChunkExtractionResult(chunk_id=chunk_id, entities=entities, relations=relations)
+
     @staticmethod
-    def _strip_markdown_fences(text: str) -> str:
+    def _extract_json_text(text: str) -> str:
+        """Extract JSON from LLM response, handling markdown fences and surrounding prose.
+
+        Handles:
+        - Clean JSON (no wrapping)
+        - ```json ... ``` fences (with or without language tag)
+        - Partial fences (opening ``` without closing, or vice versa)
+        - Prose before/after JSON object: "Here is the result:\n{...}\nDone"
+        """
         stripped = text.strip()
-        if stripped.startswith("```"):
-            first_newline = stripped.find("\n")
-            if first_newline != -1:
-                stripped = stripped[first_newline + 1 :]
-            if stripped.endswith("```"):
-                stripped = stripped[:-3]
-        return stripped.strip()
+
+        fence_pattern = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
+        fence_match = fence_pattern.search(stripped)
+        if fence_match:
+            stripped = fence_match.group(1).strip()
+
+        if (stripped.startswith("{") and stripped.endswith("}")) or (
+            stripped.startswith("[") and stripped.endswith("]")
+        ):
+            return stripped
+
+        first_brace = stripped.find("{")
+        last_brace = stripped.rfind("}")
+        if first_brace >= 0 and last_brace > first_brace:
+            return stripped[first_brace : last_brace + 1]
+
+        return stripped
 
     def _gleaning_round(
         self,
@@ -250,7 +344,7 @@ class EntityExtractor:
 
         try:
             raw_response = self._qwen.chat(GLEANING_SYSTEM_PROMPT, user_prompt)
-            raw_json = self._strip_markdown_fences(raw_response)
+            raw_json = self._extract_json_text(raw_response)
             data = json.loads(raw_json)
 
             new_entities = [ExtractedEntity.model_validate(e) for e in data.get("entities", [])]
