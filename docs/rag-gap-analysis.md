@@ -57,7 +57,7 @@ Our RAG service is a production-grade, 14-node LangGraph pipeline with Neo4j + p
 | **Incremental Graph Update** | ✅ Cascade delete + re-ingest                            | ✅ `adelete_by_doc_id()` + auto KG regen            | ✅ Done     |
 | **Streaming**                | ✅ SSE `GET /retrieve/stream` (Bedrock + Qwen)           | ✅ SSE `/query/stream`                              | ✅ Done     |
 | **Gleaning**                 | ✅ Multi-round extraction + merge (0–5 rounds)           | ✅ Multi-round extraction + merge                   | ✅ Done     |
-| **Observability**            | ❌ Basic logging                                         | ✅ Langfuse integration                             | ⬜ Phase 8  |
+| **Observability**            | ✅ Phoenix tracing + Prometheus metrics                  | ✅ Langfuse integration                             | ✅ Done     |
 | **Evaluation**               | ✅ RAGAS + DeepEval + custom graph metrics               | ✅ RAGAS integration                                | ✅ Done     |
 | **Multi-tenancy**            | ❌ Single workspace                                      | ✅ Workspace isolation + JWT/API Key                | ⏭️ Deferred |
 | **Concurrency**              | ❌ Basic                                                 | ✅ Semaphore-based rate limiting                    | ⏭️ Deferred |
@@ -267,7 +267,7 @@ def multi_source_recall(state: dict) -> int:
 - [x] RAGAS benchmark runs in CI, fails on regression below thresholds
 - [x] DeepEval hallucination test passes for all golden queries
 - [x] Custom graph metrics calculate correctly (unit tested)
-- [ ] Phoenix tracing captures per-query spans in staging (deferred to Phase 8)
+- [x] Phoenix tracing captures per-query spans in staging (Phase 8 complete, PhoenixEc2Stack deployed)
 - [x] All eval tests pass: `pytest tests/eval/ -v`
 - [ ] Baseline metrics recorded and committed (requires live infra run)
 
@@ -832,7 +832,7 @@ flowchart LR
 - [x] Tracing disabled by default (`RAG_ENABLE_TRACING=false`)
 - [x] Tracing errors never crash the pipeline (graceful degradation)
 - [x] `/metrics` endpoint returns Prometheus-format metrics
-- [ ] Dashboard shows per-node latency breakdown
+- [x] Dashboard shows per-node latency breakdown (PhoenixEc2Stack deployed)
 - [x] All tests pass: `pytest tests/test_tracing.py -v`
 
 ---
@@ -896,7 +896,7 @@ gantt
 | **5** | **Incremental Graph Update**       | **P0**   | **3-4d** | ✅ DONE     |
 | **6** | **Streaming Query (SSE)**          | **P1**   | **2-3d** | ✅ DONE     |
 | **7** | **Gleaning**                       | **P1**   | **2d**   | ✅ DONE     |
-| **8** | **Observability**                  | **P2**   | **2-3d** | ⬜ PLANNED  |
+| **8** | **Observability**                  | **P2**   | **2-3d** | ✅ DONE     |
 | 3.5   | Community Detection                | P3       | 2-3d     | ⏭️ DEFERRED |
 
 ---
