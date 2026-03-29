@@ -13,6 +13,7 @@ Options:
     --category      Filter sitemap section: pages, news, events, awards, all (default: all)
     --limit N       Only process first N URLs (for testing)
     --concurrency N crawl4ai semaphore_count (default: 5)
+    --max-retries N Retry attempts per URL / embedding call (default: 3)
     --skip-entities Skip entity extraction even if enabled in config
     --dry-run       Crawl + parse but don't write to DB
     --resume        Skip URLs already in kb_documents (by source_uri)
@@ -25,6 +26,7 @@ import asyncio
 import hashlib
 import logging
 import re
+import signal
 import sys
 import time
 from datetime import UTC, datetime
@@ -54,6 +56,63 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger("crawl_ingest")
+
+# ---------------------------------------------------------------------------
+# Graceful shutdown
+# ---------------------------------------------------------------------------
+
+_shutdown_requested = False
+
+
+def _handle_shutdown_signal(signum: int, _frame: Any) -> None:
+    global _shutdown_requested  # noqa: PLW0603
+    sig_name = signal.Signals(signum).name
+    if _shutdown_requested:
+        logger.warning("Second %s received — forcing exit", sig_name)
+        sys.exit(1)
+    logger.warning("%s received — finishing current URL then stopping", sig_name)
+    _shutdown_requested = True
+
+
+# ---------------------------------------------------------------------------
+# Resilience policies (redress — Polly-like)
+# ---------------------------------------------------------------------------
+
+
+def _build_embed_policy(max_attempts: int = 6) -> Any:
+    """Build a retry + circuit-breaker policy for embedding API calls."""
+    from redress import CircuitBreaker, Policy, Retry, default_classifier
+    from redress.strategies import decorrelated_jitter
+
+    return Policy(
+        retry=Retry(
+            classifier=default_classifier,
+            strategy=decorrelated_jitter(max_s=10.0),
+            max_attempts=max_attempts,
+            deadline_s=120.0,
+        ),
+        circuit_breaker=CircuitBreaker(
+            failure_threshold=10,
+            window_s=120.0,
+            recovery_timeout_s=30.0,
+        ),
+    )
+
+
+def _build_ingest_policy(max_attempts: int = 3) -> Any:
+    """Build a retry policy for per-URL ingestion (parse + embed + store)."""
+    from redress import Policy, Retry, default_classifier
+    from redress.strategies import equal_jitter
+
+    return Policy(
+        retry=Retry(
+            classifier=default_classifier,
+            strategy=equal_jitter(max_s=15.0),
+            max_attempts=max_attempts,
+            deadline_s=300.0,
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Sitemap constants
@@ -242,6 +301,7 @@ def ingest_page(
     settings: Any,
     skip_entities: bool = False,
     dry_run: bool = False,
+    embed_policy: Any | None = None,
 ) -> tuple[int, int, int]:
     """Parse, chunk, embed, and store a single crawled page.
 
@@ -295,69 +355,78 @@ def ingest_page(
         {"url": url, "category": category},
     )
 
-    doc_record = DocumentRecord(
-        source_type="crawler",
-        source_uri=url,
-        title=parsed.title or url_slug,
-        lang="en",
-        category=category,
-        mime_type="text/html",
-        content_hash=content_hash,
-        doc_version="1.0",
-        published_year=published_year,
-        published_month=published_month,
-        author=None,
-        tags=["apra-amcos"],
-        metadata={"crawled_at": datetime.now(UTC).isoformat()},
-        run_id=run_id,
-    )
-    doc_id = repo.upsert_document(doc_record)
-    repo.delete_chunks_for_doc(doc_id, "1.0")
-
-    chunk_records: list[ChunkRecord] = [
-        ChunkRecord(
-            doc_id=doc_id,
+    try:
+        doc_record = DocumentRecord(
+            source_type="crawler",
+            source_uri=url,
+            title=parsed.title or url_slug,
+            lang="en",
+            category=category,
+            mime_type="text/html",
+            content_hash=content_hash,
             doc_version="1.0",
-            chunk_index=chunk.chunk_index,
-            chunk_text=chunk.chunk_text,
-            token_count=chunk.token_count,
-            citation_url=url,
-            citation_title=parsed.title or url_slug,
-            citation_year=published_year,
-            citation_month=published_month,
-            embedding=embeddings[i],
-            page_start=chunk.page_start,
-            page_end=chunk.page_end,
-            section_id=chunk.section_id,
-            anchor_id=chunk.anchor_id,
-            metadata={},
+            published_year=published_year,
+            published_month=published_month,
+            author=None,
+            tags=["apra-amcos"],
+            metadata={"crawled_at": datetime.now(UTC).isoformat()},
             run_id=run_id,
         )
-        for i, chunk in enumerate(chunks)
-    ]
+        doc_id = repo.upsert_document(doc_record)
+        repo.delete_chunks_for_doc(doc_id, "1.0")
 
-    repo.batch_insert_chunks(chunk_records)
-    repo.bulk_index_opensearch(chunk_records)
-
-    entity_count = 0
-    relation_count = 0
-    if settings.enable_entity_extraction and not skip_entities and chunk_records:
-        try:
-            entity_count, relation_count = _run_entity_extraction_pipeline(
-                chunk_records=chunk_records,
+        chunk_records: list[ChunkRecord] = [
+            ChunkRecord(
                 doc_id=doc_id,
-                qwen_client=qwen_client,
-                settings=settings,
+                doc_version="1.0",
+                chunk_index=chunk.chunk_index,
+                chunk_text=chunk.chunk_text,
+                token_count=chunk.token_count,
+                citation_url=url,
+                citation_title=parsed.title or url_slug,
+                citation_year=published_year,
+                citation_month=published_month,
+                embedding=embeddings[i],
+                page_start=chunk.page_start,
+                page_end=chunk.page_end,
+                section_id=chunk.section_id,
+                anchor_id=chunk.anchor_id,
+                metadata={},
+                run_id=run_id,
             )
-        except Exception:
-            logger.warning(
-                "Entity extraction failed for %s; chunk ingestion already succeeded",
-                url,
-                exc_info=True,
-            )
+            for i, chunk in enumerate(chunks)
+        ]
 
-    repo.complete_ingestion_run(run_id, "succeeded")
-    return len(chunk_records), entity_count, relation_count
+        repo.batch_insert_chunks(chunk_records)
+        repo.bulk_index_opensearch(chunk_records)
+
+        entity_count = 0
+        relation_count = 0
+        if settings.enable_entity_extraction and not skip_entities and chunk_records:
+            try:
+                entity_count, relation_count = _run_entity_extraction_pipeline(
+                    chunk_records=chunk_records,
+                    doc_id=doc_id,
+                    qwen_client=qwen_client,
+                    settings=settings,
+                )
+            except Exception:
+                logger.warning(
+                    "Entity extraction failed for %s; chunk ingestion already succeeded",
+                    url,
+                    exc_info=True,
+                )
+
+        repo.complete_ingestion_run(run_id, "succeeded")
+        return len(chunk_records), entity_count, relation_count
+
+    except Exception:
+        # Ensure the ingestion run is marked failed so it doesn't stay stuck in 'running'
+        try:
+            repo.complete_ingestion_run(run_id, "failed", notes=f"Exception during ingest of {url}")
+        except Exception:
+            logger.error("Failed to mark ingestion run %s as failed", run_id, exc_info=True)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +443,7 @@ async def crawl_and_ingest(
     skip_entities: bool = False,
     dry_run: bool = False,
     resume: bool = False,
+    max_retries: int = 3,
 ) -> dict[str, Any]:
     """Crawl all entries with crawl4ai and ingest each into the pipeline.
 
@@ -386,16 +456,19 @@ async def crawl_and_ingest(
         skip_entities: Skip entity extraction.
         dry_run: Parse only, no DB writes.
         resume: Skip URLs already present in kb_documents.
+        max_retries: Max retry attempts for embedding and per-URL ingestion.
 
     Returns:
         Summary dict with totals.
     """
-    # Import crawl4ai here so the module can still be imported without it installed
     try:
         from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
     except ImportError as exc:
         logger.error("crawl4ai is not installed. Install it with: uv sync --extra crawl\n%s", exc)
         raise
+
+    embed_policy = _build_embed_policy(max_attempts=max_retries + 1)
+    ingest_policy = _build_ingest_policy(max_attempts=max_retries + 1)
 
     existing_urls: set[str] = set()
     if resume and not dry_run:
@@ -418,7 +491,9 @@ async def crawl_and_ingest(
         logger.info("Skipping %d already-ingested URLs (--resume)", skipped_resume)
 
     total = len(to_process)
-    logger.info("Processing %d URLs (concurrency=%d)", total, concurrency)
+    logger.info(
+        "Processing %d URLs (concurrency=%d, max_retries=%d)", total, concurrency, max_retries
+    )
 
     if total == 0:
         return {
@@ -461,8 +536,27 @@ async def crawl_and_ingest(
 
     processed = 0
 
+    def _do_ingest(url: str, html: str, entry: SitemapEntry) -> tuple[int, int, int]:
+        return ingest_page(
+            url=url,
+            html=html,
+            category=entry.category,
+            published_year=entry.published_year,
+            published_month=entry.published_month,
+            repo=repo,
+            qwen_client=qwen_client,
+            settings=settings,
+            skip_entities=skip_entities,
+            dry_run=dry_run,
+            embed_policy=embed_policy,
+        )
+
     async with AsyncWebCrawler(config=browser_config) as crawler:
         async for result in await crawler.arun_many(urls, config=crawl_config):
+            if _shutdown_requested:
+                logger.warning("Shutdown requested — stopping after %d/%d URLs", processed, total)
+                break
+
             processed += 1
             entry = url_to_entry.get(result.url, SitemapEntry(result.url, "general", None))
             prefix = f"[{processed}/{total}]"
@@ -483,17 +577,12 @@ async def crawl_and_ingest(
 
             t0 = time.perf_counter()
             try:
-                page_chunks, page_entities, _ = ingest_page(
-                    url=result.url,
-                    html=html,
-                    category=entry.category,
-                    published_year=entry.published_year,
-                    published_month=entry.published_month,
-                    repo=repo,
-                    qwen_client=qwen_client,
-                    settings=settings,
-                    skip_entities=skip_entities,
-                    dry_run=dry_run,
+                page_chunks, page_entities, _ = ingest_policy.call(
+                    lambda _url=result.url, _html=html, _entry=entry: _do_ingest(
+                        _url, _html, _entry
+                    ),
+                    abort_if=lambda: _shutdown_requested,
+                    operation=f"ingest:{result.url}",
                 )
                 elapsed = time.perf_counter() - t0
                 succeeded += 1
@@ -509,15 +598,73 @@ async def crawl_and_ingest(
             except Exception as exc:
                 elapsed = time.perf_counter() - t0
                 logger.error(
-                    "%s ❌ Ingest failed: %s — %s (%.1fs)",
+                    "%s ❌ Ingest failed after retries: %s — %s (%.1fs)",
                     prefix,
                     result.url,
                     exc,
                     elapsed,
-                    exc_info=True,
                 )
                 failed_urls.append(result.url)
                 failed += 1
+
+    if failed_urls and not _shutdown_requested:
+        logger.info("=" * 60)
+        logger.info("RETRY PHASE: Re-crawling %d failed URLs", len(failed_urls))
+        logger.info("=" * 60)
+        retry_succeeded = 0
+        retry_crawl_config = CrawlerRunConfig(
+            excluded_tags=["script", "style", "nav", "footer", "header"],
+            exclude_external_links=True,
+            exclude_all_images=True,
+            word_count_threshold=50,
+            page_timeout=60000,
+            delay_before_return_html=1.0,
+            cache_mode=CacheMode.BYPASS,
+            stream=True,
+            semaphore_count=max(1, concurrency // 2),
+        )
+
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            async for result in await crawler.arun_many(failed_urls[:], config=retry_crawl_config):
+                if _shutdown_requested:
+                    logger.warning("Shutdown requested — aborting retry phase")
+                    break
+
+                entry = url_to_entry.get(result.url, SitemapEntry(result.url, "general", None))
+
+                if not result.success:
+                    logger.error("  ❌ Retry crawl failed: %s", result.url)
+                    continue
+
+                html = getattr(result, "html", None) or ""
+                if not html.strip():
+                    logger.warning("  ⚠️  Retry empty HTML: %s", result.url)
+                    continue
+
+                try:
+                    page_chunks, page_entities, _ = ingest_policy.call(
+                        lambda _url=result.url, _html=html, _entry=entry: _do_ingest(
+                            _url, _html, _entry
+                        ),
+                        abort_if=lambda: _shutdown_requested,
+                        operation=f"retry-ingest:{result.url}",
+                    )
+                    retry_succeeded += 1
+                    succeeded += 1
+                    failed -= 1
+                    chunks_created += page_chunks
+                    entities_extracted += page_entities
+                    failed_urls.remove(result.url)
+                    logger.info("  ✅ Retry succeeded: %s (%d chunks)", result.url, page_chunks)
+                except Exception as exc:
+                    logger.error("  ❌ Retry ingest failed: %s — %s", result.url, exc)
+
+        if retry_succeeded:
+            logger.info(
+                "Retry phase recovered %d/%d URLs",
+                retry_succeeded,
+                len(failed_urls) + retry_succeeded,
+            )
 
     return {
         "total": total,
@@ -595,6 +742,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=False,
         help="Skip URLs that already exist in kb_documents (by source_uri)",
     )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        metavar="N",
+        help="Max retry attempts per URL and embedding call (default: 3)",
+    )
     return parser
 
 
@@ -609,6 +763,9 @@ async def main(argv: list[str] | None = None) -> int:
     """
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+
+    signal.signal(signal.SIGINT, _handle_shutdown_signal)
+    signal.signal(signal.SIGTERM, _handle_shutdown_signal)
 
     settings = get_settings()
     repo = IngestionRepository(settings)
@@ -660,9 +817,10 @@ async def main(argv: list[str] | None = None) -> int:
         return 0
 
     logger.info(
-        "Starting crawl+ingest: category=%r, concurrency=%d, dry_run=%s, resume=%s, skip_entities=%s",
+        "Starting crawl+ingest: category=%r, concurrency=%d, max_retries=%d, dry_run=%s, resume=%s, skip_entities=%s",
         args.category,
         args.concurrency,
+        args.max_retries,
         args.dry_run,
         args.resume,
         args.skip_entities,
@@ -677,6 +835,7 @@ async def main(argv: list[str] | None = None) -> int:
         skip_entities=args.skip_entities,
         dry_run=args.dry_run,
         resume=args.resume,
+        max_retries=args.max_retries,
     )
 
     logger.info("=" * 60)

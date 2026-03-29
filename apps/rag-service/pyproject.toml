@@ -51,6 +51,11 @@ norecursedirs = ["cdk.out", ".venv", "dist", "*.egg-info", "layers"]
 markers = [
   "eval: marks tests as evaluation benchmarks (require RAG_EVAL_ENABLED=true and eval deps)",
 ]
+filterwarnings = [
+  "ignore:builtin type Swig:DeprecationWarning",
+  "ignore:builtin type swig:DeprecationWarning",
+  "ignore::requests.exceptions.RequestsDependencyWarning",
+]
 
 [tool.black]
 line-length = 100
