@@ -307,7 +307,7 @@ Verified via `PostgresRepository` (class in `app.repository`, not `Repository`) 
 **Root cause (two issues)**:
 
 1. Crawl launched via `nohup` without `.envrc` sourced → `RAG_OPENSEARCH_ENDPOINT` was empty → `bulk_index_opensearch()` silently returned (line 317: `if not self._settings.opensearch_endpoint.strip(): return`)
-2. Even with `.envrc` sourced, the endpoint was `http://localhost:9200` — but ES runs on the Monitoring EC2 instance (`3.107.203.51`), not localhost
+2. Even with `.envrc` sourced, the endpoint was `http://localhost:9200` — but ES runs on the Monitoring EC2 instance, not localhost
 
 **Fix**: Updated `.envrc`:
 
@@ -315,7 +315,7 @@ Verified via `PostgresRepository` (class in `app.repository`, not `Repository`) 
 # Before (wrong):
 RAG_OPENSEARCH_ENDPOINT="http://localhost:9200"
 # After (correct):
-RAG_OPENSEARCH_ENDPOINT="http://ec2-3-107-203-51.ap-southeast-2.compute.amazonaws.com:9200"
+RAG_OPENSEARCH_ENDPOINT="http://<ES_EC2_HOST>:9200"
 ```
 
 ES confirmed running: Elasticsearch 8.17.0, Docker on MonitoringEc2Stack, `xpack.security.enabled=false` (no auth needed).
@@ -324,17 +324,17 @@ ES confirmed running: Elasticsearch 8.17.0, Docker on MonitoringEc2Stack, `xpack
 
 #### Neo4j ❌ → ✅ (after IP fix)
 
-**Problem**: Connection timed out to `bolt://ec2-52-64-132-188....:7687`.
+**Problem**: Connection timed out to `bolt://<OLD_NEO4J_EC2_HOST>:7687`.
 
-**Root cause**: EC2 instance had a new public IP after restart. Old IP `52.64.132.188` → new IP `54.66.32.125`. Security group rules were fine (ports 7474 + 7687 open to `0.0.0.0/0`).
+**Root cause**: EC2 instance had a new public IP after restart. Security group rules were fine (ports 7474 + 7687 open to `0.0.0.0/0`).
 
 **Fix**: Updated `.envrc`:
 
 ```
 # Before (stale IP):
-RAG_NEO4J_URI="bolt://ec2-52-64-132-188.ap-southeast-2.compute.amazonaws.com:7687"
+RAG_NEO4J_URI="bolt://<OLD_NEO4J_EC2_HOST>:7687"
 # After (current IP):
-RAG_NEO4J_URI="bolt://ec2-54-66-32-125.ap-southeast-2.compute.amazonaws.com:7687"
+RAG_NEO4J_URI="bolt://<NEO4J_EC2_HOST>:7687"
 ```
 
 **Verified**: Connected successfully. Neo4j 5.26.21, Protocol 5.8, 0 nodes (expected — entities not yet extracted).
@@ -401,7 +401,7 @@ uv run python -m scripts.backfill_opensearch
 | ----------- | --------- | --------------------------------- |
 | `kb_chunks` | 3,103     | BM25 full-text search, backfilled |
 
-Endpoint: `http://ec2-3-107-203-51.ap-southeast-2.compute.amazonaws.com:9200`
+Endpoint: `http://<ES_EC2_HOST>:9200`
 Version: Elasticsearch 8.17.0 (Docker on MonitoringEc2Stack), no auth.
 
 ### Neo4j
@@ -411,7 +411,7 @@ Version: Elasticsearch 8.17.0 (Docker on MonitoringEc2Stack), no auth.
 | Entity nodes   | 0     | Pending entity extraction |
 | Relation edges | 0     | Pending entity extraction |
 
-Endpoint: `bolt://ec2-54-66-32-125.ap-southeast-2.compute.amazonaws.com:7687`
+Endpoint: `bolt://<NEO4J_EC2_HOST>:7687`
 Version: Neo4j 5.26.21, Protocol 5.8. Connectivity verified ✅.
 
 ---

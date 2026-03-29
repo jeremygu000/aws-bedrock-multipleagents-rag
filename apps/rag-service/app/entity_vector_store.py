@@ -50,14 +50,16 @@ _UPSERT_ENTITY_SQL = text(
                 THEN EXCLUDED.description
                 ELSE kb_entities.description
             END,
-            aliases = (
-                SELECT array_agg(DISTINCT val)
-                FROM unnest(kb_entities.aliases || EXCLUDED.aliases) AS val
+            aliases = COALESCE(
+                (SELECT array_agg(DISTINCT val)
+                 FROM unnest(kb_entities.aliases || EXCLUDED.aliases) AS val),
+                ARRAY[]::text[]
             ),
             confidence = GREATEST(kb_entities.confidence, EXCLUDED.confidence),
-            source_chunk_ids = (
-                SELECT array_agg(DISTINCT val)
-                FROM unnest(kb_entities.source_chunk_ids || EXCLUDED.source_chunk_ids) AS val
+            source_chunk_ids = COALESCE(
+                (SELECT array_agg(DISTINCT val)
+                 FROM unnest(kb_entities.source_chunk_ids || EXCLUDED.source_chunk_ids) AS val),
+                ARRAY[]::text[]
             ),
             embedding = EXCLUDED.embedding,
             metadata = kb_entities.metadata || EXCLUDED.metadata
@@ -84,9 +86,10 @@ _UPSERT_RELATION_SQL = text(
             END,
             confidence = GREATEST(kb_relations.confidence, EXCLUDED.confidence),
             weight = kb_relations.weight + EXCLUDED.weight,
-            source_chunk_ids = (
-                SELECT array_agg(DISTINCT val)
-                FROM unnest(kb_relations.source_chunk_ids || EXCLUDED.source_chunk_ids) AS val
+            source_chunk_ids = COALESCE(
+                (SELECT array_agg(DISTINCT val)
+                 FROM unnest(kb_relations.source_chunk_ids || EXCLUDED.source_chunk_ids) AS val),
+                ARRAY[]::text[]
             ),
             embedding = EXCLUDED.embedding,
             metadata = kb_relations.metadata || EXCLUDED.metadata
