@@ -39,7 +39,7 @@ _UPSERT_ENTITY_SQL = text(
     VALUES (
         :entity_id, :name, :type, :canonical_key, :description,
         :aliases, :confidence, :source_chunk_ids,
-        (:embedding)::vector, :metadata::jsonb
+        CAST(:embedding AS vector), CAST(:metadata AS jsonb)
     )
     ON CONFLICT (entity_id) DO UPDATE
         SET name = EXCLUDED.name,
@@ -74,7 +74,7 @@ _UPSERT_RELATION_SQL = text(
     VALUES (
         :relation_id, :source_entity_id, :target_entity_id, :type,
         :evidence, :confidence, :weight, :source_chunk_ids,
-        (:embedding)::vector, :metadata::jsonb
+        CAST(:embedding AS vector), CAST(:metadata AS jsonb)
     )
     ON CONFLICT (relation_id) DO UPDATE
         SET evidence = CASE
@@ -99,10 +99,10 @@ _SEARCH_ENTITIES_SQL = text(
     SELECT
         entity_id, name, type, canonical_key, description,
         aliases, confidence, source_chunk_ids,
-        embedding <=> (:query_embedding)::vector AS distance
+        embedding <=> CAST(:query_embedding AS vector) AS distance
     FROM kb_entities
     WHERE embedding IS NOT NULL
-    ORDER BY embedding <=> (:query_embedding)::vector
+    ORDER BY embedding <=> CAST(:query_embedding AS vector)
     LIMIT :top_k
     """
 )
@@ -112,10 +112,10 @@ _SEARCH_RELATIONS_SQL = text(
     SELECT
         relation_id, source_entity_id, target_entity_id, type,
         evidence, confidence, weight, source_chunk_ids,
-        embedding <=> (:query_embedding)::vector AS distance
+        embedding <=> CAST(:query_embedding AS vector) AS distance
     FROM kb_relations
     WHERE embedding IS NOT NULL
-    ORDER BY embedding <=> (:query_embedding)::vector
+    ORDER BY embedding <=> CAST(:query_embedding AS vector)
     LIMIT :top_k
     """
 )

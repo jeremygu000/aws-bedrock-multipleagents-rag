@@ -88,7 +88,9 @@ def _build_workflow() -> RagWorkflow:
             settings=settings,
         )
 
-    query_cache = QueryCache(settings) if settings.enable_query_cache else None
+    query_cache = (
+        QueryCache(settings, repository._get_engine()) if settings.enable_query_cache else None
+    )
 
     return RagWorkflow(
         settings=settings,

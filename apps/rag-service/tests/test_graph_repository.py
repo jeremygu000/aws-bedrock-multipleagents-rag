@@ -650,9 +650,15 @@ class TestHealthCheck:
 
 
 class TestNeo4jConfig:
-    def test_default_neo4j_settings(self):
+    def test_default_neo4j_settings(self, monkeypatch):
         from app.config import Settings
 
+        monkeypatch.delenv("RAG_ENABLE_NEO4J", raising=False)
+        monkeypatch.delenv("RAG_NEO4J_URI", raising=False)
+        monkeypatch.delenv("RAG_NEO4J_USERNAME", raising=False)
+        monkeypatch.delenv("RAG_NEO4J_PASSWORD", raising=False)
+        monkeypatch.delenv("RAG_NEO4J_PASSWORD_SECRET_ARN", raising=False)
+        monkeypatch.delenv("RAG_NEO4J_DATABASE", raising=False)
         settings = Settings()
         assert settings.enable_neo4j is False
         assert settings.neo4j_uri == "bolt://localhost:7687"
@@ -688,10 +694,12 @@ class TestResolveNeo4jPassword:
         )
         assert resolve_neo4j_password(settings) == "neo4j-pass-from-env"
 
-    def test_returns_empty_when_no_password_or_arn(self):
+    def test_returns_empty_when_no_password_or_arn(self, monkeypatch):
         from app.config import Settings
         from app.secrets import resolve_neo4j_password
 
+        monkeypatch.delenv("RAG_NEO4J_PASSWORD", raising=False)
+        monkeypatch.delenv("RAG_NEO4J_PASSWORD_SECRET_ARN", raising=False)
         settings = Settings()
         assert resolve_neo4j_password(settings) == ""
 

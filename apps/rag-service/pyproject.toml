@@ -39,6 +39,9 @@ eval = [
   "deepeval>=2.0.0,<3",
   "datasets>=3.0.0,<4",
 ]
+crawl = [
+  "crawl4ai>=0.8.0,<1",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["apps/rag-service"]

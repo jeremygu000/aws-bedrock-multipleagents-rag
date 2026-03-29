@@ -182,7 +182,7 @@ class IngestionRepository:
             VALUES (
                 :doc_id, :source_type, :source_uri, :title, :lang, :category,
                 :mime_type, :content_hash, :doc_version, :published_year, :published_month,
-                :author, :tags, :metadata::jsonb, :run_id
+                :author, :tags, CAST(:metadata AS jsonb), :run_id
             )
             ON CONFLICT (source_uri, doc_version) DO UPDATE
                 SET title = EXCLUDED.title,
@@ -286,10 +286,10 @@ class IngestionRepository:
                 embedding, metadata, run_id
             )
             VALUES (
-                :chunk_id::uuid, :doc_id::uuid, :doc_version, :chunk_index, :chunk_text,
+                CAST(:chunk_id AS uuid), CAST(:doc_id AS uuid), :doc_version, :chunk_index, :chunk_text,
                 :token_count, :citation_url, :citation_title, :citation_year, :citation_month,
                 :page_start, :page_end, :section_id, :anchor_id,
-                (:embedding)::vector, :metadata::jsonb, :run_id::uuid
+                CAST(:embedding AS vector), CAST(:metadata AS jsonb), CAST(:run_id AS uuid)
             )
             """
         )

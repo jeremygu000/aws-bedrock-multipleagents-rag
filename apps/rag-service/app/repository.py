@@ -345,7 +345,7 @@ class PostgresRepository:
         )
 
         # Dense candidate set ordered by vector distance.
-        query_vector = text("(:query_vector)::vector")
+        query_vector = text("CAST(:query_vector AS vector)")
         dense_distance = kb_chunks.c.embedding.op("<=>")(query_vector)
         dense_rank = func.row_number().over(order_by=dense_distance)
 
@@ -447,7 +447,7 @@ class PostgresRepository:
             )
 
         vector_literal = _to_vector_literal(request.query_embedding)
-        query_vector = text("(:query_vector)::vector")
+        query_vector = text("CAST(:query_vector AS vector)")
         dense_distance = kb_chunks.c.embedding.op("<=>")(query_vector)
         dense_rank = func.row_number().over(order_by=dense_distance)
 

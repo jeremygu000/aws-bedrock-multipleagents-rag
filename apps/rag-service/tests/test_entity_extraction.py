@@ -301,9 +301,10 @@ class TestStripMarkdownFences:
 
 
 class TestConfigFlag:
-    def test_entity_extraction_disabled_by_default(self) -> None:
+    def test_entity_extraction_disabled_by_default(self, monkeypatch) -> None:
         from app.config import Settings
 
+        monkeypatch.delenv("RAG_ENABLE_ENTITY_EXTRACTION", raising=False)
         settings = Settings()
         assert settings.enable_entity_extraction is False
 

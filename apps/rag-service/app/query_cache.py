@@ -55,10 +55,10 @@ SELECT
     citations,
     model_used,
     hit_count,
-    1 - (query_embedding <=> :embedding::vector) AS similarity
+    1 - (query_embedding <=> CAST(:embedding AS vector)) AS similarity
 FROM query_cache
 WHERE created_at > :min_created_at
-ORDER BY query_embedding <=> :embedding::vector
+ORDER BY query_embedding <=> CAST(:embedding AS vector)
 LIMIT 1;
 """
 
@@ -74,8 +74,8 @@ INSERT INTO query_cache
     (cache_key, query_embedding, query_original, query_rewritten,
      answer, citations, model_used, source_doc_ids)
 VALUES
-    (:cache_key, :embedding::vector, :query_original, :query_rewritten,
-     :answer, :citations::jsonb, :model_used, :source_doc_ids)
+    (:cache_key, CAST(:embedding AS vector), :query_original, :query_rewritten,
+     :answer, CAST(:citations AS jsonb), :model_used, :source_doc_ids)
 ON CONFLICT (cache_key) DO UPDATE SET
     answer = EXCLUDED.answer,
     citations = EXCLUDED.citations,
@@ -87,7 +87,7 @@ ON CONFLICT (cache_key) DO UPDATE SET
 
 _INVALIDATE_BY_DOC_SQL = """
 DELETE FROM query_cache
-WHERE source_doc_ids @> ARRAY[:doc_id]::TEXT[];
+WHERE source_doc_ids @> CAST(ARRAY[:doc_id] AS TEXT[]);
 """
 
 _CLEANUP_SQL = """
