@@ -293,7 +293,7 @@ def main() -> None:
     logger.info("Valid relations: %d", len(valid_relations))
 
     print(f"\n{'='*60}")
-    print(f"Backfill Summary")
+    print("Backfill Summary")
     print(f"{'='*60}")
     print(f"  Entities from Neo4j:    {len(neo4j_entities)}")
     print(f"  Relations from Neo4j:   {len(neo4j_relations)}")
