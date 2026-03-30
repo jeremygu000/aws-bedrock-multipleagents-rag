@@ -12,6 +12,7 @@ from app.graph_retriever import (
     _deduplicate_relations,
     _entity_dict_to_model,
     _merge_contexts,
+    _merge_entity_dicts,
     _relation_dict_to_model,
 )
 from app.models import GraphContext, GraphEntity, GraphRelation, RetrievalMode
@@ -113,9 +114,14 @@ def _build_retriever(
     vector_store: MagicMock | None = None,
     neo4j_repo: MagicMock | None = None,
 ) -> GraphRetriever:
+    if vector_store is None:
+        vs = MagicMock()
+        vs.search_entities_by_text.return_value = []
+    else:
+        vs = vector_store
     return GraphRetriever(
         qwen_client=qwen or MagicMock(),
-        vector_store=vector_store or MagicMock(),
+        vector_store=vs,
         neo4j_repo=neo4j_repo,
         settings=settings or _make_settings(),
     )
@@ -576,3 +582,97 @@ class TestRetrievalModeEnum:
     def test_invalid_value_raises(self):
         with pytest.raises(ValueError):
             RetrievalMode("invalid")
+
+
+class TestMergeEntityDicts:
+
+    def test_empty_inputs(self):
+        assert _merge_entity_dicts([], []) == []
+
+    def test_vector_only(self):
+        v = [_make_entity_dict("e1", "A", distance=0.3)]
+        result = _merge_entity_dicts(v, [])
+        assert len(result) == 1
+        assert result[0]["entity_id"] == "e1"
+
+    def test_text_only(self):
+        t = [_make_entity_dict("e1", "A", distance=0.05)]
+        result = _merge_entity_dicts([], t)
+        assert len(result) == 1
+
+    def test_text_overrides_worse_vector(self):
+        v = [_make_entity_dict("e1", "A", distance=0.5)]
+        t = [_make_entity_dict("e1", "A", distance=0.0)]
+        result = _merge_entity_dicts(v, t)
+        assert len(result) == 1
+        assert result[0]["distance"] == 0.0
+
+    def test_vector_kept_when_better(self):
+        v = [_make_entity_dict("e1", "A", distance=0.01)]
+        t = [_make_entity_dict("e1", "A", distance=0.15)]
+        result = _merge_entity_dicts(v, t)
+        assert len(result) == 1
+        assert result[0]["distance"] == 0.01
+
+    def test_union_of_different_entities(self):
+        v = [_make_entity_dict("e1", "A", distance=0.2)]
+        t = [_make_entity_dict("e2", "B", distance=0.05)]
+        result = _merge_entity_dicts(v, t)
+        assert len(result) == 2
+        assert result[0]["entity_id"] == "e2"
+        assert result[1]["entity_id"] == "e1"
+
+    def test_sorted_by_distance(self):
+        v = [
+            _make_entity_dict("e1", "A", distance=0.5),
+            _make_entity_dict("e2", "B", distance=0.1),
+        ]
+        t = [_make_entity_dict("e3", "C", distance=0.0)]
+        result = _merge_entity_dicts(v, t)
+        distances = [r["distance"] for r in result]
+        assert distances == sorted(distances)
+
+
+class TestTextSearchIntegration:
+
+    def test_local_uses_text_search(self):
+        qwen = MagicMock()
+        qwen.embedding.return_value = FAKE_EMBEDDING
+
+        vs = MagicMock()
+        vs.search_entities.return_value = []
+        vs.search_entities_by_text.return_value = [
+            _make_entity_dict("e1", "Rushing Back", "Work", distance=0.0),
+        ]
+
+        neo4j = MagicMock()
+        neo4j.get_entity_neighbors.return_value = []
+        neo4j.get_relations_for_entities.return_value = []
+
+        settings = _make_settings(retrieval_mode="mix", graph_neighbor_depth=1)
+        retriever = _build_retriever(
+            settings=settings, qwen=qwen, vector_store=vs, neo4j_repo=neo4j
+        )
+        ctx = retriever.retrieve("Who wrote Rushing Back?", strategy="local")
+
+        assert len(ctx.entities) == 1
+        assert ctx.entities[0].name == "Rushing Back"
+        assert ctx.entities[0].score == pytest.approx(1.0)
+        vs.search_entities_by_text.assert_called_once()
+
+    def test_global_uses_text_search(self):
+        qwen = MagicMock()
+        qwen.embedding.return_value = FAKE_EMBEDDING
+
+        vs = MagicMock()
+        vs.search_entities.return_value = []
+        vs.search_relations.return_value = []
+        vs.search_entities_by_text.return_value = [
+            _make_entity_dict("e1", "APRA AMCOS", "Organization", distance=0.0),
+        ]
+
+        retriever = _build_retriever(qwen=qwen, vector_store=vs)
+        ctx = retriever.retrieve("What is APRA AMCOS?", strategy="global")
+
+        assert len(ctx.entities) == 1
+        assert ctx.entities[0].name == "APRA AMCOS"

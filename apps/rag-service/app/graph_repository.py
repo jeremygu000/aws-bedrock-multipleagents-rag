@@ -233,11 +233,20 @@ ON MATCH SET
 """
 
 # Neighbor traversal without APOC — uses variable-length path pattern.
-_GET_NEIGHBORS_CYPHER_NO_APOC = """
-MATCH (e:Entity {name: $name, type: $type})-[*1..$depth]-(neighbor:Entity)
-WHERE neighbor <> e
-RETURN DISTINCT neighbor
-"""
+# NOTE: Neo4j Community Edition does not support parameterised variable-length
+# paths (e.g. ``[*1..$depth]``).  The depth is injected as a literal integer
+# via ``_get_neighbors_cypher_no_apoc(depth)`` below.
+_GET_NEIGHBORS_CYPHER_NO_APOC_TEMPLATE = (
+    "MATCH (e:Entity {{name: $name, type: $type}})-[*1..{depth}]-(neighbor:Entity)\n"
+    "WHERE neighbor <> e\n"
+    "RETURN DISTINCT neighbor"
+)
+
+
+def _get_neighbors_cypher_no_apoc(depth: int) -> str:
+    """Return the neighbor-traversal Cypher with *depth* baked in as a literal."""
+    safe_depth = max(1, min(depth, 10))
+    return _GET_NEIGHBORS_CYPHER_NO_APOC_TEMPLATE.format(depth=safe_depth)
 
 
 def _entity_to_params(entity: ExtractedEntity) -> dict[str, Any]:
@@ -463,15 +472,16 @@ class Neo4jRepository:
         depth: int = 1,
     ) -> list[ExtractedEntity]:
         """Retrieve neighboring entities up to ``depth`` hops away."""
-        cypher = _GET_NEIGHBORS_CYPHER if self._use_apoc else _GET_NEIGHBORS_CYPHER_NO_APOC
+        if self._use_apoc:
+            cypher = _GET_NEIGHBORS_CYPHER
+        else:
+            cypher = _get_neighbors_cypher_no_apoc(depth)
 
         def _work(tx: ManagedTransaction) -> list[ExtractedEntity]:
-            result = tx.run(
-                cypher,
-                name=name,
-                type=entity_type.value,
-                depth=depth,
-            )
+            params: dict[str, Any] = {"name": name, "type": entity_type.value}
+            if self._use_apoc:
+                params["depth"] = depth
+            result = tx.run(cypher, **params)
             return [
                 _node_to_entity(record["node" if self._use_apoc else "neighbor"])
                 for record in result

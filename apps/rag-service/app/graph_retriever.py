@@ -81,23 +81,28 @@ class GraphRetriever:
             return GraphContext()
 
         if strategy == "local":
-            return self._retrieve_local(query_embedding)
+            return self._retrieve_local(query_embedding, query)
         elif strategy == "global":
-            return self._retrieve_global(query_embedding)
+            return self._retrieve_global(query_embedding, query)
         else:
-            return self._retrieve_hybrid(query_embedding)
+            return self._retrieve_hybrid(query_embedding, query)
 
     # ------------------------------------------------------------------
     # Strategies
     # ------------------------------------------------------------------
 
-    def _retrieve_local(self, query_embedding: list[float]) -> GraphContext:
+    def _retrieve_local(self, query_embedding: list[float], query: str = "") -> GraphContext:
         """Local retrieval: vector-search entities → expand neighbors → collect relations."""
         top_k_ent = self._settings.graph_top_k_entities
         depth = self._settings.graph_neighbor_depth
 
-        # Step 1 — seed entities from pgvector similarity
+        # Step 1 — seed entities from pgvector similarity + text name matching
         seed_entity_dicts = self._vector_store.search_entities(query_embedding, top_k=top_k_ent)
+
+        if query:
+            text_entity_dicts = self._vector_store.search_entities_by_text(query, top_k=top_k_ent)
+            seed_entity_dicts = _merge_entity_dicts(seed_entity_dicts, text_entity_dicts)
+
         if not seed_entity_dicts:
             return GraphContext()
 
@@ -114,13 +119,17 @@ class GraphRetriever:
 
         return self._build_context(entities_by_id, relations)
 
-    def _retrieve_global(self, query_embedding: list[float]) -> GraphContext:
+    def _retrieve_global(self, query_embedding: list[float], query: str = "") -> GraphContext:
         """Global retrieval: vector-search both entities and relations directly."""
         top_k_ent = self._settings.graph_top_k_entities
         top_k_rel = self._settings.graph_top_k_relations
 
         entity_dicts = self._vector_store.search_entities(query_embedding, top_k=top_k_ent)
         relation_dicts = self._vector_store.search_relations(query_embedding, top_k=top_k_rel)
+
+        if query:
+            text_entity_dicts = self._vector_store.search_entities_by_text(query, top_k=top_k_ent)
+            entity_dicts = _merge_entity_dicts(entity_dicts, text_entity_dicts)
 
         entities_by_id: dict[str, GraphEntity] = {}
         for ed in entity_dicts:
@@ -132,10 +141,10 @@ class GraphRetriever:
 
         return self._build_context(entities_by_id, relations)
 
-    def _retrieve_hybrid(self, query_embedding: list[float]) -> GraphContext:
+    def _retrieve_hybrid(self, query_embedding: list[float], query: str = "") -> GraphContext:
         """Hybrid: union of local and global results, deduplicated."""
-        local_ctx = self._retrieve_local(query_embedding)
-        global_ctx = self._retrieve_global(query_embedding)
+        local_ctx = self._retrieve_local(query_embedding, query)
+        global_ctx = self._retrieve_global(query_embedding, query)
         return _merge_contexts(local_ctx, global_ctx)
 
     # ------------------------------------------------------------------
@@ -271,14 +280,26 @@ def _entity_dict_to_model(ed: dict) -> GraphEntity:
     )
 
 
+def _merge_entity_dicts(vector_results: list[dict], text_results: list[dict]) -> list[dict]:
+    """Merge vector-search and text-search entity results, keeping the lower distance per entity."""
+    by_id: dict[str, dict] = {}
+    for ed in vector_results:
+        by_id[ed["entity_id"]] = ed
+    for ed in text_results:
+        existing = by_id.get(ed["entity_id"])
+        if existing is None or ed.get("distance", 1.0) < existing.get("distance", 1.0):
+            by_id[ed["entity_id"]] = ed
+    return sorted(by_id.values(), key=lambda d: d.get("distance", 1.0))
+
+
 def _relation_dict_to_model(rd: dict) -> GraphRelation:
     """Convert an EntityVectorStore relation result dict to a GraphRelation."""
     distance = rd.get("distance", 1.0)
     score = max(0.0, 1.0 - distance)
 
     return GraphRelation(
-        source_entity=rd.get("source_entity_id", ""),
-        target_entity=rd.get("target_entity_id", ""),
+        source_entity=rd.get("source_name", rd.get("source_entity_id", "")),
+        target_entity=rd.get("target_name", rd.get("target_entity_id", "")),
         relation_type=rd.get("type", ""),
         evidence=rd.get("evidence", ""),
         confidence=rd.get("confidence", 0.0),

@@ -320,7 +320,21 @@ class TestSearchRelations:
         engine, conn = _make_mock_engine()
         mock_create_engine.return_value = engine
         conn.execute.return_value.fetchall.return_value = [
-            ("rel-001", "ent-001", "ent-002", "WROTE", "evidence", 0.9, 1.0, ["c1"], 0.2),
+            (
+                "rel-001",
+                "ent-001",
+                "ent-002",
+                "WROTE",
+                "evidence",
+                0.9,
+                1.0,
+                ["c1"],
+                0.2,
+                "Entity A",
+                "Person",
+                "Entity B",
+                "Work",
+            ),
         ]
 
         store = EntityVectorStore(_make_settings())
@@ -329,6 +343,8 @@ class TestSearchRelations:
         assert results[0]["relation_id"] == "rel-001"
         assert results[0]["distance"] == 0.2
         assert results[0]["type"] == "WROTE"
+        assert results[0]["source_name"] == "Entity A"
+        assert results[0]["target_name"] == "Entity B"
 
     @patch("app.entity_vector_store.resolve_db_password", return_value="testpass")
     @patch("app.entity_vector_store.create_engine")

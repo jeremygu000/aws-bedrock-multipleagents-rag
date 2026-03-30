@@ -113,12 +113,16 @@ _SEARCH_ENTITIES_SQL = text(
 _SEARCH_RELATIONS_SQL = text(
     """
     SELECT
-        relation_id, source_entity_id, target_entity_id, type,
-        evidence, confidence, weight, source_chunk_ids,
-        embedding <=> CAST(:query_embedding AS vector) AS distance
-    FROM kb_relations
-    WHERE embedding IS NOT NULL
-    ORDER BY embedding <=> CAST(:query_embedding AS vector)
+        r.relation_id, r.source_entity_id, r.target_entity_id, r.type,
+        r.evidence, r.confidence, r.weight, r.source_chunk_ids,
+        r.embedding <=> CAST(:query_embedding AS vector) AS distance,
+        src.name AS source_name, src.type AS source_type,
+        tgt.name AS target_name, tgt.type AS target_type
+    FROM kb_relations r
+    LEFT JOIN kb_entities src ON src.entity_id = r.source_entity_id
+    LEFT JOIN kb_entities tgt ON tgt.entity_id = r.target_entity_id
+    WHERE r.embedding IS NOT NULL
+    ORDER BY r.embedding <=> CAST(:query_embedding AS vector)
     LIMIT :top_k
     """
 )
@@ -140,6 +144,30 @@ _GET_ENTITIES_BY_NAME_SQL = text(
         aliases, confidence, source_chunk_ids
     FROM kb_entities
     WHERE lower(name) = lower(:name)
+    """
+)
+
+_SEARCH_ENTITIES_BY_TEXT_SQL = text(
+    """
+    SELECT
+        entity_id, name, type, canonical_key, description,
+        aliases, confidence, source_chunk_ids,
+        CASE
+            WHEN lower(name) = lower(:query_text) THEN 0.0
+            WHEN lower(name) LIKE lower(:query_like) THEN 0.05
+            WHEN EXISTS (
+                SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(:query_text)
+            ) THEN 0.02
+            ELSE 0.15
+        END AS distance
+    FROM kb_entities
+    WHERE lower(:query_text_ws) LIKE '%%' || lower(name) || '%%'
+       OR EXISTS (
+           SELECT 1 FROM unnest(aliases) AS a
+           WHERE lower(:query_text_ws) LIKE '%%' || lower(a) || '%%'
+       )
+    ORDER BY distance, confidence DESC
+    LIMIT :top_k
     """
 )
 
@@ -336,6 +364,10 @@ class EntityVectorStore:
                 "weight": float(row[6]),
                 "source_chunk_ids": list(row[7]) if row[7] else [],
                 "distance": float(row[8]),
+                "source_name": row[9] or row[1],
+                "source_type": row[10] or "",
+                "target_name": row[11] or row[2],
+                "target_type": row[12] or "",
             }
             for row in rows
         ]
@@ -378,6 +410,56 @@ class EntityVectorStore:
                 "aliases": list(row[5]) if row[5] else [],
                 "confidence": float(row[6]),
                 "source_chunk_ids": list(row[7]) if row[7] else [],
+            }
+            for row in rows
+        ]
+
+    def search_entities_by_text(
+        self,
+        query_text: str,
+        top_k: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Find entities whose name or aliases appear in the query text.
+
+        Uses substring matching (case-insensitive) to find entities mentioned
+        in the query. Returns results with a synthetic 'distance' score:
+        0.0 for exact name match, 0.02 for alias match, 0.05 for partial
+        name match, 0.15 for other substring matches.
+
+        Complements embedding-based search_entities() for cases where the
+        query mentions entity names explicitly.
+        """
+
+        if not query_text or len(query_text.strip()) < 2:
+            return []
+
+        query_stripped = query_text.strip()
+        params = {
+            "query_text": query_stripped,
+            "query_text_ws": query_stripped,
+            "query_like": f"%{query_stripped}%",
+            "top_k": top_k,
+        }
+
+        engine = self._get_engine()
+        try:
+            with engine.connect() as conn:
+                rows = conn.execute(_SEARCH_ENTITIES_BY_TEXT_SQL, params).fetchall()
+        except Exception:
+            logger.exception("Text-based entity search failed")
+            return []
+
+        return [
+            {
+                "entity_id": row[0],
+                "name": row[1],
+                "type": row[2],
+                "canonical_key": row[3],
+                "description": row[4],
+                "aliases": list(row[5]) if row[5] else [],
+                "confidence": float(row[6]),
+                "source_chunk_ids": list(row[7]) if row[7] else [],
+                "distance": float(row[8]),
             }
             for row in rows
         ]
