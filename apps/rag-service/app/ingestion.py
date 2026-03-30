@@ -148,12 +148,17 @@ def _run_entity_extraction_pipeline(
     try:
         vector_store = EntityVectorStore(settings)
 
-        # Build entity dicts with embeddings
+        old_to_new_id: dict[str, str] = {}
         entity_dicts: list[dict] = []
         for idx, entity in enumerate(merged_entities):
+            dedup_key = entity.canonical_key or entity.name.lower()
+            stable_id = hashlib.sha256(f"{dedup_key}::{entity.type.value}".encode()).hexdigest()[
+                :16
+            ]
+            old_to_new_id[entity.entity_id] = stable_id
             entity_dicts.append(
                 {
-                    "entity_id": entity.entity_id,
+                    "entity_id": stable_id,
                     "name": entity.name,
                     "type": entity.type.value,
                     "description": entity.description,
@@ -165,17 +170,16 @@ def _run_entity_extraction_pipeline(
                 }
             )
 
-        # Build relation dicts with embeddings
         relation_dicts: list[dict] = []
         for idx, relation in enumerate(merged_relations):
-            relation_id = (
-                f"{relation.source_entity_id}__{relation.type.value}__{relation.target_entity_id}"
-            )
+            src_id = old_to_new_id.get(relation.source_entity_id, relation.source_entity_id)
+            tgt_id = old_to_new_id.get(relation.target_entity_id, relation.target_entity_id)
+            relation_id = f"{src_id}__{relation.type.value}__{tgt_id}"
             relation_dicts.append(
                 {
                     "relation_id": relation_id,
-                    "source_entity_id": relation.source_entity_id,
-                    "target_entity_id": relation.target_entity_id,
+                    "source_entity_id": src_id,
+                    "target_entity_id": tgt_id,
                     "type": relation.type.value,
                     "evidence": relation.evidence,
                     "embedding": relation_embeddings[idx],

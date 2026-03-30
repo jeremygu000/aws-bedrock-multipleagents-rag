@@ -177,7 +177,7 @@ class Settings(BaseSettings):
         description="Token threshold above which merged entity descriptions are LLM-summarized",
     )
     entity_extraction_embed_batch_size: int = Field(
-        default=20,
+        default=10,
         ge=1,
         le=100,
         validation_alias="RAG_ENTITY_EXTRACTION_EMBED_BATCH_SIZE",

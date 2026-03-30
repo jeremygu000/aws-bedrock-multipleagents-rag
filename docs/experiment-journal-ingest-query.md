@@ -1,8 +1,8 @@
 # Experiment Journal — Ingest & Query Pipeline
 
 > **Started**: 2026-03-28
-> **Last Updated**: 2026-03-29 (evening)
-> **Status**: In progress — data stores verified & backfilled, entity extraction pending
+> **Last Updated**: 2026-03-30 (evening)
+> **Status**: In progress — pgvector backfill running, ingestion.py entity_id bug fixed, query testing pending
 
 ---
 
@@ -11,10 +11,12 @@
 1. [Background & Objectives](#1-background--objectives)
 2. [Day 1 (Mar 28) — Foundation Build](#2-day-1-mar-28--foundation-build)
 3. [Day 2 (Mar 29) — Crawl Ingest & Production Hardening](#3-day-2-mar-29--crawl-ingest--production-hardening)
-4. [Bug Tracker](#4-bug-tracker)
-5. [Current Data State](#5-current-data-state)
-6. [Next Steps](#6-next-steps)
-7. [Appendix — Commands Reference](#7-appendix--commands-reference)
+4. [Day 3 (Mar 30) — Entity Extraction & Bug Fixes](#4-day-3-mar-30--entity-extraction--bug-fixes)
+5. [Day 3 (Mar 30, evening) — pgvector Entity ID Collision Fix](#5-day-3-mar-30-evening--pgvector-entity-id-collision-fix)
+6. [Bug Tracker](#6-bug-tracker)
+7. [Current Data State](#7-current-data-state)
+8. [Next Steps](#8-next-steps)
+9. [Appendix — Commands Reference](#9-appendix--commands-reference)
 
 ---
 
@@ -367,33 +369,210 @@ uv run python -m scripts.backfill_opensearch
 
 ---
 
-## 4. Bug Tracker
+## 4. Day 3 (Mar 30) — Entity Extraction & Bug Fixes
 
-| #   | Bug                                   | Root Cause                                                | Fix                              | Severity |
-| --- | ------------------------------------- | --------------------------------------------------------- | -------------------------------- | -------- |
-| 1   | `::type` cast breaks psycopg3         | psycopg3 doesn't support `::` in parameterized queries    | `CAST(x AS type)` across 3 files | High     |
-| 2   | `QueryCache(settings)` missing engine | Constructor signature mismatch                            | Added `engine` parameter         | High     |
-| 3   | Resume skips nothing                  | `WHERE source_type = 'web_crawl'` vs actual `'crawler'`   | Fixed to `'crawler'`             | High     |
-| 4   | Stale `ingestion_runs`                | No cleanup on process kill                                | `try/except` + mark failed       | Medium   |
-| 5   | Tests fail with `.envrc`              | Env var leakage into test environment                     | `monkeypatch.delenv()`           | Low      |
-| 6   | Qwen `IncompleteRead`                 | Embedding API timeout/disconnect                          | Retry + CircuitBreaker policies  | Medium   |
-| 7   | ES endpoint → localhost               | `.envrc` pointed to `localhost:9200`, ES is on remote EC2 | Updated to EC2 public DNS        | High     |
-| 8   | Neo4j stale IP                        | EC2 public IP changed after restart                       | Updated `.envrc` with new IP     | Medium   |
+Focus: Running entity extraction across all 1,300 documents and fixing bugs discovered during the process.
+
+### 4.1 Bug Fix — `aliases` NULL Violation in Entity Upsert
+
+**Problem**: `ON CONFLICT DO UPDATE` clause in `_UPSERT_ENTITY_SQL` and `_UPSERT_RELATION_SQL` used `array_agg(DISTINCT val) FROM unnest(...)`. When both existing and new arrays are empty (`[] || []`), `unnest` returns 0 rows, `array_agg` returns `NULL` → `NOT NULL` constraint violation.
+
+**Error**: `psycopg.errors.NotNullViolation: null value in column "aliases" of relation "kb_entities"`
+
+**Fix**: Wrapped all 3 occurrences with `COALESCE(..., ARRAY[]::text[])`:
+
+| File                         | Column             | Location   |
+| ---------------------------- | ------------------ | ---------- |
+| `app/entity_vector_store.py` | `aliases`          | Line 53-56 |
+| `app/entity_vector_store.py` | `source_chunk_ids` | Line 59-62 |
+| `app/entity_vector_store.py` | `source_chunk_ids` | Line 89-92 |
+
+**Verification**: 511 tests pass.
+
+### 4.2 Bug Fix — JSON Parse Robustness (4-Layer Pipeline)
+
+**Problem**: LLM entity extraction output frequently contained malformed JSON (trailing commas, unterminated strings, prose wrapping). 3/5 chunks failed for test doc #2.
+
+**Fix**: Rewrote `app/entity_extraction.py` parsing from 2-layer to 4-layer:
+
+| Layer | Method                  | Speed   | Handles                                              |
+| ----- | ----------------------- | ------- | ---------------------------------------------------- |
+| 1     | `_extract_json_text`    | instant | Markdown fences, prose wrapping, outermost `{...}`   |
+| 2     | `json-repair` library   | instant | Trailing commas, unquoted keys, unterminated strings |
+| 3     | `_lenient_parse`        | instant | Per-entity/relation parsing, skip bad items          |
+| 4     | `_llm_repair_and_parse` | ~10s    | Semantic issues (last resort)                        |
+
+**Dependency**: Added `json-repair>=0.58.7` to `pyproject.toml`.
+
+**Verification**: 511 tests pass, 7 test cases (4 updated + 3 new).
+
+### 4.3 Bug Fix — Qwen Embedding Batch Size Limit
+
+**Problem**: `entity_extraction_embed_batch_size` defaulted to 20 in `app/config.py`, but Qwen embedding API max batch size is 10.
+
+**Error**: `ValueError: Qwen embeddings API HTTP error: 400 ... batch size is invalid, it should not be larger than 10`
+
+**Fix**: Changed default from `20` → `10` in `app/config.py` line 179.
+
+**Impact**: Caused 262 doc failures in Run 1 (all docs with >10 entities). Fixed before Retry run.
+
+### 4.4 Entity Extraction — Test Run (2 docs)
+
+```bash
+export QWEN_API_KEY=sk-... && export LLM_MODEL=qwen-plus
+source .envrc
+uv run python scripts/extract_entities.py --limit 2
+```
+
+| Metric    | Value                                             |
+| --------- | ------------------------------------------------- |
+| Docs      | 2 succeeded                                       |
+| Entities  | 11                                                |
+| Relations | 2                                                 |
+| Time      | 153.7s (76.8s/doc avg)                            |
+| Issues    | 3/5 chunks had JSON parse failures (non-blocking) |
+
+Neo4j writes confirmed: 10 nodes present after test.
+
+### 4.5 Entity Extraction — Run 1 (1,298 docs)
+
+```bash
+screen -S entity-extract
+export QWEN_API_KEY=sk-... && export LLM_MODEL=qwen-plus
+source .envrc
+uv run python scripts/extract_entities.py --concurrency 4
+```
+
+Skipped 2 docs from test run, processed remaining 1,298.
+
+| Metric    | Value                             |
+| --------- | --------------------------------- |
+| Succeeded | 1,036 docs                        |
+| Failed    | 262 docs (all batch size >10 bug) |
+| Entities  | 4,908                             |
+| Relations | 304                               |
+| Time      | 11,387s (~3.16 hours)             |
+| Avg speed | 8.8s/doc                          |
+
+### 4.6 Entity Extraction — Retry Run (308 docs)
+
+After fixing the batch size bug (§4.3), re-ran to process failed + skipped docs:
+
+```bash
+screen -S entity-retry
+export QWEN_API_KEY=sk-... && export LLM_MODEL=qwen-plus
+source .envrc
+uv run python scripts/extract_entities.py --concurrency 4 \
+  > /tmp/entity-extract-retry.log 2>&1
+```
+
+Script found 1,300 docs, skipped 992 with existing entities → 308 docs to process (larger multi-chunk docs, up to 42 chunks each).
+
+| Metric    | Value                              |
+| --------- | ---------------------------------- |
+| Succeeded | 306 docs                           |
+| Failed    | 2 docs (transient network errors)  |
+| Entities  | 6,100                              |
+| Relations | 553                                |
+| Time      | 6,668s (~1.85 hours)               |
+| Avg speed | 21.7s/doc (larger docs than Run 1) |
+
+**Failed docs** (both transient, retryable):
+
+| Doc ID     | Error                                              |
+| ---------- | -------------------------------------------------- |
+| `ac678891` | `TimeoutError` on Qwen embedding API               |
+| `cc54c4f3` | `IncompleteRead` (connection dropped mid-response) |
+
+### 4.7 Combined Entity Extraction Results
+
+| Metric            | Run 1 | Retry | Combined                  |
+| ----------------- | ----- | ----- | ------------------------- |
+| Docs succeeded    | 1,036 | 306   | **1,298 / 1,300** (99.8%) |
+| Docs failed       | 262   | 2     | **2** (transient network) |
+| Entities (Neo4j)  | 4,908 | 6,100 | **11,008 upserts**        |
+| Relations (Neo4j) | 304   | 553   | **857 upserts**           |
+| Total time        | 3.16h | 1.85h | **~5 hours**              |
+
+**Note**: Neo4j numbers are raw upsert counts. Actual unique entities in Neo4j = 5,170 (deduplicated on `name+type`). pgvector originally had only 84 entities due to Bug #12 (entity_id collision) — fixed via backfill script.
 
 ---
 
-## 5. Current Data State
+## 5. Day 3 (Mar 30, evening) — pgvector Entity ID Collision Fix
+
+### 5.1 Investigation: pgvector shows only 84 entities
+
+After entity extraction reported 11,008 entity upserts across 1,298 docs, verification revealed pgvector's `kb_entities` table contained only **84 rows** — far below the expected thousands.
+
+**Verification script** (`scripts/verify_entity_data.py`) queried both pgvector and Neo4j:
+
+- **pgvector**: 84 entities, 129 relations
+- **Neo4j**: 5,170 entities, 784 relations (correct, deduplicated on `(name, type)`)
+
+### 5.2 Root Cause: `entity_id` collision (Bug #12)
+
+`ingestion.py` line 156 used `entity.entity_id` — the LLM's per-chunk local ID (e.g., `e1`, `e2`, `e3`). Since `kb_entities` has `entity_id TEXT PRIMARY KEY` with `ON CONFLICT (entity_id) DO UPDATE`, every document producing entity `e1` silently overwrote the previous document's `e1`.
+
+**Evidence**: Entity `e1` = "Roy Morgan" had accumulated 2,740 `source_chunk_ids` from cross-document overwrites. Only 84 distinct entity_id patterns survived (e.g., `e1`–`e6`, `E1`–`E6`, `person_0`–`person_4`, etc.).
+
+Similarly, `relation_id` at lines 171-172 was composed from the LLM's local entity_ids, causing the same collision problem for relations.
+
+**Neo4j was unaffected** because it uses `MERGE (e:Entity {name: $name, type: $type})` — deduplication on the natural key, not the synthetic `entity_id`.
+
+### 5.3 Fix: Deterministic entity_id generation
+
+**In `ingestion.py`** (lines 147-190):
+
+- **entity_id**: Changed from `entity.entity_id` to `hashlib.sha256(f"{dedup_key}::{entity.type.value}".encode()).hexdigest()[:16]` where `dedup_key = entity.canonical_key or entity.name.lower()` (matches `_entity_dedup_key()` logic).
+- **relation_id**: Built `old_to_new_id` mapping from LLM entity_ids to new stable IDs. Relations now reference the deterministic entity_ids.
+
+### 5.4 Backfill: Neo4j → pgvector
+
+Rather than re-running the 3+ hour LLM extraction, created `scripts/backfill_pgvector_from_neo4j.py` to:
+
+1. Read all 5,170 entities + 784 relations from Neo4j via Cypher
+2. Generate deterministic `entity_id = SHA-256(name.lower()::type)[:16]` (5,170 entities → 5,104 unique IDs; 66 genuine name+type duplicates in Neo4j merged via upsert)
+3. Call Qwen embedding API in batches of 10 with retry logic (3 attempts, exponential backoff)
+4. TRUNCATE `kb_relations` then `kb_entities` (FK order)
+5. Batch upsert to pgvector via `EntityVectorStore`
+
+**Expected result**: ~5,104 entities and ~784 relations in pgvector, matching Neo4j's deduplicated data.
+
+**Status**: Backfill script running (~30 min for embedding generation).
+
+---
+
+## 6. Bug Tracker
+
+| #   | Bug                                   | Root Cause                                                                            | Fix                                          | Severity |
+| --- | ------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------- | -------- |
+| 1   | `::type` cast breaks psycopg3         | psycopg3 doesn't support `::` in parameterized queries                                | `CAST(x AS type)` across 3 files             | High     |
+| 2   | `QueryCache(settings)` missing engine | Constructor signature mismatch                                                        | Added `engine` parameter                     | High     |
+| 3   | Resume skips nothing                  | `WHERE source_type = 'web_crawl'` vs actual `'crawler'`                               | Fixed to `'crawler'`                         | High     |
+| 4   | Stale `ingestion_runs`                | No cleanup on process kill                                                            | `try/except` + mark failed                   | Medium   |
+| 5   | Tests fail with `.envrc`              | Env var leakage into test environment                                                 | `monkeypatch.delenv()`                       | Low      |
+| 6   | Qwen `IncompleteRead`                 | Embedding API timeout/disconnect                                                      | Retry + CircuitBreaker policies              | Medium   |
+| 7   | ES endpoint → localhost               | `.envrc` pointed to `localhost:9200`, ES is on remote EC2                             | Updated to EC2 public DNS                    | High     |
+| 8   | Neo4j stale IP                        | EC2 public IP changed after restart                                                   | Updated `.envrc` with new IP                 | Medium   |
+| 9   | `aliases` NULL violation              | `array_agg` returns NULL on empty `unnest`                                            | `COALESCE(..., ARRAY[]::text[])`             | High     |
+| 10  | JSON parse failures                   | LLM output malformed (trailing commas, prose wrapping)                                | 4-layer parse pipeline + `json-repair`       | Medium   |
+| 11  | Qwen embed batch size >10             | Default `entity_extraction_embed_batch_size=20`, API max=10                           | Changed default to 10                        | High     |
+| 12  | pgvector entity_id collision          | `ingestion.py` used LLM's local `entity_id` (e.g., `e1`) as PK — cross-doc overwrites | Deterministic SHA-256 hash of `(name, type)` | Critical |
+
+---
+
+## 7. Current Data State
 
 ### PostgreSQL
 
-| Table            | Records | Notes                               |
-| ---------------- | ------- | ----------------------------------- |
-| `kb_documents`   | 1,300   | 1,262 pages + 34 awards + 4 news    |
-| `kb_chunks`      | 3,103   | With embeddings (1024-dim pgvector) |
-| `ingestion_runs` | 1,329   | All `succeeded`                     |
-| `kb_entities`    | 0       | Entity extraction not yet run       |
-| `kb_relations`   | 0       | Entity extraction not yet run       |
-| `query_cache`    | 0       | No queries run yet                  |
+| Table            | Records | Notes                                          |
+| ---------------- | ------- | ---------------------------------------------- |
+| `kb_documents`   | 1,300   | 1,262 pages + 34 awards + 4 news               |
+| `kb_chunks`      | 3,103   | With embeddings (1024-dim pgvector)            |
+| `ingestion_runs` | 1,329   | All `succeeded`                                |
+| `kb_entities`    | ~5,104  | Backfilled from Neo4j (was 84 due to Bug #12)  |
+| `kb_relations`   | ~784    | Backfilled from Neo4j (was 129 due to Bug #12) |
+| `query_cache`    | 0       | No queries run yet                             |
 
 ### Elasticsearch
 
@@ -406,25 +585,29 @@ Version: Elasticsearch 8.17.0 (Docker on MonitoringEc2Stack), no auth.
 
 ### Neo4j
 
-| Type           | Count | Notes                     |
-| -------------- | ----- | ------------------------- |
-| Entity nodes   | 0     | Pending entity extraction |
-| Relation edges | 0     | Pending entity extraction |
+| Type           | Count | Notes                                                                                                      |
+| -------------- | ----- | ---------------------------------------------------------------------------------------------------------- |
+| Entity nodes   | 5,170 | 7 types: Work(1620), Org(1288), Person(1238), Date(358), Territory(339), LicenseTerm(185), Identifier(142) |
+| Relation edges | 784   | All type `RELATES_TO`                                                                                      |
 
 Endpoint: `bolt://<NEO4J_EC2_HOST>:7687`
-Version: Neo4j 5.26.21, Protocol 5.8. Connectivity verified ✅.
+Version: Neo4j 5.26.21, Protocol 5.8. Verified via direct Cypher queries.
 
 ---
 
-## 6. Next Steps
+## 8. Next Steps
 
 ### Immediate
 
 - [x] **Verify PostgreSQL**: 1,300 docs, 3,103 chunks, all ingestion runs succeeded
 - [x] **Verify Elasticsearch**: 3,103 docs indexed via backfill script
 - [x] **Fix `.envrc`**: Updated ES endpoint (localhost → remote EC2) and Neo4j URI (stale IP)
-- [ ] **Run entity extraction**: `scripts/extract_entities.py` on all 1,300 docs
-- [ ] **Verify Neo4j**: Confirm entities and relations are populated
+- [x] **Run entity extraction**: 1,298/1,300 docs completed (2 transient failures)
+- [x] **Investigate pgvector dedup**: Found Bug #12 — entity_id collision (84 vs 5,170 entities)
+- [x] **Verify Neo4j node counts**: 5,170 entities, 784 relations (healthy)
+- [x] **Fix ingestion.py**: Deterministic entity_id/relation_id generation
+- [ ] **Verify backfill completion**: Confirm ~5,104 entities + ~784 relations in pgvector
+- [ ] **Retry last 2 docs**: Re-run entity extraction for `ac678891` and `cc54c4f3`
 
 ### Query Pipeline Testing
 
@@ -448,7 +631,7 @@ Version: Neo4j 5.26.21, Protocol 5.8. Connectivity verified ✅.
 
 ---
 
-## 7. Appendix — Commands Reference
+## 9. Appendix — Commands Reference
 
 ### Crawl (full)
 
@@ -480,6 +663,14 @@ uv run python -m scripts.extract_entities --concurrency 4    # full parallel
 uv run python -m scripts.extract_entities --force             # re-extract all
 ```
 
+### pgvector backfill from Neo4j
+
+```bash
+python -m scripts.backfill_pgvector_from_neo4j --dry-run       # preview counts only
+python -m scripts.backfill_pgvector_from_neo4j                  # TRUNCATE + backfill
+python -m scripts.backfill_pgvector_from_neo4j --skip-truncate  # upsert without truncate
+```
+
 ### OpenSearch backfill (from PG chunks)
 
 ```bash
@@ -492,7 +683,7 @@ uv run python -m scripts.backfill_opensearch --category pages # filter by catego
 ### Tests
 
 ```bash
-pnpm rag:test          # 508 tests
+pnpm rag:test          # 511 tests
 pnpm check             # typecheck + lint + rag:lint + rag:test
 ```
 
