@@ -6,13 +6,33 @@ query rewriting, and answer fallback without adding heavy framework coupling.
 
 from __future__ import annotations
 
+import http.client
 import json
+import logging
 from collections.abc import Iterator
 from typing import Any
 from urllib import error, request
 
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
 from .config import Settings
 from .secrets import resolve_qwen_api_key
+
+logger = logging.getLogger(__name__)
+
+# Transient network errors worth retrying
+_RETRYABLE_ERRORS = (
+    http.client.IncompleteRead,
+    http.client.RemoteDisconnected,
+    ConnectionError,
+    TimeoutError,
+    error.URLError,
+)
 
 
 class QwenClient:
@@ -31,6 +51,19 @@ class QwenClient:
         except Exception:
             return False
 
+    @retry(
+        retry=retry_if_exception_type(_RETRYABLE_ERRORS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        before_sleep=lambda retry_state: logger.warning(
+            "Qwen chat retry %d/%d after %s: %s",
+            retry_state.attempt_number,
+            3,
+            type(retry_state.outcome.exception()).__name__ if retry_state.outcome else "unknown",
+            retry_state.outcome.exception() if retry_state.outcome else "",
+        ),
+        reraise=True,
+    )
     def chat(
         self,
         system_prompt: str,
@@ -76,8 +109,6 @@ class QwenClient:
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             raise ValueError(f"Qwen API HTTP error: {exc.code} {detail}") from exc
-        except error.URLError as exc:
-            raise ValueError(f"Qwen API connection error: {exc}") from exc
 
         parsed = json.loads(raw)
         return self._extract_text(parsed)
@@ -158,6 +189,19 @@ class QwenClient:
         content = delta.get("content")
         return content if isinstance(content, str) else ""
 
+    @retry(
+        retry=retry_if_exception_type(_RETRYABLE_ERRORS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        before_sleep=lambda retry_state: logger.warning(
+            "Qwen embedding retry %d/%d after %s: %s",
+            retry_state.attempt_number,
+            3,
+            type(retry_state.outcome.exception()).__name__ if retry_state.outcome else "unknown",
+            retry_state.outcome.exception() if retry_state.outcome else "",
+        ),
+        reraise=True,
+    )
     def embedding(self, text: str | list[str]) -> list[float] | list[list[float]]:
         """Call Qwen embeddings API.
 
@@ -192,8 +236,6 @@ class QwenClient:
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             raise ValueError(f"Qwen embeddings API HTTP error: {exc.code} {detail}") from exc
-        except error.URLError as exc:
-            raise ValueError(f"Qwen embeddings API connection error: {exc}") from exc
 
         parsed = json.loads(raw)
 

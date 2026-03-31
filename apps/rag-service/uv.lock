@@ -1525,6 +1525,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "sqlalchemy" },
     { name = "sse-starlette" },
+    { name = "tenacity" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -1575,6 +1576,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'lint'", specifier = ">=0.13.0,<1" },
     { name = "sqlalchemy", specifier = ">=2.0.0,<3" },
     { name = "sse-starlette", specifier = ">=2.0.0,<3" },
+    { name = "tenacity", specifier = ">=9.0.0,<10" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0,<1" },
 ]
 provides-extras = ["test", "lint", "eval", "crawl"]

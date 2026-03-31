@@ -66,7 +66,7 @@ def test_chat_success(monkeypatch) -> None:
 
     def fake_urlopen(req, timeout: int):
         assert req.full_url == "https://example.com/v1/chat/completions"
-        assert timeout == 30
+        assert timeout == 120
         return FakeResponse()
 
     monkeypatch.setattr("app.qwen_client.request.urlopen", fake_urlopen)
