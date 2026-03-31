@@ -122,6 +122,15 @@ class EntityExtractor:
         merged_entities = self._merge_rule_entities(rule_entities, llm_result.entities)
         llm_result = llm_result.model_copy(update={"entities": merged_entities})
 
+        logger.info(
+            "Extraction complete chunk %s: entities=%d (rule=%d, llm=%d), relations=%d",
+            chunk_id,
+            len(merged_entities),
+            len(rule_entities),
+            len(llm_result.entities) - len(rule_entities),
+            len(llm_result.relations),
+        )
+
         trace.validation_status = "valid"
         return llm_result, trace
 
@@ -193,36 +202,108 @@ class EntityExtractor:
         raw_response = self._qwen.chat(ENTITY_EXTRACTION_SYSTEM_PROMPT, user_prompt)
         extracted_text = self._extract_json_text(raw_response)
 
+        try:
+            raw_data = json.loads(extracted_text)
+            raw_entity_count = len(raw_data.get("entities", []))
+            raw_relation_count = len(raw_data.get("relations", []))
+        except Exception:
+            raw_entity_count = -1
+            raw_relation_count = -1
+
         # Layer 1: Direct parse
         try:
-            return self._parse_extraction_json(extracted_text)
+            result = self._parse_extraction_json(extracted_text)
+            result = self._resolve_relation_endpoints(result)
+            logger.info(
+                "Extraction chunk %s: path=direct, raw_entities=%d, raw_relations=%d, "
+                "parsed_entities=%d, parsed_relations=%d",
+                chunk_id,
+                raw_entity_count,
+                raw_relation_count,
+                len(result.entities),
+                len(result.relations),
+            )
+            return result
         except json.JSONDecodeError as json_err:
             logger.info("Direct JSON parse failed for chunk %s: %s", chunk_id, json_err)
             repaired = repair_json(extracted_text, return_objects=False)
             if not isinstance(repaired, str):
                 repaired = json.dumps(repaired)
             try:
-                return self._parse_extraction_json(repaired)
+                result = self._parse_extraction_json(repaired)
+                result = self._resolve_relation_endpoints(result)
+                logger.info(
+                    "Extraction chunk %s: path=json_repair, raw_entities=%d, raw_relations=%d, "
+                    "parsed_entities=%d, parsed_relations=%d",
+                    chunk_id,
+                    raw_entity_count,
+                    raw_relation_count,
+                    len(result.entities),
+                    len(result.relations),
+                )
+                return result
             except json.JSONDecodeError as repair_err:
                 logger.info(
                     "json-repair also failed for chunk %s: %s, trying LLM repair",
                     chunk_id,
                     repair_err,
                 )
-                return self._llm_repair_and_parse(extracted_text, str(json_err))
+                result = self._llm_repair_and_parse(extracted_text, str(json_err))
+                result = self._resolve_relation_endpoints(result)
+                logger.info(
+                    "Extraction chunk %s: path=llm_repair(json), raw_entities=%d, raw_relations=%d, "
+                    "parsed_entities=%d, parsed_relations=%d",
+                    chunk_id,
+                    raw_entity_count,
+                    raw_relation_count,
+                    len(result.entities),
+                    len(result.relations),
+                )
+                return result
             except ValidationError:
-                return self._lenient_parse(repaired)
+                result = self._lenient_parse(repaired)
+                logger.info(
+                    "Extraction chunk %s: path=lenient(after_repair), raw_entities=%d, raw_relations=%d, "
+                    "parsed_entities=%d, parsed_relations=%d",
+                    chunk_id,
+                    raw_entity_count,
+                    raw_relation_count,
+                    len(result.entities),
+                    len(result.relations),
+                )
+                return result
         except ValidationError as val_err:
             logger.info("Pydantic validation failed for chunk %s: %s", chunk_id, val_err)
             try:
-                return self._lenient_parse(extracted_text)
+                result = self._lenient_parse(extracted_text)
+                logger.info(
+                    "Extraction chunk %s: path=lenient(validation), raw_entities=%d, raw_relations=%d, "
+                    "parsed_entities=%d, parsed_relations=%d",
+                    chunk_id,
+                    raw_entity_count,
+                    raw_relation_count,
+                    len(result.entities),
+                    len(result.relations),
+                )
+                return result
             except Exception as lenient_err:
                 logger.info(
                     "Lenient parse also failed for chunk %s: %s, trying LLM repair",
                     chunk_id,
                     lenient_err,
                 )
-                return self._llm_repair_and_parse(extracted_text, str(val_err))
+                result = self._llm_repair_and_parse(extracted_text, str(val_err))
+                result = self._resolve_relation_endpoints(result)
+                logger.info(
+                    "Extraction chunk %s: path=llm_repair(validation), raw_entities=%d, raw_relations=%d, "
+                    "parsed_entities=%d, parsed_relations=%d",
+                    chunk_id,
+                    raw_entity_count,
+                    raw_relation_count,
+                    len(result.entities),
+                    len(result.relations),
+                )
+                return result
 
     def _llm_repair_and_parse(self, raw_json: str, validation_error: str) -> ChunkExtractionResult:
         """Last resort: ask the LLM to fix the JSON (spec section 2)."""
@@ -250,35 +331,94 @@ class EntityExtractor:
         """
         data = json.loads(raw_json)
 
+        raw_entity_count = len(data.get("entities", []))
+        raw_relation_count = len(data.get("relations", []))
+        skipped_entities = 0
+        dangling_relations = 0
+        invalid_relations = 0
+
         entities: list[ExtractedEntity] = []
         for raw_entity in data.get("entities", []):
             if not isinstance(raw_entity, dict):
+                skipped_entities += 1
                 continue
             try:
                 entities.append(ExtractedEntity.model_validate(raw_entity))
             except (ValidationError, Exception) as exc:
+                skipped_entities += 1
                 name = raw_entity.get("name", "?") if isinstance(raw_entity, dict) else "?"
                 logger.debug("Skipping invalid entity: %s — %s", name, exc)
 
         entity_ids = {e.entity_id for e in entities}
+        entity_name_to_id: dict[str, str] = {}
+        for e in entities:
+            name_lower = e.name.lower()
+            if name_lower not in entity_name_to_id:
+                entity_name_to_id[name_lower] = e.entity_id
+            for alias in e.aliases:
+                alias_lower = alias.lower()
+                if alias_lower not in entity_name_to_id:
+                    entity_name_to_id[alias_lower] = e.entity_id
+
+        name_resolved_count = 0
         relations: list[ExtractedRelation] = []
         for raw_rel in data.get("relations", []):
             if not isinstance(raw_rel, dict):
+                invalid_relations += 1
                 continue
             try:
                 rel = ExtractedRelation.model_validate(raw_rel)
-                if rel.source_entity_id in entity_ids and rel.target_entity_id in entity_ids:
+                src_id = rel.source_entity_id
+                tgt_id = rel.target_entity_id
+
+                # Fall back to entity-name matching when entity_id doesn't resolve
+                if src_id not in entity_ids:
+                    resolved = entity_name_to_id.get(src_id.lower())
+                    if resolved:
+                        src_id = resolved
+                if tgt_id not in entity_ids:
+                    resolved = entity_name_to_id.get(tgt_id.lower())
+                    if resolved:
+                        tgt_id = resolved
+
+                if src_id in entity_ids and tgt_id in entity_ids:
+                    if src_id != rel.source_entity_id or tgt_id != rel.target_entity_id:
+                        name_resolved_count += 1
+                        rel = rel.model_copy(
+                            update={
+                                "source_entity_id": src_id,
+                                "target_entity_id": tgt_id,
+                            }
+                        )
                     relations.append(rel)
                 else:
+                    dangling_relations += 1
                     logger.debug(
-                        "Skipping relation with dangling ref: %s -> %s",
+                        "Skipping relation with dangling ref: %s -> %s (valid IDs: %s)",
                         raw_rel.get("source_entity_id", "?"),
                         raw_rel.get("target_entity_id", "?"),
+                        entity_ids,
                     )
             except (ValidationError, Exception) as exc:
+                invalid_relations += 1
                 logger.debug("Skipping invalid relation: %s", exc)
 
         chunk_id = data.get("chunk_id", "")
+        dropped_relations = dangling_relations + invalid_relations
+        if skipped_entities > 0 or dropped_relations > 0 or name_resolved_count > 0:
+            logger.info(
+                "Lenient parse chunk %s: entities=%d/%d (dropped %d), "
+                "relations=%d/%d (dangling=%d, invalid=%d, name_resolved=%d)",
+                chunk_id,
+                len(entities),
+                raw_entity_count,
+                skipped_entities,
+                len(relations),
+                raw_relation_count,
+                dangling_relations,
+                invalid_relations,
+                name_resolved_count,
+            )
         return ChunkExtractionResult(chunk_id=chunk_id, entities=entities, relations=relations)
 
     @staticmethod
@@ -433,6 +573,57 @@ class EntityExtractor:
                 merged.append(rule_entity)
 
         return merged
+
+    @staticmethod
+    def _resolve_relation_endpoints(result: ChunkExtractionResult) -> ChunkExtractionResult:
+        """Resolve name-based relation endpoints to entity_id values."""
+        entity_ids = {e.entity_id for e in result.entities}
+        entity_name_to_id: dict[str, str] = {}
+        for e in result.entities:
+            name_lower = e.name.lower()
+            if name_lower not in entity_name_to_id:
+                entity_name_to_id[name_lower] = e.entity_id
+            for alias in e.aliases:
+                alias_lower = alias.lower()
+                if alias_lower not in entity_name_to_id:
+                    entity_name_to_id[alias_lower] = e.entity_id
+
+        resolved_relations: list[ExtractedRelation] = []
+        resolved_count = 0
+        dropped_count = 0
+        for rel in result.relations:
+            src_id = rel.source_entity_id
+            tgt_id = rel.target_entity_id
+
+            if src_id not in entity_ids:
+                resolved = entity_name_to_id.get(src_id.lower())
+                if resolved:
+                    src_id = resolved
+            if tgt_id not in entity_ids:
+                resolved = entity_name_to_id.get(tgt_id.lower())
+                if resolved:
+                    tgt_id = resolved
+
+            if src_id in entity_ids and tgt_id in entity_ids:
+                if src_id != rel.source_entity_id or tgt_id != rel.target_entity_id:
+                    resolved_count += 1
+                    rel = rel.model_copy(
+                        update={"source_entity_id": src_id, "target_entity_id": tgt_id}
+                    )
+                resolved_relations.append(rel)
+            else:
+                dropped_count += 1
+
+        if resolved_count > 0 or dropped_count > 0:
+            logger.info(
+                "Relation endpoint resolution chunk %s: kept=%d, name_resolved=%d, dropped=%d",
+                result.chunk_id,
+                len(resolved_relations),
+                resolved_count,
+                dropped_count,
+            )
+
+        return result.model_copy(update={"relations": resolved_relations})
 
 
 def _entity_dedup_key(entity: ExtractedEntity) -> str:

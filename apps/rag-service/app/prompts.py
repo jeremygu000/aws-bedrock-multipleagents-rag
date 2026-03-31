@@ -6,16 +6,19 @@ System and user prompts follow the Qwen-Plus Entity Extraction Spec (section 4).
 from __future__ import annotations
 
 ENTITY_EXTRACTION_SYSTEM_PROMPT = """\
-You are an information extraction engine.
+You are an information extraction engine specialized in music publishing data.
 Return valid JSON only. No markdown, no extra text.
-Extract entities and relations from the input text.
+Extract ALL entities and relations from the input text.
 
 Rules:
 1) Use only the provided schema keys.
 2) Keep original surface forms in "mentions".
 3) Set confidence in [0,1].
-4) If uncertain, output lower confidence and keep relation optional.
-5) Do not fabricate IDs. If not present, leave null.
+4) If uncertain, output lower confidence but STILL include the relation.
+5) Generate entity_id as sequential strings: "entity_0", "entity_1", etc.
+6) Relations MUST reference entity_id values from the entities array.
+   You may also use the entity "name" as source_entity_id or target_entity_id — the system will resolve names to IDs automatically.
+7) Extract EVERY relationship you can infer from the text. For every entity pair that has a connection, add a relation.
 
 Entity types: Work, Person, Organization, Identifier, Territory, LicenseTerm, Date
 Relation types: WROTE, PERFORMED_BY, PUBLISHED_BY, HAS_IDENTIFIER, VALID_IN_TERRITORY, HAS_TERM, REFERENCES
@@ -37,17 +40,44 @@ Output JSON schema:
   "relations": [
     {
       "type": "WROTE|PERFORMED_BY|PUBLISHED_BY|HAS_IDENTIFIER|VALID_IN_TERRITORY|HAS_TERM|REFERENCES",
-      "source_entity_id": "string",
-      "target_entity_id": "string",
+      "source_entity_id": "string (entity_id or entity name)",
+      "target_entity_id": "string (entity_id or entity name)",
       "evidence": "string",
       "confidence": 0.0
     }
   ]
-}"""
+}
+
+## Example
+
+Input text: "Rushing Back by Flume ft. Vera Blue was published by Future Classic in Australia."
+
+Output:
+{
+  "chunk_id": "example_chunk_0",
+  "entities": [
+    {"entity_id": "entity_0", "type": "Work", "name": "Rushing Back", "canonical_key": null, "aliases": [], "mentions": [{"text": "Rushing Back", "start": 0, "end": 12}], "confidence": 0.95},
+    {"entity_id": "entity_1", "type": "Person", "name": "Flume", "canonical_key": null, "aliases": [], "mentions": [{"text": "Flume", "start": 16, "end": 21}], "confidence": 0.95},
+    {"entity_id": "entity_2", "type": "Person", "name": "Vera Blue", "canonical_key": null, "aliases": [], "mentions": [{"text": "Vera Blue", "start": 26, "end": 35}], "confidence": 0.90},
+    {"entity_id": "entity_3", "type": "Organization", "name": "Future Classic", "canonical_key": null, "aliases": [], "mentions": [{"text": "Future Classic", "start": 54, "end": 68}], "confidence": 0.90},
+    {"entity_id": "entity_4", "type": "Territory", "name": "Australia", "canonical_key": null, "aliases": [], "mentions": [{"text": "Australia", "start": 72, "end": 81}], "confidence": 0.95}
+  ],
+  "relations": [
+    {"type": "WROTE", "source_entity_id": "entity_1", "target_entity_id": "entity_0", "evidence": "Rushing Back by Flume", "confidence": 0.95},
+    {"type": "PERFORMED_BY", "source_entity_id": "entity_0", "target_entity_id": "entity_2", "evidence": "ft. Vera Blue", "confidence": 0.90},
+    {"type": "PUBLISHED_BY", "source_entity_id": "entity_0", "target_entity_id": "entity_3", "evidence": "published by Future Classic", "confidence": 0.90},
+    {"type": "VALID_IN_TERRITORY", "source_entity_id": "entity_0", "target_entity_id": "entity_4", "evidence": "in Australia", "confidence": 0.85}
+  ]
+}
+
+Note: 5 entities and 4 relations — every entity is connected. This is the expected density."""
 
 ENTITY_EXTRACTION_USER_PROMPT_TEMPLATE = """\
-Extract entities and relations from this chunk.
+Extract ALL entities and relations from this chunk.
 Return JSON that matches the schema exactly.
+
+IMPORTANT: For every pair of entities that have a relationship in the text, you MUST include a relation.
+Use entity_id values (e.g. "entity_0") or entity names as relation endpoints.
 
 chunk_id: {chunk_id}
 doc_id: {doc_id}

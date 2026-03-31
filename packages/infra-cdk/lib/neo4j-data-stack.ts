@@ -16,7 +16,7 @@ export class Neo4jDataStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: Neo4jDataStackProps = {}) {
     super(scope, id, props);
 
-    const instanceType = props.instanceType ?? "t3.micro";
+    const instanceType = props.instanceType ?? "t3.small";
     const rootVolumeSizeGiB = props.rootVolumeSizeGiB ?? 8;
     const volumeSizeGiB = props.volumeSizeGiB ?? 20;
     const allowedIngressCidr = props.allowedIngressCidr ?? "0.0.0.0/0";

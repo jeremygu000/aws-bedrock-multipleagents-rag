@@ -99,20 +99,31 @@ class ChunkExtractionResult(BaseModel):
     def validate_relation_endpoints(
         cls, relations: list[ExtractedRelation], info: object
     ) -> list[ExtractedRelation]:
-        """Validate that relation endpoints reference existing entity IDs."""
-        # info.data may not have 'entities' during Pydantic partial validation
+        """Validate that relation endpoints reference existing entity IDs or names.
+
+        Allows name-based references (case-insensitive) in addition to entity_id matches.
+        Name→ID resolution happens in post-processing (EntityExtractor._resolve_relation_endpoints).
+        """
         data = getattr(info, "data", {})
         entities = data.get("entities")
         if entities is None:
             return relations
 
         entity_ids = {e.entity_id for e in entities}
+        entity_names = {e.name.lower() for e in entities}
+
         invalid = []
         for rel in relations:
-            if rel.source_entity_id not in entity_ids:
-                invalid.append(f"source_entity_id '{rel.source_entity_id}' not in entities")
-            if rel.target_entity_id not in entity_ids:
-                invalid.append(f"target_entity_id '{rel.target_entity_id}' not in entities")
+            if (
+                rel.source_entity_id not in entity_ids
+                and rel.source_entity_id.lower() not in entity_names
+            ):
+                invalid.append(f"source '{rel.source_entity_id}' not in entities or names")
+            if (
+                rel.target_entity_id not in entity_ids
+                and rel.target_entity_id.lower() not in entity_names
+            ):
+                invalid.append(f"target '{rel.target_entity_id}' not in entities or names")
 
         if invalid:
             raise ValueError(f"Invalid relation endpoints: {'; '.join(invalid)}")
