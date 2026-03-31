@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 GOLDEN_DATASET_PATH = Path(__file__).parent / "golden_dataset.json"
+
+EVAL_ENABLED = os.getenv("RAG_EVAL_ENABLED", "false").lower() == "true"
 
 
 @pytest.fixture(scope="session")
@@ -42,3 +45,43 @@ def _make_workflow_state(
         "graph_context": graph_context,
         "cache_hit": cache_hit,
     }
+
+
+@pytest.fixture(scope="session")
+def pipeline_results(
+    golden_dataset: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Run all golden entries through the real RagWorkflow pipeline.
+
+    Returns a dict mapping entry["id"] -> result dict (from run_single).
+    Gated by RAG_EVAL_ENABLED=true; returns empty dict otherwise so the
+    tests themselves can skip via their own skipif markers.
+    """
+    if not EVAL_ENABLED:
+        return {}
+
+    # Lazy imports — only inside the fixture to avoid import errors when
+    # eval deps are not installed or infra is not available.
+    from app.config import get_settings  # noqa: PLC0415
+    from app.tracing import init_tracing  # noqa: PLC0415
+    from scripts.eval_runner import run_single  # noqa: PLC0415
+    from scripts.test_rag_queries import build_workflow  # noqa: PLC0415
+
+    settings = get_settings()
+    init_tracing(settings)
+    workflow = build_workflow(settings, enable_graph=True)
+
+    results: dict[str, dict[str, Any]] = {}
+    for entry in golden_dataset:
+        result = run_single(workflow, entry)
+        results[entry["id"]] = result
+
+    return results
+
+
+def _pipeline_entry_result(
+    pipeline_results: dict[str, dict[str, Any]],
+    entry_id: str,
+) -> dict[str, Any] | None:
+    """Return the pipeline result for a specific entry ID, or None if missing."""
+    return pipeline_results.get(entry_id)

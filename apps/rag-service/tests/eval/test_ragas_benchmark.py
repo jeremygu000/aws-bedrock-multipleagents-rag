@@ -90,6 +90,7 @@ class TestRagasBenchmark:
     def test_ragas_evaluation(
         self,
         golden_dataset: list[dict[str, Any]],
+        pipeline_results: dict[str, Any],
         _ragas_metrics: tuple,
     ):
         ragas, metrics_mod = _ragas_metrics
@@ -106,15 +107,23 @@ class TestRagasBenchmark:
         if not all([Faithfulness, AnswerRelevancy, ContextPrecision, ContextRecall]):
             pytest.skip("Required RAGAS metrics not available")
 
-        samples = [
-            {
-                "user_input": e["query"],
-                "response": e["expected_answer"],
-                "retrieved_contexts": [f"Context for {c}" for c in e["expected_contexts"]],
-                "reference": e["expected_answer"],
-            }
-            for e in golden_dataset[:5]
-        ]
+        entries_to_eval = golden_dataset[:5]
+        samples = []
+        for e in entries_to_eval:
+            result = pipeline_results.get(e["id"])
+            if result is None or "error" in result:
+                continue
+            samples.append(
+                {
+                    "user_input": result["query"],
+                    "response": result["actual_answer"],
+                    "retrieved_contexts": result["retrieved_contexts"],
+                    "reference": e["expected_answer"],
+                }
+            )
+
+        if len(samples) < 3:
+            pytest.skip(f"Only {len(samples)} valid pipeline results, need at least 3")
 
         dataset = EvaluationDataset.from_list(samples)
         metrics = [Faithfulness(), AnswerRelevancy(), ContextPrecision(), ContextRecall()]

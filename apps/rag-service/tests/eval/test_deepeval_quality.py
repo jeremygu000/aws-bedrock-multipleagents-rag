@@ -31,6 +31,7 @@ class TestDeepEvalQuality:
     def test_no_hallucination_on_factual_queries(
         self,
         golden_dataset: list[dict[str, Any]],
+        pipeline_results: dict[str, Any],
         _deepeval: tuple,
     ):
         deepeval, test_case_mod, metrics_mod = _deepeval
@@ -46,11 +47,14 @@ class TestDeepEvalQuality:
         factual_entries = [e for e in golden_dataset if e["intent"] == "factual"][:3]
 
         for entry in factual_entries:
+            result = pipeline_results.get(entry["id"])
+            if result is None or "error" in result:
+                continue
             test_case = LLMTestCase(
                 input=entry["query"],
-                actual_output=entry["expected_answer"],
+                actual_output=result["actual_answer"],
                 expected_output=entry["expected_answer"],
-                retrieval_context=[f"Context for {c}" for c in entry["expected_contexts"]],
+                retrieval_context=result["retrieved_contexts"],
             )
             metric = HallucinationMetric(threshold=threshold)
             assert_test(test_case, [metric])
@@ -58,6 +62,7 @@ class TestDeepEvalQuality:
     def test_answer_relevancy_on_all_intents(
         self,
         golden_dataset_by_intent: dict[str, list[dict[str, Any]]],
+        pipeline_results: dict[str, Any],
         _deepeval: tuple,
     ):
         _, test_case_mod, metrics_mod = _deepeval
@@ -69,11 +74,20 @@ class TestDeepEvalQuality:
             pytest.skip("DeepEval AnswerRelevancyMetric not available")
 
         for intent, entries in golden_dataset_by_intent.items():
-            entry = entries[0]
+            result = None
+            entry = None
+            for candidate in entries:
+                r = pipeline_results.get(candidate["id"])
+                if r is not None and "error" not in r:
+                    result = r
+                    entry = candidate
+                    break
+            if result is None or entry is None:
+                continue
             test_case = LLMTestCase(
                 input=entry["query"],
-                actual_output=entry["expected_answer"],
-                retrieval_context=[f"Context for {c}" for c in entry["expected_contexts"]],
+                actual_output=result["actual_answer"],
+                retrieval_context=result["retrieved_contexts"],
             )
             metric = AnswerRelevancyMetric(threshold=0.7)
             score = metric.measure(test_case)
@@ -82,6 +96,7 @@ class TestDeepEvalQuality:
     def test_faithfulness_on_golden_entries(
         self,
         golden_dataset: list[dict[str, Any]],
+        pipeline_results: dict[str, Any],
         _deepeval: tuple,
     ):
         _, test_case_mod, metrics_mod = _deepeval
@@ -93,10 +108,13 @@ class TestDeepEvalQuality:
             pytest.skip("DeepEval FaithfulnessMetric not available")
 
         for entry in golden_dataset[:3]:
+            result = pipeline_results.get(entry["id"])
+            if result is None or "error" in result:
+                continue
             test_case = LLMTestCase(
                 input=entry["query"],
-                actual_output=entry["expected_answer"],
-                retrieval_context=[f"Context for {c}" for c in entry["expected_contexts"]],
+                actual_output=result["actual_answer"],
+                retrieval_context=result["retrieved_contexts"],
             )
             metric = FaithfulnessMetric(threshold=0.8)
             score = metric.measure(test_case)
