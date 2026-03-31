@@ -42,8 +42,6 @@ def main() -> None:
     qwen = QwenClient(settings)
     extractor = EntityExtractor(qwen, gleaning_rounds=0)
 
-    target_chunk = "8eaa705e-4ee9-4ac1-a105-6ddf3082a7c9_chunk_0"
-
     with engine.connect() as conn:
         chunks_data: list[tuple[str, str, str]] = []
 
