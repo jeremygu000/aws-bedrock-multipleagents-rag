@@ -39,8 +39,8 @@ class Mention(BaseModel):
     """A surface mention of an entity in the source text."""
 
     text: str = Field(description="Original surface form in the source text")
-    start: int = Field(ge=0, description="Start character offset in chunk text")
-    end: int = Field(ge=0, description="End character offset in chunk text")
+    start: int = Field(default=0, ge=0, description="Start character offset in chunk text")
+    end: int = Field(default=0, ge=0, description="End character offset in chunk text")
 
     @model_validator(mode="after")
     def validate_span(self) -> Mention:

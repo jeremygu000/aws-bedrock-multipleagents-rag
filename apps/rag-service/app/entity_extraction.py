@@ -65,9 +65,12 @@ _DATE_PATTERNS: list[re.Pattern[str]] = [
 class EntityExtractor:
     """Two-stage entity/relation extractor: rule-first + LLM structured extraction."""
 
-    def __init__(self, qwen_client: QwenClient, gleaning_rounds: int = 0) -> None:
+    def __init__(
+        self, qwen_client: QwenClient, gleaning_rounds: int = 0, extraction_max_tokens: int = 2000
+    ) -> None:
         self._qwen = qwen_client
         self._gleaning_rounds = gleaning_rounds
+        self._extraction_max_tokens = extraction_max_tokens
 
     def extract(
         self,
@@ -199,7 +202,9 @@ class EntityExtractor:
             chunk_id=chunk_id, doc_id=doc_id, chunk_text=chunk_text
         )
 
-        raw_response = self._qwen.chat(ENTITY_EXTRACTION_SYSTEM_PROMPT, user_prompt)
+        raw_response = self._qwen.chat(
+            ENTITY_EXTRACTION_SYSTEM_PROMPT, user_prompt, max_tokens=self._extraction_max_tokens
+        )
         extracted_text = self._extract_json_text(raw_response)
 
         try:
@@ -310,7 +315,9 @@ class EntityExtractor:
         repair_prompt = JSON_REPAIR_USER_PROMPT_TEMPLATE.format(
             raw_json=raw_json, validation_error=validation_error
         )
-        repaired_response = self._qwen.chat(JSON_REPAIR_SYSTEM_PROMPT, repair_prompt)
+        repaired_response = self._qwen.chat(
+            JSON_REPAIR_SYSTEM_PROMPT, repair_prompt, max_tokens=self._extraction_max_tokens
+        )
         repaired_text = self._extract_json_text(repaired_response)
 
         try:
@@ -483,7 +490,9 @@ class EntityExtractor:
         )
 
         try:
-            raw_response = self._qwen.chat(GLEANING_SYSTEM_PROMPT, user_prompt)
+            raw_response = self._qwen.chat(
+                GLEANING_SYSTEM_PROMPT, user_prompt, max_tokens=self._extraction_max_tokens
+            )
             raw_json = self._extract_json_text(raw_response)
             data = json.loads(raw_json)
 

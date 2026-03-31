@@ -31,8 +31,19 @@ class QwenClient:
         except Exception:
             return False
 
-    def chat(self, system_prompt: str, user_prompt: str) -> str:
-        """Call Qwen chat-completions API and return assistant text output."""
+    def chat(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        max_tokens: int | None = None,
+    ) -> str:
+        """Call Qwen chat-completions API and return assistant text output.
+
+        Args:
+            max_tokens: Override default max_tokens from settings. Useful for
+                extraction calls that need more output space.
+        """
 
         if not self.is_configured():
             raise ValueError("Qwen API key is not configured.")
@@ -47,7 +58,7 @@ class QwenClient:
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": self._settings.qwen_temperature,
-            "max_tokens": self._settings.qwen_max_tokens,
+            "max_tokens": max_tokens if max_tokens is not None else self._settings.qwen_max_tokens,
         }
         body = json.dumps(payload).encode("utf-8")
         req = request.Request(
@@ -60,7 +71,7 @@ class QwenClient:
             },
         )
         try:
-            with request.urlopen(req, timeout=30) as response:
+            with request.urlopen(req, timeout=120) as response:
                 raw = response.read().decode("utf-8")
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")

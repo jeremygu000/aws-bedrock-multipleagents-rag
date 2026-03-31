@@ -105,6 +105,11 @@ class Settings(BaseSettings):
         validation_alias="QWEN_BASE_URL",
     )
     qwen_max_tokens: int = Field(default=500, validation_alias="QWEN_MAX_TOKENS")
+    qwen_extraction_max_tokens: int = Field(
+        default=2000,
+        validation_alias="QWEN_EXTRACTION_MAX_TOKENS",
+        description="Max output tokens for entity/relation extraction (needs more than default to fit entities + relations)",
+    )
     qwen_temperature: float = Field(default=0.0, validation_alias="QWEN_TEMPERATURE")
 
     route_min_hits: int = Field(default=3, validation_alias="RAG_ROUTE_MIN_HITS")

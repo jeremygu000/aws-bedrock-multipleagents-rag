@@ -40,7 +40,7 @@ def main() -> None:
     store = EntityVectorStore(settings)
     engine = store._get_engine()
     qwen = QwenClient(settings)
-    extractor = EntityExtractor(qwen, gleaning_rounds=0)
+    extractor = EntityExtractor(qwen, gleaning_rounds=0, extraction_max_tokens=2000)
 
     with engine.connect() as conn:
         chunks_data: list[tuple[str, str, str]] = []

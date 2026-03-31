@@ -61,7 +61,11 @@ def _run_entity_extraction_pipeline(
         (entity_count, relation_count) — totals successfully stored.
     """
     # --- 1. Extract entities/relations from each chunk ---
-    extractor = EntityExtractor(qwen_client, gleaning_rounds=settings.extraction_gleaning_rounds)
+    extractor = EntityExtractor(
+        qwen_client,
+        gleaning_rounds=settings.extraction_gleaning_rounds,
+        extraction_max_tokens=settings.qwen_extraction_max_tokens,
+    )
     chunk_results: list[ChunkExtractionResult] = []
 
     for chunk_rec in chunk_records:

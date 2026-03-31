@@ -1,8 +1,8 @@
 # Experiment Journal — Ingest & Query Pipeline
 
 > **Started**: 2026-03-28
-> **Last Updated**: 2026-03-30 (evening)
-> **Status**: In progress — pgvector backfill running, ingestion.py entity_id bug fixed, query testing pending
+> **Last Updated**: 2026-03-31
+> **Status**: In progress — relation extraction quality fix deployed, diagnostic script pending live DB test
 
 ---
 
@@ -13,10 +13,11 @@
 3. [Day 2 (Mar 29) — Crawl Ingest & Production Hardening](#3-day-2-mar-29--crawl-ingest--production-hardening)
 4. [Day 3 (Mar 30) — Entity Extraction & Bug Fixes](#4-day-3-mar-30--entity-extraction--bug-fixes)
 5. [Day 3 (Mar 30, evening) — pgvector Entity ID Collision Fix](#5-day-3-mar-30-evening--pgvector-entity-id-collision-fix)
-6. [Bug Tracker](#6-bug-tracker)
-7. [Current Data State](#7-current-data-state)
-8. [Next Steps](#8-next-steps)
-9. [Appendix — Commands Reference](#9-appendix--commands-reference)
+6. [Day 4 (Mar 31) — Relation Extraction Quality Fix](#6-day-4-mar-31--relation-extraction-quality-fix)
+7. [Bug Tracker](#7-bug-tracker)
+8. [Current Data State](#8-current-data-state)
+9. [Next Steps](#9-next-steps)
+10. [Appendix — Commands Reference](#10-appendix--commands-reference)
 
 ---
 
@@ -542,26 +543,122 @@ Rather than re-running the 3+ hour LLM extraction, created `scripts/backfill_pgv
 
 ---
 
-## 6. Bug Tracker
+## 6. Day 4 (Mar 31) — Relation Extraction Quality Fix
 
-| #   | Bug                                   | Root Cause                                                                            | Fix                                          | Severity |
-| --- | ------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------- | -------- |
-| 1   | `::type` cast breaks psycopg3         | psycopg3 doesn't support `::` in parameterized queries                                | `CAST(x AS type)` across 3 files             | High     |
-| 2   | `QueryCache(settings)` missing engine | Constructor signature mismatch                                                        | Added `engine` parameter                     | High     |
-| 3   | Resume skips nothing                  | `WHERE source_type = 'web_crawl'` vs actual `'crawler'`                               | Fixed to `'crawler'`                         | High     |
-| 4   | Stale `ingestion_runs`                | No cleanup on process kill                                                            | `try/except` + mark failed                   | Medium   |
-| 5   | Tests fail with `.envrc`              | Env var leakage into test environment                                                 | `monkeypatch.delenv()`                       | Low      |
-| 6   | Qwen `IncompleteRead`                 | Embedding API timeout/disconnect                                                      | Retry + CircuitBreaker policies              | Medium   |
-| 7   | ES endpoint → localhost               | `.envrc` pointed to `localhost:9200`, ES is on remote EC2                             | Updated to EC2 public DNS                    | High     |
-| 8   | Neo4j stale IP                        | EC2 public IP changed after restart                                                   | Updated `.envrc` with new IP                 | Medium   |
-| 9   | `aliases` NULL violation              | `array_agg` returns NULL on empty `unnest`                                            | `COALESCE(..., ARRAY[]::text[])`             | High     |
-| 10  | JSON parse failures                   | LLM output malformed (trailing commas, prose wrapping)                                | 4-layer parse pipeline + `json-repair`       | Medium   |
-| 11  | Qwen embed batch size >10             | Default `entity_extraction_embed_batch_size=20`, API max=10                           | Changed default to 10                        | High     |
-| 12  | pgvector entity_id collision          | `ingestion.py` used LLM's local `entity_id` (e.g., `e1`) as PK — cross-doc overwrites | Deterministic SHA-256 hash of `(name, type)` | Critical |
+Focus: Investigating and fixing the 87.7% orphaned entity rate — 4,533 out of 5,170 entities had zero relations.
+
+### 6.1 Investigation: Why are 87.7% of entities orphaned?
+
+**Hypothesis**: The pgvector backfill (§5.4) broke relation references.
+
+**Finding**: Backfill was correct. `backfill_pgvector_from_neo4j.py` properly re-IDs relations via `name+type` lookup → SHA-256. All 784 relations in pgvector resolve to valid entity_ids (784/784 endpoints found).
+
+**Real root cause**: The 87.7% orphan rate is an **extraction-time problem**, not a data migration bug. The LLM (Qwen-Plus) extracts entities but fails to extract relations for most chunks.
+
+### 6.2 Root Cause Analysis (5 factors)
+
+| Factor                       | Description                                                                                                                | Severity |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------- |
+| **Minimal prompt**           | `ENTITY_EXTRACTION_SYSTEM_PROMPT` gave zero examples of relations — just listed type names (`WROTE, PERFORMED_BY, ...`)    | Critical |
+| **Silent relation dropping** | `_lenient_parse()` silently filtered relations where `source_entity_id` or `target_entity_id` didn't match a parsed entity | High     |
+| **Entity ID mismatch**       | LLM generates entity IDs like `"entity_1"` and must reference them in relations; any ID typo → relation dropped            | High     |
+| **No gleaning**              | Default `gleaning_rounds=0`; even when enabled, doesn't force re-extraction of missed relations                            | Medium   |
+| **No observability**         | Relation drops were logged at DEBUG level only — invisible in production logs                                              | Medium   |
+
+### 6.3 Fix Part 1 — Few-shot Extraction Prompt
+
+**File**: `app/prompts.py`
+
+Rewrote `ENTITY_EXTRACTION_SYSTEM_PROMPT`:
+
+- Specialized for music publishing domain
+- Sequential `entity_0/1/2` ID format (easier for LLM to reference correctly)
+- Allows entity names as relation endpoints (not just entity IDs)
+- Demands a relation for every entity pair
+- Complete worked example: Rushing Back/Flume/Vera Blue/Future Classic/Australia → 5 entities, 4 relations
+
+Reinforced `ENTITY_EXTRACTION_USER_PROMPT_TEMPLATE` with "extract ALL" + "MUST include a relation".
+
+### 6.4 Fix Part 2 — Name-based Relation Resolution
+
+**Problem**: LLM often uses entity names (e.g., `"Flume"`) instead of generated IDs (`"entity_0"`) in relation `source_entity_id`/`target_entity_id` fields. Previously these were silently dropped.
+
+**Files changed**:
+
+| File                              | Change                                                                                                                                                        |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/entity_extraction_models.py` | `validate_relation_endpoints` now accepts entity names (case-insensitive) as valid endpoints                                                                  |
+| `app/entity_extraction.py`        | New `_resolve_relation_endpoints()` static method: builds `name→entity_id` + `alias→entity_id` lookup, resolves name-based references, logs resolution counts |
+
+Resolution wired into all 4 parse paths:
+
+1. Direct JSON parse
+2. `json-repair` fallback
+3. LLM repair (JSON)
+4. LLM repair (validation)
+
+`_lenient_parse()` also has inline name resolution with `entity_name_to_id` dict.
+
+### 6.5 Observability Logging
+
+Added INFO-level logging throughout the extraction pipeline:
+
+| Location            | What's logged                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| `_lenient_parse()`  | Entities accepted/dropped, relations accepted/dangling/invalid, name-resolved count           |
+| `_llm_extraction()` | Parse path used (direct/json_repair/lenient/llm_repair), raw vs parsed entity/relation counts |
+| `extract()`         | Final entity/relation totals per chunk                                                        |
+
+### 6.6 CDK: Neo4j Instance Type Upgrade
+
+**File**: `packages/infra-cdk/lib/neo4j-data-stack.ts` line 19
+
+Changed default instance type: `t3.micro` → `t3.small` (doubled memory for graph queries).
+
+### 6.7 Debug Scripts Created
+
+| Script                                 | Purpose                                                    |
+| -------------------------------------- | ---------------------------------------------------------- |
+| `scripts/debug_relation_extraction.py` | Runs extraction on sample chunks to measure relation yield |
+| `scripts/debug_neo4j_neighbors.py`     | Queries Neo4j for entity neighbor data                     |
+
+### 6.8 Verification
+
+- ruff: ✅ all checks passed
+- LSP: ✅ clean (only pre-existing `json_repair` import warning)
+- pytest: ✅ 520 passed, 0 failed
+- typecheck + oxlint: ✅ clean
+- Pre-push hook: ✅ passed
+
+### 6.9 Status
+
+Code changes complete and pushed. Next step: run `debug_relation_extraction.py --chunks 5` against live DB to measure improved relation yield before deciding on a full re-extraction run.
 
 ---
 
-## 7. Current Data State
+## 7. Bug Tracker
+
+> **Note**: Bug #13 added in Day 4.
+
+| #   | Bug                                    | Root Cause                                                                                 | Fix                                              | Severity |
+| --- | -------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------ | -------- |
+| 1   | `::type` cast breaks psycopg3          | psycopg3 doesn't support `::` in parameterized queries                                     | `CAST(x AS type)` across 3 files                 | High     |
+| 2   | `QueryCache(settings)` missing engine  | Constructor signature mismatch                                                             | Added `engine` parameter                         | High     |
+| 3   | Resume skips nothing                   | `WHERE source_type = 'web_crawl'` vs actual `'crawler'`                                    | Fixed to `'crawler'`                             | High     |
+| 4   | Stale `ingestion_runs`                 | No cleanup on process kill                                                                 | `try/except` + mark failed                       | Medium   |
+| 5   | Tests fail with `.envrc`               | Env var leakage into test environment                                                      | `monkeypatch.delenv()`                           | Low      |
+| 6   | Qwen `IncompleteRead`                  | Embedding API timeout/disconnect                                                           | Retry + CircuitBreaker policies                  | Medium   |
+| 7   | ES endpoint → localhost                | `.envrc` pointed to `localhost:9200`, ES is on remote EC2                                  | Updated to EC2 public DNS                        | High     |
+| 8   | Neo4j stale IP                         | EC2 public IP changed after restart                                                        | Updated `.envrc` with new IP                     | Medium   |
+| 9   | `aliases` NULL violation               | `array_agg` returns NULL on empty `unnest`                                                 | `COALESCE(..., ARRAY[]::text[])`                 | High     |
+| 10  | JSON parse failures                    | LLM output malformed (trailing commas, prose wrapping)                                     | 4-layer parse pipeline + `json-repair`           | Medium   |
+| 11  | Qwen embed batch size >10              | Default `entity_extraction_embed_batch_size=20`, API max=10                                | Changed default to 10                            | High     |
+| 12  | pgvector entity_id collision           | `ingestion.py` used LLM's local `entity_id` (e.g., `e1`) as PK — cross-doc overwrites      | Deterministic SHA-256 hash of `(name, type)`     | Critical |
+| 13  | 87.7% orphaned entities (no relations) | Extraction prompt had no relation examples; name-based relation endpoints silently dropped | Few-shot prompt + name-based relation resolution | Critical |
+
+---
+
+## 8. Current Data State
 
 ### PostgreSQL
 
@@ -595,7 +692,7 @@ Version: Neo4j 5.26.21, Protocol 5.8. Verified via direct Cypher queries.
 
 ---
 
-## 8. Next Steps
+## 9. Next Steps
 
 ### Immediate
 
@@ -606,6 +703,10 @@ Version: Neo4j 5.26.21, Protocol 5.8. Verified via direct Cypher queries.
 - [x] **Investigate pgvector dedup**: Found Bug #12 — entity_id collision (84 vs 5,170 entities)
 - [x] **Verify Neo4j node counts**: 5,170 entities, 784 relations (healthy)
 - [x] **Fix ingestion.py**: Deterministic entity_id/relation_id generation
+- [x] **Investigate relation backfill gap**: Bug #13 — 87.7% orphaned entities caused by extraction-time prompt + parsing issues
+- [x] **Fix relation extraction**: Few-shot prompt + name-based relation resolution
+- [ ] **Run diagnostic script**: `debug_relation_extraction.py --chunks 5` to measure improved relation yield
+- [ ] **Full re-extraction**: If diagnostic confirms improvement, re-run entity extraction with `--force` to regenerate all relations
 - [ ] **Verify backfill completion**: Confirm ~5,104 entities + ~784 relations in pgvector
 - [ ] **Retry last 2 docs**: Re-run entity extraction for `ac678891` and `cc54c4f3`
 
@@ -631,7 +732,7 @@ Version: Neo4j 5.26.21, Protocol 5.8. Verified via direct Cypher queries.
 
 ---
 
-## 9. Appendix — Commands Reference
+## 10. Appendix — Commands Reference
 
 ### Crawl (full)
 
@@ -683,7 +784,7 @@ uv run python -m scripts.backfill_opensearch --category pages # filter by catego
 ### Tests
 
 ```bash
-pnpm rag:test          # 511 tests
+pnpm rag:test          # 520 tests
 pnpm check             # typecheck + lint + rag:lint + rag:test
 ```
 
