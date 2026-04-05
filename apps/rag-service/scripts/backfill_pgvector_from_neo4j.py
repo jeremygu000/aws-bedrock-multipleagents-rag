@@ -34,8 +34,8 @@ from neo4j import GraphDatabase
 from sqlalchemy import text
 
 from app.config import Settings, get_settings
+from app.embedding_factory import EmbeddingClient, get_embedding_client
 from app.entity_vector_store import EntityVectorStore
-from app.qwen_client import QwenClient
 from app.secrets import resolve_db_password, resolve_neo4j_password
 
 logging.basicConfig(
@@ -131,13 +131,13 @@ def read_all_relations(driver: Any, database: str) -> list[dict]:
 
 
 def generate_embeddings(
-    qwen: QwenClient,
+    embedder: EmbeddingClient,
     texts: list[str],
     batch_size: int = 10,
     label: str = "items",
     max_retries: int = 3,
 ) -> list[list[float]]:
-    """Generate embeddings in batches, respecting Qwen API limits."""
+    """Generate embeddings in batches."""
     all_embeddings: list[list[float]] = []
     total = len(texts)
     for i in range(0, total, batch_size):
@@ -154,7 +154,7 @@ def generate_embeddings(
 
         for attempt in range(1, max_retries + 1):
             try:
-                result = qwen.embedding(batch)
+                result = embedder.embedding(batch)
                 if isinstance(result[0], float):
                     all_embeddings.append(result)
                 else:
@@ -315,13 +315,13 @@ def main() -> None:
             )
         return
 
-    qwen = QwenClient(settings)
+    embedder = get_embedding_client(settings)
 
     entity_texts = [f"{e['name']} {e['type']} {e['description']}" for e in neo4j_entities]
     logger.info("Generating embeddings for %d entities...", len(entity_texts))
     t0 = time.time()
     entity_embeddings = generate_embeddings(
-        qwen, entity_texts, batch_size=args.batch_size, label="entity"
+        embedder, entity_texts, batch_size=args.batch_size, label="entity"
     )
     logger.info(
         "Entity embeddings done in %.1fs (%d vectors)",
@@ -337,7 +337,7 @@ def main() -> None:
     logger.info("Generating embeddings for %d relations...", len(relation_texts))
     t0 = time.time()
     relation_embeddings = generate_embeddings(
-        qwen, relation_texts, batch_size=args.batch_size, label="relation"
+        embedder, relation_texts, batch_size=args.batch_size, label="relation"
     )
     logger.info(
         "Relation embeddings done in %.1fs (%d vectors)",

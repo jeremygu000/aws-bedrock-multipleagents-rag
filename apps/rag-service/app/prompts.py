@@ -18,6 +18,10 @@ Rules:
 5) Relations MUST reference entity_id values from the entities array.
    You may also use the entity "name" as source_entity_id or target_entity_id — the system will resolve names to IDs automatically.
 6) Extract EVERY relationship you can infer from the text. For every entity pair that has a connection, add a relation.
+7) ONLY extract entities that participate in at least one explicit relationship described in the text.
+   Do NOT extract names that merely appear in a list, table, or catalog without any relationship-describing sentence.
+   If the text says "Winners: Alice, Bob, Carol" — extract only those names for which you can also extract a relation (e.g. "Alice won Best Song").
+8) Do NOT extract noise: pronouns (he, she, they), articles (a, the), generic terms (song, artist, music, work), or bare numbers/times.
 
 Entity types: Work, Person, Organization, Identifier, Territory, LicenseTerm, Date
 Relation types: WROTE, PERFORMED_BY, PUBLISHED_BY, HAS_IDENTIFIER, VALID_IN_TERRITORY, HAS_TERM, REFERENCES
@@ -72,11 +76,13 @@ Output:
 Note: 5 entities and 4 relations — every entity is connected. This is the expected density."""
 
 ENTITY_EXTRACTION_USER_PROMPT_TEMPLATE = """\
-Extract ALL entities and relations from this chunk.
+Extract entities and relations from this chunk.
 Return JSON that matches the schema exactly.
 
-IMPORTANT: For every pair of entities that have a relationship in the text, you MUST include a relation.
-Use entity_id values (e.g. "entity_0") or entity names as relation endpoints.
+IMPORTANT:
+- For every pair of entities that have a relationship in the text, you MUST include a relation.
+- ONLY extract entities that participate in at least one relation. Skip names that merely appear in lists or tables without a relationship sentence.
+- Use entity_id values (e.g. "entity_0") or entity names as relation endpoints.
 
 chunk_id: {chunk_id}
 doc_id: {doc_id}

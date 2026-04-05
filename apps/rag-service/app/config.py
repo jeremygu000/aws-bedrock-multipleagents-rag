@@ -59,11 +59,19 @@ class Settings(BaseSettings):
     db_ssl_mode: str = Field(default="require", validation_alias="RAG_DB_SSLMODE")
     db_connect_timeout_s: int = Field(default=10, validation_alias="RAG_DB_CONNECT_TIMEOUT_S")
     aws_region: str | None = Field(
-        default=None,
+        default="ap-southeast-2",
         validation_alias=AliasChoices("RAG_AWS_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"),
     )
 
     embedding_dimensions: int = Field(default=1024, validation_alias="RAG_EMBED_DIM")
+    embedding_provider: Literal["bedrock", "dashscope"] = Field(
+        default="bedrock",
+        validation_alias="RAG_EMBEDDING_PROVIDER",
+    )
+    bedrock_embedding_model_id: str = Field(
+        default="amazon.titan-embed-text-v2:0",
+        validation_alias="BEDROCK_EMBEDDING_MODEL_ID",
+    )
     sparse_backend: Literal["opensearch", "postgres"] = Field(
         default="opensearch",
         validation_alias="RAG_SPARSE_BACKEND",
@@ -93,7 +101,7 @@ class Settings(BaseSettings):
         validation_alias="QWEN_API_KEY_SECRET_KEY",
     )
     qwen_model_id: str = Field(
-        default="qwen-plus",
+        default="qwen3:32b",
         validation_alias=AliasChoices("QWEN_MODEL_ID", "LLM_MODEL"),
     )
     qwen_embedding_model_id: str = Field(
@@ -101,8 +109,18 @@ class Settings(BaseSettings):
         validation_alias="QWEN_EMBEDDING_MODEL_ID",
     )
     qwen_base_url: str = Field(
-        default="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        default="http://localhost:11434/v1",
         validation_alias="QWEN_BASE_URL",
+    )
+    qwen_auth_required: bool = Field(
+        default=False,
+        validation_alias="QWEN_AUTH_REQUIRED",
+        description="Set to true for cloud providers (e.g. DashScope) that require API key auth",
+    )
+    qwen_use_ollama_native: bool = Field(
+        default=True,
+        validation_alias="QWEN_USE_OLLAMA_NATIVE",
+        description="Use Ollama native /api/chat (supports think=false) instead of OpenAI-compatible API",
     )
     qwen_max_tokens: int = Field(default=500, validation_alias="QWEN_MAX_TOKENS")
     qwen_extraction_max_tokens: int = Field(

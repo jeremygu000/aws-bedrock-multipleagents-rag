@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from .config import Settings
+from .embedding_factory import EmbeddingClient
 from .models import KeywordResult, RetrievalMode
 from .qwen_client import QwenClient
 
@@ -13,11 +14,15 @@ from .qwen_client import QwenClient
 class QueryProcessor:
     """Query pre-processing pipeline used before retrieval."""
 
-    def __init__(self, settings: Settings, qwen_client: QwenClient) -> None:
-        """Store settings and Qwen client used by processing steps."""
-
+    def __init__(
+        self,
+        settings: Settings,
+        qwen_client: QwenClient,
+        embedding_client: EmbeddingClient | None = None,
+    ) -> None:
         self._settings = settings
         self._qwen = qwen_client
+        self._embedder = embedding_client
 
     def detect_intent(self, query: str) -> dict[str, Any]:
         """Detect intent and complexity for routing decisions.
@@ -118,20 +123,24 @@ class QueryProcessor:
             return KeywordResult()
 
     def build_query_embedding(self, query: str) -> list[float] | None:
-        """Build query embedding for hybrid retrieval using Qwen embeddings API.
+        """Build query embedding for hybrid retrieval.
+
+        Uses the dedicated embedding client when available, otherwise falls
+        back to the Qwen client.
 
         Returns:
             A dense vector when hybrid retrieval is enabled and embedding generation succeeds.
-            `None` when disabled, unavailable, or dimension validation fails.
+            `None`` when disabled, unavailable, or dimension validation fails.
         """
 
         if not self._settings.enable_hybrid_retrieval:
             return None
-        if not self._qwen.is_configured():
-            return None
+        embedder = self._embedder or self._qwen
         try:
-            embedding = self._qwen.embedding(query)
+            embedding = embedder.embedding(query)
         except Exception:
+            return None
+        if not isinstance(embedding, list) or not embedding:
             return None
         if len(embedding) != self._settings.embedding_dimensions:
             return None

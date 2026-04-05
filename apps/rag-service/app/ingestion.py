@@ -18,6 +18,7 @@ import boto3
 from .chunker import Chunk, chunk_document
 from .config import Settings
 from .document_parser import parse_document
+from .embedding_factory import EmbeddingClient, get_embedding_client
 from .entity_extraction import EntityDeduplicator, EntityExtractor
 from .entity_extraction_models import ChunkExtractionResult, ExtractedEntity, ExtractedRelation
 from .entity_vector_store import EntityVectorStore
@@ -38,6 +39,7 @@ def _run_entity_extraction_pipeline(
     doc_id: UUID,
     qwen_client: QwenClient,
     settings: Settings,
+    embedding_client: EmbeddingClient | None = None,
 ) -> tuple[int, int]:
     """Run entity extraction, dedup/merge, embedding, and storage.
 
@@ -97,20 +99,21 @@ def _run_entity_extraction_pipeline(
 
     # --- 3. Generate embeddings for entities and relations ---
     batch_size = settings.entity_extraction_embed_batch_size
+    embedder = embedding_client or qwen_client
 
     entity_embeddings: list[list[float]] = []
     if merged_entities:
         entity_texts = [f"{e.name} {e.type.value} {e.description}" for e in merged_entities]
         for batch_start in range(0, len(entity_texts), batch_size):
             batch = entity_texts[batch_start : batch_start + batch_size]
-            entity_embeddings.extend(qwen_client.embedding(batch))  # type: ignore[arg-type]
+            entity_embeddings.extend(embedder.embedding(batch))  # type: ignore[arg-type]
 
     relation_embeddings: list[list[float]] = []
     if merged_relations:
         relation_texts = [f"{r.type.value} {r.evidence}" for r in merged_relations]
         for batch_start in range(0, len(relation_texts), batch_size):
             batch = relation_texts[batch_start : batch_start + batch_size]
-            relation_embeddings.extend(qwen_client.embedding(batch))  # type: ignore[arg-type]
+            relation_embeddings.extend(embedder.embedding(batch))  # type: ignore[arg-type]
 
     # --- 4a. Store to Neo4j (graph traversal) ---
     entity_count = 0
@@ -251,6 +254,7 @@ def ingest_document(
     """
     repo = IngestionRepository(settings)
     qwen_client = QwenClient(settings)
+    embedding_client = get_embedding_client(settings)
 
     run_id: UUID = repo.create_ingestion_run(
         source_type="file",
@@ -285,7 +289,7 @@ def ingest_document(
             for batch_start in range(0, len(chunks), batch_size):
                 batch_texts = [c.chunk_text for c in chunks[batch_start : batch_start + batch_size]]
                 # embedding() returns list[list[float]] when input is list[str]
-                batch_embeddings = qwen_client.embedding(batch_texts)
+                batch_embeddings = embedding_client.embedding(batch_texts)
                 embeddings.extend(batch_embeddings)  # type: ignore[arg-type]
 
         source_uri = upload_metadata.source_uri or f"s3://{s3_bucket}/{s3_key}"
@@ -347,6 +351,7 @@ def ingest_document(
                     doc_id=doc_id,
                     qwen_client=qwen_client,
                     settings=settings,
+                    embedding_client=embedding_client,
                 )
             except Exception:
                 logger.error(

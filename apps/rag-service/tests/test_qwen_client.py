@@ -9,21 +9,31 @@ import pytest
 from app.config import Settings
 from app.qwen_client import QwenClient
 
+OPENAI_SETTINGS = {
+    "QWEN_AUTH_REQUIRED": "true",
+    "QWEN_USE_OLLAMA_NATIVE": "false",
+}
+
 
 def test_is_configured_true(monkeypatch) -> None:
-    client = QwenClient(Settings())
+    client = QwenClient(Settings(**OPENAI_SETTINGS))
     monkeypatch.setattr(client, "_get_api_key", lambda: "secret-key")
     assert client.is_configured() is True
 
 
 def test_is_configured_false_when_key_resolve_fails(monkeypatch) -> None:
-    client = QwenClient(Settings())
+    client = QwenClient(Settings(**OPENAI_SETTINGS))
 
     def boom() -> str:
         raise ValueError("missing")
 
     monkeypatch.setattr(client, "_get_api_key", boom)
     assert client.is_configured() is False
+
+
+def test_is_configured_true_when_auth_not_required() -> None:
+    client = QwenClient(Settings(QWEN_AUTH_REQUIRED="false"))
+    assert client.is_configured() is True
 
 
 def test_extract_text_from_string_content() -> None:
@@ -46,11 +56,23 @@ def test_extract_text_from_list_content() -> None:
     assert client._extract_text(payload) == "line1\nline2"
 
 
-def test_chat_success(monkeypatch) -> None:
+def test_extract_text_strips_think_tags() -> None:
+    client = QwenClient(Settings())
+    payload = {
+        "choices": [
+            {"message": {"content": "<think>\nreasoning here\n</think>\nactual answer"}}
+        ]
+    }
+    assert client._extract_text(payload) == "actual answer"
+
+
+def test_chat_openai_success(monkeypatch) -> None:
     settings = Settings(
         QWEN_API_KEY="secret",
         QWEN_MODEL_ID="qwen-plus",
         QWEN_BASE_URL="https://example.com/v1",
+        QWEN_AUTH_REQUIRED="true",
+        QWEN_USE_OLLAMA_NATIVE="false",
     )
     client = QwenClient(settings)
 
@@ -73,8 +95,43 @@ def test_chat_success(monkeypatch) -> None:
     assert client.chat("sys", "usr") == "ok-answer"
 
 
+def test_chat_ollama_success(monkeypatch) -> None:
+    settings = Settings(
+        QWEN_MODEL_ID="qwen3:32b",
+        QWEN_BASE_URL="http://localhost:11434/v1",
+        QWEN_USE_OLLAMA_NATIVE="true",
+        QWEN_AUTH_REQUIRED="false",
+    )
+    client = QwenClient(settings)
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"message": {"content": "ollama-answer"}}).encode("utf-8")
+
+    def fake_urlopen(req, timeout: int):
+        assert req.full_url == "http://localhost:11434/api/chat"
+        assert timeout == 120
+        body = json.loads(req.data)
+        assert body["think"] is False
+        assert body["stream"] is False
+        return FakeResponse()
+
+    monkeypatch.setattr("app.qwen_client.request.urlopen", fake_urlopen)
+    assert client.chat("sys", "usr") == "ollama-answer"
+
+
 def test_chat_http_error(monkeypatch) -> None:
-    settings = Settings(QWEN_API_KEY="secret")
+    settings = Settings(
+        QWEN_API_KEY="secret",
+        QWEN_AUTH_REQUIRED="true",
+        QWEN_USE_OLLAMA_NATIVE="false",
+    )
     client = QwenClient(settings)
 
     def fake_urlopen(_req, timeout: int):
@@ -102,6 +159,8 @@ def test_embedding_success(monkeypatch) -> None:
         QWEN_API_KEY="secret",
         QWEN_BASE_URL="https://example.com/v1",
         QWEN_EMBEDDING_MODEL_ID="text-embedding-v3",
+        QWEN_AUTH_REQUIRED="true",
+        QWEN_USE_OLLAMA_NATIVE="false",
     )
     client = QwenClient(settings)
 
@@ -125,7 +184,11 @@ def test_embedding_success(monkeypatch) -> None:
 
 
 def test_embedding_http_error(monkeypatch) -> None:
-    settings = Settings(QWEN_API_KEY="secret")
+    settings = Settings(
+        QWEN_API_KEY="secret",
+        QWEN_AUTH_REQUIRED="true",
+        QWEN_USE_OLLAMA_NATIVE="false",
+    )
     client = QwenClient(settings)
 
     def fake_urlopen(_req, timeout: int):

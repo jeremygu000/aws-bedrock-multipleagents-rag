@@ -22,6 +22,7 @@ from .answer_generator import (
 from .config import get_settings
 from .document_manager import delete_document
 from .document_parser import _EXTENSION_TO_MIME, SUPPORTED_MIME_TYPES
+from .embedding_factory import get_embedding_client
 from .ingestion import ingest_document
 from .ingestion_models import (
     DeleteDocumentResponse,
@@ -54,7 +55,10 @@ ingestion_repo = IngestionRepository(settings)
 logger = logging.getLogger(__name__)
 
 qwen_client = QwenClient(settings)
-query_processor = QueryProcessor(settings=settings, qwen_client=qwen_client)
+embedding_client = get_embedding_client(settings)
+query_processor = QueryProcessor(
+    settings=settings, qwen_client=qwen_client, embedding_client=embedding_client
+)
 answer_generator = RoutedAnswerGenerator(
     bedrock_generator=BedrockConverseAnswerGenerator(settings),
     qwen_generator=QwenAnswerGenerator(qwen_client, settings),
@@ -86,6 +90,7 @@ def _build_workflow() -> RagWorkflow:
             vector_store=vector_store,
             neo4j_repo=neo4j_repo,
             settings=settings,
+            embedding_client=embedding_client,
         )
 
     query_cache = (

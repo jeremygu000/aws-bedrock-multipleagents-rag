@@ -40,6 +40,7 @@ from sqlalchemy import text
 from app.chunker import chunk_document
 from app.config import get_settings
 from app.document_parser import parse_document
+from app.embedding_factory import EmbeddingClient, get_embedding_client
 from app.ingestion import _run_entity_extraction_pipeline
 from app.ingestion_models import ChunkRecord, DocumentRecord
 from app.ingestion_repository import IngestionRepository
@@ -302,6 +303,7 @@ def ingest_page(
     skip_entities: bool = False,
     dry_run: bool = False,
     embed_policy: Any | None = None,
+    embedding_client: EmbeddingClient | None = None,
 ) -> tuple[int, int, int]:
     """Parse, chunk, embed, and store a single crawled page.
 
@@ -339,9 +341,10 @@ def ingest_page(
 
     embeddings: list[list[float]] = []
     batch_size = min(settings.ingestion_embed_batch_size, 10)
+    embedder = embedding_client or qwen_client
     for i in range(0, len(chunks), batch_size):
         batch_texts = [c.chunk_text for c in chunks[i : i + batch_size]]
-        batch_embeddings = qwen_client.embedding(batch_texts)
+        batch_embeddings = embedder.embedding(batch_texts)
         embeddings.extend(batch_embeddings)  # type: ignore[arg-type]
         if i + batch_size < len(chunks):
             time.sleep(0.1)
@@ -409,6 +412,7 @@ def ingest_page(
                     doc_id=doc_id,
                     qwen_client=qwen_client,
                     settings=settings,
+                    embedding_client=embedding_client,
                 )
             except Exception:
                 logger.warning(
@@ -444,6 +448,7 @@ async def crawl_and_ingest(
     dry_run: bool = False,
     resume: bool = False,
     max_retries: int = 3,
+    embedding_client: EmbeddingClient | None = None,
 ) -> dict[str, Any]:
     """Crawl all entries with crawl4ai and ingest each into the pipeline.
 
@@ -549,6 +554,7 @@ async def crawl_and_ingest(
             skip_entities=skip_entities,
             dry_run=dry_run,
             embed_policy=embed_policy,
+            embedding_client=embedding_client,
         )
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -770,6 +776,7 @@ async def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     repo = IngestionRepository(settings)
     qwen_client = QwenClient(settings)
+    embedding_client = get_embedding_client(settings)
 
     # ---- Resolve URL list: --urls-file / --url take priority over sitemap ----
     if args.urls_file or args.urls:
@@ -836,6 +843,7 @@ async def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         resume=args.resume,
         max_retries=args.max_retries,
+        embedding_client=embedding_client,
     )
 
     logger.info("=" * 60)

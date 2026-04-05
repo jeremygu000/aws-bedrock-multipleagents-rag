@@ -5,7 +5,7 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { Construct } from "constructs";
 
 export interface MonitoringEc2StackProps extends cdk.StackProps {
-  // Free-tier-friendly default stays at t3.micro unless overridden by context.
+  // Default t3.small gives Grafana + Elasticsearch enough headroom (2 GB RAM).
   instanceType?: string;
   rootVolumeSizeGiB?: number;
   // Restrict this to your public IP (/32) for production-like usage.
@@ -18,7 +18,7 @@ export class MonitoringEc2Stack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: MonitoringEc2StackProps = {}) {
     super(scope, id, props);
 
-    const instanceType = props.instanceType ?? "t3.micro";
+    const instanceType = props.instanceType ?? "t3.small";
     const rootVolumeSizeGiB = props.rootVolumeSizeGiB ?? 8;
     const allowedIngressCidr = props.allowedIngressCidr ?? "0.0.0.0/0";
     const retainDataOnDelete = props.retainDataOnDelete ?? true;
@@ -166,7 +166,7 @@ export class MonitoringEc2Stack extends cdk.Stack {
       "  -e xpack.ml.enabled=false \\",
       "  -e xpack.watcher.enabled=false \\",
       "  -e xpack.graph.enabled=false \\",
-      '  -e ES_JAVA_OPTS="-Xms256m -Xmx256m" \\',
+      '  -e ES_JAVA_OPTS="-Xms512m -Xmx512m" \\',
       "  -e cluster.routing.allocation.disk.threshold_enabled=false \\",
       "  -v /var/lib/elasticsearch:/usr/share/elasticsearch/data \\",
       "  docker.elastic.co/elasticsearch/elasticsearch:8.17.0",

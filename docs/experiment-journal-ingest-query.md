@@ -1,8 +1,8 @@
 # Experiment Journal — Ingest & Query Pipeline
 
 > **Started**: 2026-03-28
-> **Last Updated**: 2026-03-31
-> **Status**: In progress — relation extraction quality fix deployed, diagnostic script pending live DB test
+> **Last Updated**: 2026-04-01
+> **Status**: In progress — full 1,300-doc re-extraction complete (109% relation yield), orphan analysis pending
 
 ---
 
@@ -14,10 +14,11 @@
 4. [Day 3 (Mar 30) — Entity Extraction & Bug Fixes](#4-day-3-mar-30--entity-extraction--bug-fixes)
 5. [Day 3 (Mar 30, evening) — pgvector Entity ID Collision Fix](#5-day-3-mar-30-evening--pgvector-entity-id-collision-fix)
 6. [Day 4 (Mar 31) — Relation Extraction Quality Fix](#6-day-4-mar-31--relation-extraction-quality-fix)
-7. [Bug Tracker](#7-bug-tracker)
-8. [Current Data State](#8-current-data-state)
-9. [Next Steps](#9-next-steps)
-10. [Appendix — Commands Reference](#10-appendix--commands-reference)
+7. [Day 5 (Apr 1) — Full Re-extraction & Graph Quality Audit](#7-day-5-apr-1--full-re-extraction--graph-quality-audit)
+8. [Bug Tracker](#8-bug-tracker)
+9. [Current Data State](#9-current-data-state)
+10. [Next Steps](#10-next-steps)
+11. [Appendix — Commands Reference](#11-appendix--commands-reference)
 
 ---
 
@@ -636,9 +637,135 @@ Code changes complete and pushed. Next step: run `debug_relation_extraction.py -
 
 ---
 
-## 7. Bug Tracker
+## 7. Day 5 (Apr 1) — Full Re-extraction & Graph Quality Audit
 
-> **Note**: Bug #13 added in Day 4.
+Focus: Validating the relation extraction fix at scale, re-extracting all 1,300 documents, and auditing the resulting graph quality.
+
+### 7.1 Max Tokens Fix — Root Cause of 0% Relation Yield
+
+**Problem**: Initial diagnostic run (`debug_relation_extraction.py --chunks 5`) produced **0% relation yield** — all 5 chunks extracted 4-5 entities but zero relations. Raw LLM output was truncated mid-entity, never reaching the `relations` array.
+
+**Root cause**: `QWEN_MAX_TOKENS=500` (in `config.py`) was the hard limit. Entity objects with `mentions`/`start`/`end`/`confidence` consume ~100 tokens each. With 5+ entities = 500 tokens exhausted before the relations array.
+
+**Fix**:
+
+| File                                   | Change                                                                                              |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `app/config.py`                        | Added `qwen_extraction_max_tokens` setting (default 2000)                                           |
+| `app/qwen_client.py`                   | Added `max_tokens` kwarg override to `chat()`, bumped timeout 30s→120s                              |
+| `app/entity_extraction.py`             | Added `extraction_max_tokens` param, passed to all 3 chat calls (extraction, JSON repair, gleaning) |
+| `app/entity_extraction_models.py`      | Made `Mention.start`/`end` optional (default=0)                                                     |
+| `app/prompts.py`                       | Simplified: removed `start`/`end` from mentions schema + example                                    |
+| `app/ingestion.py`                     | Passes `extraction_max_tokens` to EntityExtractor                                                   |
+| `scripts/debug_relation_extraction.py` | Passes `extraction_max_tokens=2000`                                                                 |
+
+**Result**: Re-run with fix → **5/5 chunks succeeded, 50 entities, 54 relations, 108% yield**.
+
+### 7.2 Tenacity Retry for QwenClient
+
+Added `tenacity>=9.0.0` for automatic retry on transient API errors.
+
+**Configuration**:
+
+- 3 attempts, exponential backoff (2s→30s)
+- Retries on: `IncompleteRead`, `RemoteDisconnected`, `ConnectionError`, `TimeoutError`, `URLError`
+- Does NOT retry `HTTPError` (4xx/5xx) or `ValueError` — deterministic failures
+
+Applied to both `QwenClient.chat()` and `QwenClient.embedding()`.
+
+### 7.3 GLiNER + GLiREL Benchmark
+
+Evaluated specialized extraction models as alternatives to Qwen-Plus.
+
+|                             | Qwen-Plus (fixed) | GLiNER + GLiREL |
+| --------------------------- | ----------------- | --------------- |
+| Rushing Back entities       | 11 ✅             | 11 ✅           |
+| Rushing Back relations      | **11** ✅         | **0** ❌        |
+| Total entities (3 samples)  | 50                | 26              |
+| Total relations (3 samples) | **54**            | **0**           |
+| Speed per chunk             | 30-60s            | <0.5s           |
+
+**Conclusion**: GLiREL completely failed on custom music publishing relation types (0 relations across all samples). Qwen-Plus with max_tokens fix is far superior for this domain. No model change needed.
+
+### 7.4 Small-Scale Validation (5 docs)
+
+Sequential re-extraction of 5 docs: 4/5 completed before timeout. Every completed chunk had relations. One chunk (list-heavy, via lenient parse) had 26 entities / 0 relations — acceptable edge case.
+
+### 7.5 100-Doc Re-extraction
+
+```bash
+nohup uv run python -m scripts.extract_entities --force --limit 100 --concurrency 4 \
+  > /tmp/reextract-100docs.log 2>&1 &
+```
+
+| Metric         | Value                                                |
+| -------------- | ---------------------------------------------------- |
+| Succeeded      | 97 docs                                              |
+| Failed         | 3 (all `IncompleteRead` in `QwenClient.embedding()`) |
+| Entities       | 1,358                                                |
+| Relations      | 1,484                                                |
+| Relation yield | **109%**                                             |
+| Time           | 2,086s (~35 min)                                     |
+| Avg speed      | 20.9s/doc                                            |
+
+3 failed docs retried after tenacity was added — all succeeded (398 entities, 335 relations).
+
+### 7.6 Full 1,300-Doc Re-extraction
+
+```bash
+nohup uv run python -m scripts.extract_entities --force --concurrency 4 \
+  > /tmp/reextract-full-20260331-183518.log 2>&1 &
+```
+
+| Metric    | Value                                                           |
+| --------- | --------------------------------------------------------------- |
+| Succeeded | 1,295 docs                                                      |
+| Failed    | 5 (Qwen API `Arrearage` — account balance depleted at 02:19 AM) |
+| Entities  | 23,406                                                          |
+| Relations | 21,463                                                          |
+| Time      | 28,098s (~7.8 hours)                                            |
+| Avg speed | 21.6s/doc                                                       |
+
+5 failed docs retried after account recharge — all succeeded (746 entities, 384 relations, 3,444s).
+
+**Final totals**: **1,300/1,300 docs**, **~24,152 entities**, **~21,847 relations**.
+
+### 7.7 Graph Quality Audit
+
+Created `scripts/audit_graph_quality.py` — queries Neo4j for 10 metrics: total counts, orphan rate, entity/relation type distribution, connectivity stats, top-N hubs, orphan rate by type, data quality checks, sample relations, summary scorecard.
+
+**Results after full re-extraction**:
+
+| Metric                    | Value                      |
+| ------------------------- | -------------------------- |
+| Total entities            | 13,918                     |
+| Total relations           | 14,978                     |
+| Relation/entity ratio     | **1.08**                   |
+| Orphan rate               | **68.8%** (9,572 entities) |
+| Cross-referenced entities | 3,235 (23%)                |
+
+**Entity type distribution**: Work(26%) > Person(22%) > Organization(22%) > LicenseTerm(14%) > Date(6%) > Territory(5%) > Identifier(5%)
+
+**Relation type distribution**: REFERENCES(24%) > HAS_TERM(19%) > PUBLISHED_BY(16%) > VALID_IN_TERRITORY(13%) > PERFORMED_BY(11%) > WROTE(10%) > HAS_IDENTIFIER(6%)
+
+**Top hubs**: APRA AMCOS(1,163), Australia(593), APRA(347), New Zealand(197)
+
+**Key findings**:
+
+1. **Orphan rate 68.8%** — despite 1.08 relation/entity ratio. Root cause: entity extraction too broad — pronouns ("I"), generic terms ("musical works", "writers"), time fragments ("9:30am") extracted as entities that naturally have no relations.
+2. **Relation noise**: Self-references (`"Ayda Akbal" --WROTE--> "Ayda Akbal"`), incorrect types (`"Asia" --PERFORMED_BY--> "Canada"`), inverted directions.
+3. **All 13,918 entities missing descriptions** — description field not being populated.
+4. **Orphan rate by type**: Person(31%) > Work(28%) > LicenseTerm(28%) > Identifier(28%) > Date(22%) > Organization(19%) > Territory(14%)
+
+### 7.8 Status
+
+Full re-extraction complete. Graph quality improved significantly (relation/entity ratio 0.08→1.08) but orphan rate remains high (68.8%) due to over-broad entity extraction. Next: deep analysis of orphan entity characteristics to inform prompt refinement.
+
+---
+
+## 8. Bug Tracker
+
+> **Note**: Bug #13 added in Day 4. Bug #14 added in Day 5.
 
 | #   | Bug                                    | Root Cause                                                                                 | Fix                                              | Severity |
 | --- | -------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------ | -------- |
@@ -655,21 +782,22 @@ Code changes complete and pushed. Next step: run `debug_relation_extraction.py -
 | 11  | Qwen embed batch size >10              | Default `entity_extraction_embed_batch_size=20`, API max=10                                | Changed default to 10                            | High     |
 | 12  | pgvector entity_id collision           | `ingestion.py` used LLM's local `entity_id` (e.g., `e1`) as PK — cross-doc overwrites      | Deterministic SHA-256 hash of `(name, type)`     | Critical |
 | 13  | 87.7% orphaned entities (no relations) | Extraction prompt had no relation examples; name-based relation endpoints silently dropped | Few-shot prompt + name-based relation resolution | Critical |
+| 14  | 0% relation yield (max_tokens=500)     | `QWEN_MAX_TOKENS=500` too low — output truncated before `relations` array                  | Added `qwen_extraction_max_tokens=2000` setting  | Critical |
 
 ---
 
-## 8. Current Data State
+## 9. Current Data State
 
 ### PostgreSQL
 
-| Table            | Records | Notes                                          |
-| ---------------- | ------- | ---------------------------------------------- |
-| `kb_documents`   | 1,300   | 1,262 pages + 34 awards + 4 news               |
-| `kb_chunks`      | 3,103   | With embeddings (1024-dim pgvector)            |
-| `ingestion_runs` | 1,329   | All `succeeded`                                |
-| `kb_entities`    | ~5,104  | Backfilled from Neo4j (was 84 due to Bug #12)  |
-| `kb_relations`   | ~784    | Backfilled from Neo4j (was 129 due to Bug #12) |
-| `query_cache`    | 0       | No queries run yet                             |
+| Table            | Records | Notes                                |
+| ---------------- | ------- | ------------------------------------ |
+| `kb_documents`   | 1,300   | 1,262 pages + 34 awards + 4 news     |
+| `kb_chunks`      | 3,103   | With embeddings (1024-dim pgvector)  |
+| `ingestion_runs` | 1,329   | All `succeeded`                      |
+| `kb_entities`    | ~5,104  | Stale — needs re-backfill from Neo4j |
+| `kb_relations`   | ~784    | Stale — needs re-backfill from Neo4j |
+| `query_cache`    | 0       | No queries run yet                   |
 
 ### Elasticsearch
 
@@ -682,17 +810,18 @@ Version: Elasticsearch 8.17.0 (Docker on MonitoringEc2Stack), no auth.
 
 ### Neo4j
 
-| Type           | Count | Notes                                                                                                      |
-| -------------- | ----- | ---------------------------------------------------------------------------------------------------------- |
-| Entity nodes   | 5,170 | 7 types: Work(1620), Org(1288), Person(1238), Date(358), Territory(339), LicenseTerm(185), Identifier(142) |
-| Relation edges | 784   | All type `RELATES_TO`                                                                                      |
+| Type           | Count  | Notes                                                                                                                                  |
+| -------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Entity nodes   | 13,918 | 7 types: Work(26%), Person(22%), Org(22%), LicenseTerm(14%), Date/Territory/Identifier(16%)                                            |
+| Relation edges | 14,978 | 7 types: REFERENCES(24%), HAS_TERM(19%), PUBLISHED_BY(16%), VALID_IN_TERRITORY(13%), PERFORMED_BY(11%), WROTE(10%), HAS_IDENTIFIER(6%) |
+| Orphan rate    | 68.8%  | 9,572 entities with zero relations — over-broad entity extraction                                                                      |
 
 Endpoint: `bolt://<NEO4J_EC2_HOST>:7687`
-Version: Neo4j 5.26.21, Protocol 5.8. Verified via direct Cypher queries.
+Version: Neo4j 5.26.21, Protocol 5.8.
 
 ---
 
-## 9. Next Steps
+## 10. Next Steps
 
 ### Immediate
 
@@ -703,11 +832,15 @@ Version: Neo4j 5.26.21, Protocol 5.8. Verified via direct Cypher queries.
 - [x] **Investigate pgvector dedup**: Found Bug #12 — entity_id collision (84 vs 5,170 entities)
 - [x] **Verify Neo4j node counts**: 5,170 entities, 784 relations (healthy)
 - [x] **Fix ingestion.py**: Deterministic entity_id/relation_id generation
-- [x] **Investigate relation backfill gap**: Bug #13 — 87.7% orphaned entities caused by extraction-time prompt + parsing issues
+- [x] **Investigate relation backfill gap**: Bug #13 — 87.7% orphaned entities
 - [x] **Fix relation extraction**: Few-shot prompt + name-based relation resolution
-- [ ] **Run diagnostic script**: `debug_relation_extraction.py --chunks 5` to measure improved relation yield
-- [ ] **Full re-extraction**: If diagnostic confirms improvement, re-run entity extraction with `--force` to regenerate all relations
-- [ ] **Verify backfill completion**: Confirm ~5,104 entities + ~784 relations in pgvector
+- [x] **Fix max_tokens**: Bug #14 — 0% relation yield due to QWEN_MAX_TOKENS=500
+- [x] **Add tenacity retry**: QwenClient.chat() and .embedding() with exponential backoff
+- [x] **Full re-extraction**: 1,300/1,300 docs, 13,918 entities, 14,978 relations
+- [x] **Graph quality audit**: Relation/entity ratio 1.08 (up from 0.08), orphan rate 68.8%
+- [ ] **Analyze orphan entities**: Characterize orphan patterns (name length, type, content quality)
+- [ ] **Refine extraction prompt**: Reduce over-broad entity extraction (pronouns, generic terms)
+- [ ] **Re-backfill pgvector**: Sync pgvector entities/relations with updated Neo4j data
 - [ ] **Retry last 2 docs**: Re-run entity extraction for `ac678891` and `cc54c4f3`
 
 ### Query Pipeline Testing
@@ -732,7 +865,7 @@ Version: Neo4j 5.26.21, Protocol 5.8. Verified via direct Cypher queries.
 
 ---
 
-## 10. Appendix — Commands Reference
+## 11. Appendix — Commands Reference
 
 ### Crawl (full)
 

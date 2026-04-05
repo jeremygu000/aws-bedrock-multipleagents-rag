@@ -61,6 +61,29 @@ _DATE_PATTERNS: list[re.Pattern[str]] = [
     ),
 ]
 
+# Noise entity patterns — entities that should not have been extracted
+_NOISE_PRONOUN = re.compile(
+    r"^(i|me|my|we|us|our|you|your|he|him|his|she|her|they|them|their|it|its|"
+    r"this|that|these|those|who|whom|which|what|where|when|how|why)$",
+    re.IGNORECASE,
+)
+_NOISE_ARTICLE = re.compile(r"^(a|an|the|some|any|all|each|every|no|none)$", re.IGNORECASE)
+_NOISE_GENERIC_TERMS: frozenset[str] = frozenset({
+    "musical works", "musical work", "music", "song", "songs", "track", "tracks",
+    "album", "albums", "record", "records", "recording", "recordings",
+    "writer", "writers", "artist", "artists", "performer", "performers",
+    "member", "members", "publisher", "publishers", "speaker", "speakers",
+    "tour", "tours", "concert", "concerts", "festival", "festivals",
+    "dance", "performance", "event", "events", "session", "sessions",
+    "workshop", "workshops", "panel", "panels", "presentation", "presentations",
+    "literary works", "literary work", "works", "work",
+})
+_NOISE_TIME = re.compile(
+    r"^\d{1,2}:\d{2}\s*(am|pm|AM|PM)?(\s*-\s*\d{1,2}:\d{2}\s*(am|pm|AM|PM)?)?$"
+)
+_NOISE_PURE_NUMBER = re.compile(r"^\d+(\.\d+)?%?$")
+_NOISE_ORDINAL = re.compile(r"^\d+(st|nd|rd|th)$", re.IGNORECASE)
+
 
 class EntityExtractor:
     """Two-stage entity/relation extractor: rule-first + LLM structured extraction."""
@@ -124,6 +147,8 @@ class EntityExtractor:
 
         merged_entities = self._merge_rule_entities(rule_entities, llm_result.entities)
         llm_result = llm_result.model_copy(update={"entities": merged_entities})
+
+        llm_result = self._post_process(llm_result)
 
         logger.info(
             "Extraction complete chunk %s: entities=%d (rule=%d, llm=%d), relations=%d",
@@ -633,6 +658,71 @@ class EntityExtractor:
             )
 
         return result.model_copy(update={"relations": resolved_relations})
+
+    @staticmethod
+    def _post_process(result: ChunkExtractionResult) -> ChunkExtractionResult:
+        """Filter noise entities and self-referencing relations."""
+        result = EntityExtractor._filter_noise_entities(result)
+        result = EntityExtractor._remove_self_referencing_relations(result)
+        return result
+
+    @staticmethod
+    def _is_noise_entity(name: str) -> bool:
+        stripped = name.strip()
+        if not stripped or len(stripped) == 1:
+            return True
+        if _NOISE_PRONOUN.match(stripped):
+            return True
+        if _NOISE_ARTICLE.match(stripped):
+            return True
+        if stripped.lower() in _NOISE_GENERIC_TERMS:
+            return True
+        if _NOISE_TIME.match(stripped):
+            return True
+        if _NOISE_PURE_NUMBER.match(stripped):
+            return True
+        if _NOISE_ORDINAL.match(stripped):
+            return True
+        return False
+
+    @staticmethod
+    def _filter_noise_entities(result: ChunkExtractionResult) -> ChunkExtractionResult:
+        clean_entities = [e for e in result.entities if not EntityExtractor._is_noise_entity(e.name)]
+        removed_count = len(result.entities) - len(clean_entities)
+        if removed_count == 0:
+            return result
+
+        kept_ids = {e.entity_id for e in clean_entities}
+        clean_relations = [
+            r
+            for r in result.relations
+            if r.source_entity_id in kept_ids and r.target_entity_id in kept_ids
+        ]
+        dropped_rels = len(result.relations) - len(clean_relations)
+
+        logger.info(
+            "Noise filter chunk %s: removed %d noise entities, %d dangling relations",
+            result.chunk_id,
+            removed_count,
+            dropped_rels,
+        )
+        return result.model_copy(
+            update={"entities": clean_entities, "relations": clean_relations}
+        )
+
+    @staticmethod
+    def _remove_self_referencing_relations(
+        result: ChunkExtractionResult,
+    ) -> ChunkExtractionResult:
+        clean = [r for r in result.relations if r.source_entity_id != r.target_entity_id]
+        removed = len(result.relations) - len(clean)
+        if removed > 0:
+            logger.info(
+                "Self-ref filter chunk %s: removed %d self-referencing relations",
+                result.chunk_id,
+                removed,
+            )
+        return result.model_copy(update={"relations": clean}) if removed else result
 
 
 def _entity_dedup_key(entity: ExtractedEntity) -> str:

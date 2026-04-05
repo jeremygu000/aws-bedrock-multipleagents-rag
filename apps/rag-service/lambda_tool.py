@@ -12,6 +12,7 @@ from app.answer_generator import (
 )
 from app.bedrock_action import handle_rag_action
 from app.config import get_settings
+from app.embedding_factory import get_embedding_client
 from app.graph_retriever import GraphRetriever
 from app.query_processing import QueryProcessor
 from app.qwen_client import QwenClient
@@ -26,7 +27,10 @@ logger.setLevel(logging.INFO)
 settings = get_settings()
 repository = PostgresRepository(settings)
 qwen_client = QwenClient(settings)
-query_processor = QueryProcessor(settings=settings, qwen_client=qwen_client)
+embedding_client = get_embedding_client(settings)
+query_processor = QueryProcessor(
+    settings=settings, qwen_client=qwen_client, embedding_client=embedding_client
+)
 answer_generator = RoutedAnswerGenerator(
     bedrock_generator=BedrockConverseAnswerGenerator(settings),
     qwen_generator=QwenAnswerGenerator(qwen_client, settings),
@@ -60,6 +64,7 @@ def _build_graph_retriever() -> GraphRetriever | None:
         vector_store=vector_store,
         neo4j_repo=neo4j_repo,
         settings=settings,
+        embedding_client=embedding_client,
     )
 
 

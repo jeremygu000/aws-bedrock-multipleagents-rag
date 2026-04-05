@@ -1,4 +1,4 @@
-"""Qwen client over DashScope OpenAI-compatible API.
+"""LLM client supporting DashScope OpenAI-compatible API and Ollama native API.
 
 This client is intentionally lightweight so it can be used for intent detection,
 query rewriting, and answer fallback without adding heavy framework coupling.
@@ -9,6 +9,7 @@ from __future__ import annotations
 import http.client
 import json
 import logging
+import re
 from collections.abc import Iterator
 from typing import Any
 from urllib import error, request
@@ -25,7 +26,6 @@ from .secrets import resolve_qwen_api_key
 
 logger = logging.getLogger(__name__)
 
-# Transient network errors worth retrying
 _RETRYABLE_ERRORS = (
     http.client.IncompleteRead,
     http.client.RemoteDisconnected,
@@ -34,29 +34,38 @@ _RETRYABLE_ERRORS = (
     error.URLError,
 )
 
+_THINK_TAG_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
 
 class QwenClient:
-    """HTTP client for Qwen chat completions."""
+    """HTTP client for LLM chat completions (DashScope or Ollama)."""
 
     def __init__(self, settings: Settings) -> None:
-        """Store settings needed to call DashScope compatible endpoint."""
-
         self._settings = settings
 
     def is_configured(self) -> bool:
-        """Return whether required Qwen API credentials are configured."""
+        """Return whether required Qwen API credentials are configured.
 
+        When ``qwen_auth_required`` is False (e.g. local Ollama), always True.
+        """
+
+        if not self._settings.qwen_auth_required:
+            return True
         try:
             return bool(self._get_api_key())
         except Exception:
             return False
+
+    # ------------------------------------------------------------------
+    # Chat
+    # ------------------------------------------------------------------
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_ERRORS),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=30),
         before_sleep=lambda retry_state: logger.warning(
-            "Qwen chat retry %d/%d after %s: %s",
+            "LLM chat retry %d/%d after %s: %s",
             retry_state.attempt_number,
             3,
             type(retry_state.outcome.exception()).__name__ if retry_state.outcome else "unknown",
@@ -71,16 +80,56 @@ class QwenClient:
         *,
         max_tokens: int | None = None,
     ) -> str:
-        """Call Qwen chat-completions API and return assistant text output.
-
-        Args:
-            max_tokens: Override default max_tokens from settings. Useful for
-                extraction calls that need more output space.
-        """
-
         if not self.is_configured():
             raise ValueError("Qwen API key is not configured.")
-        api_key = self._get_api_key()
+
+        effective_max = max_tokens if max_tokens is not None else self._settings.qwen_max_tokens
+
+        if self._settings.qwen_use_ollama_native:
+            return self._chat_ollama(system_prompt, user_prompt, effective_max)
+        return self._chat_openai(system_prompt, user_prompt, effective_max)
+
+    def _chat_ollama(self, system_prompt: str, user_prompt: str, max_tokens: int) -> str:
+        base_url = self._settings.qwen_base_url.rstrip("/")
+        # Strip /v1 suffix to get Ollama base
+        ollama_base = re.sub(r"/v1/?$", "", base_url)
+        url = f"{ollama_base}/api/chat"
+
+        payload: dict[str, Any] = {
+            "model": self._settings.qwen_model_id,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "stream": False,
+            "think": False,
+            "options": {
+                "temperature": self._settings.qwen_temperature,
+                "num_predict": max_tokens,
+            },
+        }
+        body = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            url=url,
+            data=body,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with request.urlopen(req, timeout=120) as response:
+                raw = response.read().decode("utf-8")
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ValueError(f"Ollama API HTTP error: {exc.code} {detail}") from exc
+
+        parsed = json.loads(raw)
+        content = parsed.get("message", {}).get("content", "")
+        return _THINK_TAG_RE.sub("", content).strip()
+
+    def _chat_openai(self, system_prompt: str, user_prompt: str, max_tokens: int) -> str:
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self._settings.qwen_auth_required:
+            headers["Authorization"] = f"Bearer {self._get_api_key()}"
 
         base_url = self._settings.qwen_base_url.rstrip("/")
         url = f"{base_url}/chat/completions"
@@ -91,18 +140,10 @@ class QwenClient:
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": self._settings.qwen_temperature,
-            "max_tokens": max_tokens if max_tokens is not None else self._settings.qwen_max_tokens,
+            "max_tokens": max_tokens,
         }
         body = json.dumps(payload).encode("utf-8")
-        req = request.Request(
-            url=url,
-            data=body,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-        )
+        req = request.Request(url=url, data=body, method="POST", headers=headers)
         try:
             with request.urlopen(req, timeout=120) as response:
                 raw = response.read().decode("utf-8")
@@ -110,15 +151,19 @@ class QwenClient:
             detail = exc.read().decode("utf-8", errors="replace")
             raise ValueError(f"Qwen API HTTP error: {exc.code} {detail}") from exc
 
-        parsed = json.loads(raw)
-        return self._extract_text(parsed)
+        return self._extract_text(json.loads(raw))
+
+    # ------------------------------------------------------------------
+    # Streaming (OpenAI-compatible only; Ollama native stream not needed)
+    # ------------------------------------------------------------------
 
     def stream_chat(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
-        """Call Qwen chat-completions API with streaming and yield text chunks."""
-
         if not self.is_configured():
             raise ValueError("Qwen API key is not configured.")
-        api_key = self._get_api_key()
+
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self._settings.qwen_auth_required:
+            headers["Authorization"] = f"Bearer {self._get_api_key()}"
 
         base_url = self._settings.qwen_base_url.rstrip("/")
         url = f"{base_url}/chat/completions"
@@ -133,15 +178,7 @@ class QwenClient:
             "stream": True,
         }
         body = json.dumps(payload).encode("utf-8")
-        req = request.Request(
-            url=url,
-            data=body,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-        )
+        req = request.Request(url=url, data=body, method="POST", headers=headers)
         try:
             resp = request.urlopen(req, timeout=60)
         except error.HTTPError as exc:
@@ -156,8 +193,6 @@ class QwenClient:
             resp.close()
 
     def _parse_sse_stream(self, resp: Any) -> Iterator[str]:
-        """Parse SSE lines from an HTTP response and yield text deltas."""
-
         buffer = ""
         for raw_line in resp:
             line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
@@ -180,14 +215,16 @@ class QwenClient:
 
     @staticmethod
     def _extract_stream_delta(chunk: dict[str, Any]) -> str:
-        """Extract text delta from a streaming chunk."""
-
         choices = chunk.get("choices")
         if not isinstance(choices, list) or not choices:
             return ""
         delta = choices[0].get("delta", {})
         content = delta.get("content")
         return content if isinstance(content, str) else ""
+
+    # ------------------------------------------------------------------
+    # Embeddings (OpenAI-compatible only)
+    # ------------------------------------------------------------------
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_ERRORS),
@@ -203,16 +240,13 @@ class QwenClient:
         reraise=True,
     )
     def embedding(self, text: str | list[str]) -> list[float] | list[list[float]]:
-        """Call Qwen embeddings API.
-
-        Accepts a single string or a list of strings (batch mode).
-        Returns a single vector or a list of vectors respectively.
-        """
-
         batch_mode = isinstance(text, list)
         if not self.is_configured():
             raise ValueError("Qwen API key is not configured.")
-        api_key = self._get_api_key()
+
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self._settings.qwen_auth_required:
+            headers["Authorization"] = f"Bearer {self._get_api_key()}"
 
         base_url = self._settings.qwen_base_url.rstrip("/")
         url = f"{base_url}/embeddings"
@@ -221,15 +255,7 @@ class QwenClient:
             "input": text,
         }
         body = json.dumps(payload).encode("utf-8")
-        req = request.Request(
-            url=url,
-            data=body,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-        )
+        req = request.Request(url=url, data=body, method="POST", headers=headers)
         try:
             with request.urlopen(req, timeout=60) as response:
                 raw = response.read().decode("utf-8")
@@ -253,21 +279,21 @@ class QwenClient:
             raise ValueError("Qwen embeddings API returned empty embedding.")
         return single
 
-    def _get_api_key(self) -> str:
-        """Resolve Qwen API key from env or Secrets Manager."""
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
+    def _get_api_key(self) -> str:
         return resolve_qwen_api_key(self._settings).strip()
 
     def _extract_text(self, payload: dict[str, Any]) -> str:
-        """Extract assistant text from OpenAI-compatible chat completion payload."""
-
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
             return ""
         message = choices[0].get("message", {})
         content = message.get("content")
         if isinstance(content, str):
-            return content.strip()
+            return _THINK_TAG_RE.sub("", content).strip()
         if isinstance(content, list):
             parts: list[str] = []
             for item in content:
@@ -275,12 +301,10 @@ class QwenClient:
                     text_value = item.get("text")
                     if isinstance(text_value, str) and text_value.strip():
                         parts.append(text_value.strip())
-            return "\n".join(parts).strip()
+            return _THINK_TAG_RE.sub("", "\n".join(parts)).strip()
         return ""
 
     def _extract_embedding(self, payload: dict[str, Any]) -> list[float]:
-        """Extract embedding vector from OpenAI-compatible embeddings payload."""
-
         data = payload.get("data")
         if not isinstance(data, list) or not data:
             return []

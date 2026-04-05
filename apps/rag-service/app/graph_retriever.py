@@ -22,6 +22,7 @@ from .models import GraphContext, GraphEntity, GraphRelation, RetrievalMode
 
 if TYPE_CHECKING:
     from .config import Settings
+    from .embedding_factory import EmbeddingClient
     from .entity_vector_store import EntityVectorStore
     from .graph_repository import Neo4jRepository
     from .qwen_client import QwenClient
@@ -47,8 +48,10 @@ class GraphRetriever:
         vector_store: EntityVectorStore,
         neo4j_repo: Neo4jRepository | None,
         settings: Settings,
+        embedding_client: EmbeddingClient | None = None,
     ) -> None:
         self._qwen = qwen_client
+        self._embedder = embedding_client
         self._vector_store = vector_store
         self._neo4j = neo4j_repo
         self._settings = settings
@@ -153,8 +156,9 @@ class GraphRetriever:
 
     def _embed_query(self, query: str) -> list[float] | None:
         """Generate a single embedding for the query text."""
+        embedder = self._embedder or self._qwen
         try:
-            result = self._qwen.embedding(query)
+            result = embedder.embedding(query)
             # embedding() returns list[float] for a single string input
             if result and isinstance(result[0], float):
                 return result  # type: ignore[return-value]

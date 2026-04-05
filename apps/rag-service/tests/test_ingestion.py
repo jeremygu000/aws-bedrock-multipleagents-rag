@@ -88,6 +88,7 @@ def _setup_mocks(
     mock_boto3: MagicMock,
     mock_parse: MagicMock,
     mock_chunk: MagicMock,
+    mock_get_embed: MagicMock | None = None,
     chunks: list[_FakeChunk] | None = None,
     parsed_title: str = "Parsed Title",
     mime_type: str = "application/pdf",
@@ -106,6 +107,11 @@ def _setup_mocks(
     mock_qwen.embedding.side_effect = _fake_embedding_batch
     mock_qwen_cls.return_value = mock_qwen
 
+    if mock_get_embed is not None:
+        mock_embed_client = MagicMock()
+        mock_embed_client.embedding.side_effect = _fake_embedding_batch
+        mock_get_embed.return_value = mock_embed_client
+
     s3_body = MagicMock()
     s3_body.read.return_value = FILE_BYTES
     mock_s3 = MagicMock()
@@ -123,7 +129,9 @@ def _setup_mocks(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_happy_path_full_pipeline(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -133,7 +141,8 @@ def test_happy_path_full_pipeline(
 ) -> None:
     chunks = _make_chunks(3)
     mock_repo, mock_qwen = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=chunks
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk,
+        mock_get_embed=mock_get_embed, chunks=chunks
     )
     meta = _make_upload_metadata()
 
@@ -176,7 +185,9 @@ def test_happy_path_full_pipeline(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_empty_chunks_no_embedding_call(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -185,7 +196,8 @@ def test_empty_chunks_no_embedding_call(
     settings: Settings,
 ) -> None:
     mock_repo, mock_qwen = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=[]
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk,
+        mock_get_embed=mock_get_embed, chunks=[]
     )
     meta = _make_upload_metadata()
 
@@ -207,7 +219,9 @@ def test_empty_chunks_no_embedding_call(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_embedding_batching_25_chunks_3_calls(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -217,7 +231,8 @@ def test_embedding_batching_25_chunks_3_calls(
 ) -> None:
     chunks = _make_chunks(25)
     mock_repo, mock_qwen = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=chunks
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk,
+        mock_get_embed=mock_get_embed, chunks=chunks
     )
     meta = _make_upload_metadata()
 
@@ -226,8 +241,9 @@ def test_embedding_batching_25_chunks_3_calls(
     assert result.status == "succeeded"
     assert result.chunks_created == 25
 
-    assert mock_qwen.embedding.call_count == 3
-    calls = mock_qwen.embedding.call_args_list
+    mock_embed_client = mock_get_embed.return_value
+    assert mock_embed_client.embedding.call_count == 3
+    calls = mock_embed_client.embedding.call_args_list
     assert len(calls[0][0][0]) == 10
     assert len(calls[1][0][0]) == 10
     assert len(calls[2][0][0]) == 5
@@ -238,7 +254,9 @@ def test_embedding_batching_25_chunks_3_calls(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_s3_download_failure_marks_run_failed(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -246,7 +264,7 @@ def test_s3_download_failure_marks_run_failed(
     mock_chunk: MagicMock,
     settings: Settings,
 ) -> None:
-    mock_repo, _ = _setup_mocks(mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk)
+    mock_repo, _ = _setup_mocks(mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, mock_get_embed=mock_get_embed)
     mock_boto3.client.return_value.get_object.side_effect = Exception("S3 access denied")
     meta = _make_upload_metadata()
 
@@ -266,7 +284,9 @@ def test_s3_download_failure_marks_run_failed(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_parse_failure_marks_run_failed(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -274,7 +294,7 @@ def test_parse_failure_marks_run_failed(
     mock_chunk: MagicMock,
     settings: Settings,
 ) -> None:
-    mock_repo, _ = _setup_mocks(mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk)
+    mock_repo, _ = _setup_mocks(mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, mock_get_embed=mock_get_embed)
     mock_parse.side_effect = ValueError("Unsupported file format")
     meta = _make_upload_metadata()
 
@@ -293,7 +313,9 @@ def test_parse_failure_marks_run_failed(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_embedding_failure_marks_run_failed(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -303,9 +325,9 @@ def test_embedding_failure_marks_run_failed(
 ) -> None:
     chunks = _make_chunks(3)
     mock_repo, mock_qwen = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=chunks
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, mock_get_embed=mock_get_embed, chunks=chunks
     )
-    mock_qwen.embedding.side_effect = ValueError("Qwen API rate limited")
+    mock_get_embed.return_value.embedding.side_effect = ValueError("Qwen API rate limited")
     meta = _make_upload_metadata()
 
     result = ingest_document("my-bucket", "docs/report.pdf", meta, settings)
@@ -323,7 +345,9 @@ def test_embedding_failure_marks_run_failed(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_repository_insert_failure_marks_run_failed(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -333,7 +357,7 @@ def test_repository_insert_failure_marks_run_failed(
 ) -> None:
     chunks = _make_chunks(3)
     mock_repo, _ = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=chunks
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, mock_get_embed=mock_get_embed, chunks=chunks
     )
     mock_repo.batch_insert_chunks.side_effect = RuntimeError("DB connection lost")
     meta = _make_upload_metadata()
@@ -353,7 +377,9 @@ def test_repository_insert_failure_marks_run_failed(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_source_uri_fallback_to_s3_uri(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -362,7 +388,7 @@ def test_source_uri_fallback_to_s3_uri(
     settings: Settings,
 ) -> None:
     mock_repo, _ = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=_make_chunks(2)
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, mock_get_embed=mock_get_embed, chunks=_make_chunks(2)
     )
     meta = _make_upload_metadata(source_uri="")
 
@@ -382,7 +408,9 @@ def test_source_uri_fallback_to_s3_uri(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_title_from_upload_metadata_takes_precedence(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -396,6 +424,7 @@ def test_title_from_upload_metadata_takes_precedence(
         mock_boto3,
         mock_parse,
         mock_chunk,
+        mock_get_embed=mock_get_embed,
         chunks=_make_chunks(1),
         parsed_title="Title From Parser",
     )
@@ -416,7 +445,9 @@ def test_title_from_upload_metadata_takes_precedence(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_chunk_records_have_correct_fields(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -426,7 +457,7 @@ def test_chunk_records_have_correct_fields(
 ) -> None:
     chunks = _make_chunks(2)
     mock_repo, _ = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=chunks
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, mock_get_embed=mock_get_embed, chunks=chunks
     )
     meta = _make_upload_metadata(published_year=2023, published_month=3)
 
@@ -452,7 +483,9 @@ def test_chunk_records_have_correct_fields(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_document_record_content_hash(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -461,7 +494,7 @@ def test_document_record_content_hash(
     settings: Settings,
 ) -> None:
     mock_repo, _ = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=_make_chunks(1)
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, mock_get_embed=mock_get_embed, chunks=_make_chunks(1)
     )
     meta = _make_upload_metadata()
 
@@ -479,7 +512,9 @@ def test_document_record_content_hash(
 @patch("app.ingestion.boto3")
 @patch("app.ingestion.QwenClient")
 @patch("app.ingestion.IngestionRepository")
+@patch("app.ingestion.get_embedding_client")
 def test_filename_extracted_from_s3_key(
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -488,7 +523,7 @@ def test_filename_extracted_from_s3_key(
     settings: Settings,
 ) -> None:
     mock_repo, _ = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=[]
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, mock_get_embed=mock_get_embed, chunks=[]
     )
     meta = _make_upload_metadata()
 
@@ -561,6 +596,7 @@ ENTITY_EXTRACTION_PATCHES = [
     "app.ingestion.boto3",
     "app.ingestion.QwenClient",
     "app.ingestion.IngestionRepository",
+    "app.ingestion.get_embedding_client",
     "app.ingestion.EntityExtractor",
     "app.ingestion.EntityDeduplicator",
     "app.ingestion.EntityVectorStore",
@@ -581,6 +617,7 @@ def _setup_entity_mocks(
     mock_vector_cls: MagicMock,
     mock_dedup_cls: MagicMock,
     mock_extractor_cls: MagicMock,
+    mock_get_embed: MagicMock,
     mock_repo_cls: MagicMock,
     mock_qwen_cls: MagicMock,
     mock_boto3: MagicMock,
@@ -594,7 +631,7 @@ def _setup_entity_mocks(
         chunks = _make_chunks(3)
 
     mock_repo, mock_qwen = _setup_mocks(
-        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, chunks=chunks
+        mock_repo_cls, mock_qwen_cls, mock_boto3, mock_parse, mock_chunk, mock_get_embed=mock_get_embed, chunks=chunks
     )
 
     chunk_results = [
@@ -660,6 +697,7 @@ def test_entity_extraction_happy_path(
     mock_vector_cls,
     mock_dedup_cls,
     mock_extractor_cls,
+    mock_get_embed,
     mock_repo_cls,
     mock_qwen_cls,
     mock_boto3,
@@ -674,6 +712,7 @@ def test_entity_extraction_happy_path(
         mock_vector_cls,
         mock_dedup_cls,
         mock_extractor_cls,
+        mock_get_embed,
         mock_repo_cls,
         mock_qwen_cls,
         mock_boto3,
@@ -707,6 +746,7 @@ def test_entity_extraction_disabled_skips_pipeline(
     mock_vector_cls,
     mock_dedup_cls,
     mock_extractor_cls,
+    mock_get_embed,
     mock_repo_cls,
     mock_qwen_cls,
     mock_boto3,
@@ -730,6 +770,7 @@ def test_entity_extraction_disabled_skips_pipeline(
         mock_vector_cls,
         mock_dedup_cls,
         mock_extractor_cls,
+        mock_get_embed,
         mock_repo_cls,
         mock_qwen_cls,
         mock_boto3,
@@ -756,6 +797,7 @@ def test_entity_extraction_chunk_failure_continues(
     mock_vector_cls,
     mock_dedup_cls,
     mock_extractor_cls,
+    mock_get_embed,
     mock_repo_cls,
     mock_qwen_cls,
     mock_boto3,
@@ -770,6 +812,7 @@ def test_entity_extraction_chunk_failure_continues(
         mock_vector_cls,
         mock_dedup_cls,
         mock_extractor_cls,
+        mock_get_embed,
         mock_repo_cls,
         mock_qwen_cls,
         mock_boto3,
@@ -816,6 +859,7 @@ def test_entity_extraction_all_chunks_fail_returns_zero(
     mock_vector_cls,
     mock_dedup_cls,
     mock_extractor_cls,
+    mock_get_embed,
     mock_repo_cls,
     mock_qwen_cls,
     mock_boto3,
@@ -830,6 +874,7 @@ def test_entity_extraction_all_chunks_fail_returns_zero(
         mock_vector_cls,
         mock_dedup_cls,
         mock_extractor_cls,
+        mock_get_embed,
         mock_repo_cls,
         mock_qwen_cls,
         mock_boto3,
@@ -856,6 +901,7 @@ def test_entity_extraction_neo4j_failure_continues_to_pgvector(
     mock_vector_cls,
     mock_dedup_cls,
     mock_extractor_cls,
+    mock_get_embed,
     mock_repo_cls,
     mock_qwen_cls,
     mock_boto3,
@@ -870,6 +916,7 @@ def test_entity_extraction_neo4j_failure_continues_to_pgvector(
         mock_vector_cls,
         mock_dedup_cls,
         mock_extractor_cls,
+        mock_get_embed,
         mock_repo_cls,
         mock_qwen_cls,
         mock_boto3,
@@ -895,6 +942,7 @@ def test_entity_extraction_pgvector_failure_still_succeeds(
     mock_vector_cls,
     mock_dedup_cls,
     mock_extractor_cls,
+    mock_get_embed,
     mock_repo_cls,
     mock_qwen_cls,
     mock_boto3,
@@ -909,6 +957,7 @@ def test_entity_extraction_pgvector_failure_still_succeeds(
         mock_vector_cls,
         mock_dedup_cls,
         mock_extractor_cls,
+        mock_get_embed,
         mock_repo_cls,
         mock_qwen_cls,
         mock_boto3,
@@ -932,6 +981,7 @@ def test_entity_extraction_neo4j_disabled_skips_graph(
     mock_vector_cls,
     mock_dedup_cls,
     mock_extractor_cls,
+    mock_get_embed,
     mock_repo_cls,
     mock_qwen_cls,
     mock_boto3,
@@ -956,6 +1006,7 @@ def test_entity_extraction_neo4j_disabled_skips_graph(
         mock_vector_cls,
         mock_dedup_cls,
         mock_extractor_cls,
+        mock_get_embed,
         mock_repo_cls,
         mock_qwen_cls,
         mock_boto3,
@@ -981,6 +1032,7 @@ def test_entity_extraction_pipeline_crash_does_not_fail_ingestion(
     mock_vector_cls,
     mock_dedup_cls,
     mock_extractor_cls,
+    mock_get_embed,
     mock_repo_cls,
     mock_qwen_cls,
     mock_boto3,
@@ -995,6 +1047,7 @@ def test_entity_extraction_pipeline_crash_does_not_fail_ingestion(
         mock_vector_cls,
         mock_dedup_cls,
         mock_extractor_cls,
+        mock_get_embed,
         mock_repo_cls,
         mock_qwen_cls,
         mock_boto3,
@@ -1021,6 +1074,7 @@ def test_entity_extraction_empty_chunks_skips_pipeline(
     mock_vector_cls,
     mock_dedup_cls,
     mock_extractor_cls,
+    mock_get_embed,
     mock_repo_cls,
     mock_qwen_cls,
     mock_boto3,
@@ -1034,6 +1088,7 @@ def test_entity_extraction_empty_chunks_skips_pipeline(
         mock_vector_cls,
         mock_dedup_cls,
         mock_extractor_cls,
+        mock_get_embed,
         mock_repo_cls,
         mock_qwen_cls,
         mock_boto3,
