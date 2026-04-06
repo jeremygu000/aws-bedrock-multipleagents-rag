@@ -250,6 +250,15 @@ export class BedrockAgentsStack extends cdk.Stack {
       RAG_CRAG_WEB_SEARCH_K: processEnv.RAG_CRAG_WEB_SEARCH_K ?? "3",
       RAG_CRAG_GRADER_MODEL: processEnv.RAG_CRAG_GRADER_MODEL ?? "",
       TAVILY_API_KEY: processEnv.TAVILY_API_KEY ?? "",
+      // HyDE (Hypothetical Document Embeddings) — off by default, opt-in via env.
+      RAG_ENABLE_HYDE: processEnv.RAG_ENABLE_HYDE ?? "false",
+      RAG_HYDE_MODEL_ID: processEnv.RAG_HYDE_MODEL_ID ?? FOUNDATION_MODEL_ID,
+      RAG_HYDE_NUM_HYPOTHESES: processEnv.RAG_HYDE_NUM_HYPOTHESES ?? "1",
+      RAG_HYDE_TEMPERATURE: processEnv.RAG_HYDE_TEMPERATURE ?? "0.65",
+      RAG_HYDE_MAX_TOKENS: processEnv.RAG_HYDE_MAX_TOKENS ?? "500",
+      RAG_HYDE_INCLUDE_ORIGINAL: processEnv.RAG_HYDE_INCLUDE_ORIGINAL ?? "true",
+      RAG_HYDE_AGGREGATION: processEnv.RAG_HYDE_AGGREGATION ?? "mean",
+      RAG_HYDE_SIMILARITY_THRESHOLD: processEnv.RAG_HYDE_SIMILARITY_THRESHOLD ?? "0.2",
     };
 
     // Explicit local override only. Avoid injecting plaintext password by default.

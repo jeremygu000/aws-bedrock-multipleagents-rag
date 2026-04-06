@@ -95,9 +95,13 @@ class QueryRouter:
         )
 
         logger.info(
-            f"Query routing: {strategy.value} (confidence={confidence:.2f}) | "
-            f"tokens={token_count}, entities={has_entities}, "
-            f"factual={is_factual}, reasoning={is_reasoning}"
+            "Query routing: %s (confidence=%.2f) | tokens=%d, entities=%s, factual=%s, reasoning=%s",
+            strategy.value,
+            confidence,
+            token_count,
+            has_entities,
+            is_factual,
+            is_reasoning,
         )
 
         return analysis
@@ -209,7 +213,7 @@ class QueryRouter:
             return gap_score
 
         except Exception as e:
-            logger.warning(f"Failed to estimate semantic gap: {e}")
+            logger.warning("Failed to estimate semantic gap: %s", e)
             return 0.5
 
     def _route(

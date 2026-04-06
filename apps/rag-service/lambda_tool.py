@@ -99,6 +99,18 @@ if settings.enable_hyde:
         embedding_model=bedrock_client,
         config=hyde_config,
     )
+    logger.info(
+        "HyDE retriever initialized: model=%s, num_hypotheses=%d, "
+        "temperature=%.2f, max_tokens=%d, include_original=%s, aggregation=%s",
+        settings.hyde_model_id,
+        settings.hyde_num_hypotheses,
+        settings.hyde_temperature,
+        settings.hyde_max_tokens,
+        settings.hyde_include_original,
+        settings.hyde_aggregation,
+    )
+else:
+    logger.info("HyDE disabled (RAG_ENABLE_HYDE=%s)", settings.enable_hyde)
 
 workflow = RagWorkflow(
     settings=settings,

@@ -70,26 +70,24 @@ Passage:"""
         if not self.config.enabled:
             return False
 
-        # Length check: short queries (< 5 tokens) - cost > benefit
         tokens = len(query.split())
         if tokens < self.config.min_query_length:
-            logger.debug(f"Skipping HyDE: query too short ({tokens} tokens < {self.config.min_query_length})")
+            logger.info("HyDE skip: query too short (%d tokens < %d min)", tokens, self.config.min_query_length)
             return False
 
         if not use_query_router:
+            logger.info("HyDE enabled: query_router bypassed, query=%r", query[:80])
             return True
 
-        # Entity detection: queries with named entities often better served by BM25
         if self._has_entities(query):
-            logger.debug("Skipping HyDE: query contains named entities")
+            logger.info("HyDE skip: named entities detected in query=%r", query[:80])
             return False
 
-        # Reasoning intent: favor HyDE for complex reasoning
         if self._is_reasoning_query(query):
-            logger.debug("Using HyDE: detected reasoning query")
+            logger.info("HyDE enabled: reasoning query detected, query=%r", query[:80])
             return True
 
-        # Default: enable for other queries
+        logger.info("HyDE enabled: default path for query=%r (%d tokens)", query[:80], tokens)
         return True
 
     def _has_entities(self, query: str) -> bool:
@@ -160,12 +158,15 @@ Passage:"""
             response = self.llm.invoke(messages)
             hypothesis = response.content.strip()
 
-            logger.debug(f"Generated hypothesis: {hypothesis[:100]}...")
+            logger.info(
+                "HyDE hypothesis generated: len=%d chars, preview=%r",
+                len(hypothesis),
+                hypothesis[:120],
+            )
             return hypothesis
 
         except Exception as e:
-            logger.error(f"Failed to generate hypothesis: {e}")
-            # Fallback: return original query
+            logger.error("HyDE hypothesis generation failed: %s", e)
             return query
 
     def generate_multi_hypotheses(self, query: str, num: int = 5) -> list[str]:
@@ -202,7 +203,7 @@ Passage:"""
                 hypothesis = response.content.strip()
                 hypotheses.append(hypothesis)
             except Exception as e:
-                logger.warning(f"Failed to generate hypothesis {i+1}: {e}")
+                logger.warning("Failed to generate hypothesis %d: %s", i + 1, e)
                 hypotheses.append(query)  # Fallback
 
         return hypotheses
@@ -222,7 +223,7 @@ Passage:"""
             Dict with 'embeddings', 'sources', and 'strategy'
         """
         if not self._should_use_hyde(query, use_query_router=True):
-            logger.debug("HyDE disabled for query, using original embedding")
+            logger.info("HyDE get_query_embeddings: skipped for query=%r, using original embedding", query[:80])
             return {
                 "embeddings": [self.embeddings.embed_query(query)],
                 "sources": ["original_query"],
@@ -246,7 +247,7 @@ Passage:"""
                 embeddings_list.append(emb)
                 sources.append(f"hypothesis_{i+1}")
             except Exception as e:
-                logger.warning(f"Failed to embed hypothesis {i+1}: {e}")
+                logger.warning("Failed to embed hypothesis %d: %s", i + 1, e)
 
         # Average if multiple hypotheses
         if len(embeddings_list) > 1:
@@ -256,20 +257,26 @@ Passage:"""
             embeddings_list = [avg_embedding]
             sources = ["averaged_hypotheses"]
 
-        # include_original: dual strategy
         if self.config.include_original:
             try:
                 orig_emb = self.embeddings.embed_query(query)
                 embeddings_list.append(orig_emb)
                 sources.append("original_query")
-                logger.debug("Using dual strategy: hypothesis + original")
+                logger.info("HyDE dual strategy: appended original query embedding")
             except Exception as e:
-                logger.warning(f"Failed to embed original query: {e}")
+                logger.warning("Failed to embed original query: %s", e)
 
+        strategy_name = "multi_hypothesis_averaged" if self.config.num_hypotheses > 1 else "single_hypothesis"
+        logger.info(
+            "HyDE get_query_embeddings complete: strategy=%s, sources=%s, total_embeddings=%d",
+            strategy_name,
+            sources,
+            len(embeddings_list),
+        )
         return {
             "embeddings": embeddings_list,
             "sources": sources,
-            "strategy": "multi_hypothesis_averaged" if self.config.num_hypotheses > 1 else "single_hypothesis",
+            "strategy": strategy_name,
         }
 
     def rerank_with_original(self, results: list, query: str, reranker=None) -> list:
@@ -291,8 +298,8 @@ Passage:"""
 
         try:
             reranked = reranker(query, results)
-            logger.debug(f"Reranked {len(results)} results using original query")
+            logger.info("Reranked %d results using original query", len(results))
             return reranked
         except Exception as e:
-            logger.warning(f"Reranking failed, returning original order: {e}")
+            logger.warning("Reranking failed, returning original order: %s", e)
             return results

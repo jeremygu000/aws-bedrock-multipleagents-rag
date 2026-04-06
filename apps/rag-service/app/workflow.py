@@ -291,20 +291,35 @@ class RagWorkflow:
 
         try:
             if self._hyde_retriever and self._settings.enable_hyde:
+                logger.info(
+                    "HyDE build_request: invoking HyDE retriever for query=%r (len=%d tokens)",
+                    retrieval_query[:80],
+                    len(retrieval_query.split()),
+                )
                 hyde_result = self._hyde_retriever.get_query_embeddings(retrieval_query)
                 hyde_embeddings = hyde_result.get("embeddings", [])
                 hyde_strategy = hyde_result.get("strategy", "disabled")
                 if hyde_embeddings:
                     query_embedding = hyde_embeddings[0]
-                    logger.debug(f"HyDE enabled: strategy={hyde_strategy}, sources={hyde_result.get('sources', [])}")
+                    logger.info(
+                        "HyDE build_request: strategy=%s, sources=%s, embedding_count=%d, embedding_dim=%d",
+                        hyde_strategy,
+                        hyde_result.get("sources", []),
+                        len(hyde_embeddings),
+                        len(query_embedding) if query_embedding else 0,
+                    )
                 else:
                     logger.warning("HyDE returned no embeddings, falling back to standard embedding")
                     hyde_strategy = "fallback"
                     query_embedding = self._query_processor.build_query_embedding(retrieval_query)
             else:
+                if not self._settings.enable_hyde:
+                    logger.info("HyDE build_request: HyDE disabled via config")
+                elif not self._hyde_retriever:
+                    logger.info("HyDE build_request: HyDE retriever not initialized")
                 query_embedding = self._query_processor.build_query_embedding(retrieval_query)
         except Exception as e:
-            logger.exception(f"HyDE retrieval failed, falling back to standard embedding: {e}")
+            logger.exception("HyDE retrieval failed, falling back to standard embedding: %s", e)
             hyde_strategy = "fallback"
             query_embedding = self._query_processor.build_query_embedding(retrieval_query)
 
