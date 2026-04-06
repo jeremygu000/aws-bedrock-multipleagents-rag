@@ -31,7 +31,10 @@ def test_event_from_raw_parses_fields() -> None:
         "requestBody": {
             "content": {
                 "application/json": {
-                    "properties": {"query": "hello", "topK": 3},
+                    "properties": [
+                        {"name": "query", "type": "string", "value": "hello"},
+                        {"name": "topK", "type": "integer", "value": "3"},
+                    ],
                 }
             }
         },
@@ -74,11 +77,11 @@ def test_handle_rag_action_success() -> None:
         "requestBody": {
             "content": {
                 "application/json": {
-                    "properties": {
-                        "query": "policy question",
-                        "topK": 7,
-                        "filters": {"source_type": "crawler"},
-                    }
+                    "properties": [
+                        {"name": "query", "type": "string", "value": "policy question"},
+                        {"name": "topK", "type": "integer", "value": "7"},
+                        {"name": "filters", "type": "object", "value": '{"source_type": "crawler"}'},
+                    ]
                 }
             }
         },

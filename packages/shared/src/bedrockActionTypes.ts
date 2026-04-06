@@ -9,10 +9,16 @@ export interface BedrockActionEvent {
   requestBody?: {
     content?: {
       "application/json"?: {
-        properties?: Record<string, unknown>;
+        properties?: BedrockProperty[] | Record<string, unknown>;
       };
     };
   };
+}
+
+interface BedrockProperty {
+  name: string;
+  type: string;
+  value: string;
 }
 
 export interface BedrockActionResponse {
@@ -32,9 +38,37 @@ export interface BedrockActionResponse {
   promptSessionAttributes?: Record<string, string>;
 }
 
+const normalizeProperties = (
+  raw: BedrockProperty[] | Record<string, unknown> | undefined,
+): Record<string, unknown> => {
+  if (!raw) {
+    return {};
+  }
+  if (!Array.isArray(raw)) {
+    return raw;
+  }
+  const out: Record<string, unknown> = {};
+  for (const item of raw) {
+    if (item.name) {
+      let value: unknown = item.value;
+      const t = (item.type ?? "string").toLowerCase();
+      if (t === "integer" || t === "number") {
+        const n = Number(value);
+        if (!Number.isNaN(n)) {
+          value = n;
+        }
+      } else if (t === "boolean") {
+        value = String(value).toLowerCase() === "true";
+      }
+      out[item.name] = value;
+    }
+  }
+  return out;
+};
+
 export const getJsonProps = <T extends object = Record<string, unknown>>(
   event: BedrockActionEvent,
-): T => (event.requestBody?.content?.["application/json"]?.properties ?? {}) as T;
+): T => normalizeProperties(event.requestBody?.content?.["application/json"]?.properties) as T;
 
 export const createJsonResponse = (
   event: BedrockActionEvent,

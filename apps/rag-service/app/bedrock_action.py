@@ -29,14 +29,13 @@ class BedrockActionEvent:
     def from_raw(cls, event: dict[str, Any]) -> "BedrockActionEvent":
         """Parse a raw Bedrock action event into a stable internal object."""
 
-        # Bedrock action input embeds JSON properties under requestBody/content.
         json_body = (
             event.get("requestBody", {})
             .get("content", {})
             .get("application/json", {})
             .get("properties", {})
         )
-        properties = json_body if isinstance(json_body, dict) else {}
+        properties = _normalize_properties(json_body)
         return cls(
             action_group=str(event.get("actionGroup", "rag_search")),
             api_path=str(event.get("apiPath", "/rag_search")),
@@ -114,6 +113,40 @@ def handle_rag_action(raw_event: dict[str, Any], workflow: RagWorkflow) -> dict[
         },
         status_code=200,
     )
+
+
+def _normalize_properties(raw: Any) -> dict[str, Any]:
+    """Convert Bedrock properties to a flat dict.
+
+    Bedrock sends properties as a list of ``{name, type, value}`` objects.
+    Legacy tests may pass a plain dict.  Accept both.
+    """
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, list):
+        out: dict[str, Any] = {}
+        for item in raw:
+            if isinstance(item, dict) and "name" in item:
+                value = item.get("value", "")
+                prop_type = str(item.get("type", "string")).lower()
+                if prop_type == "integer":
+                    try:
+                        value = int(value)
+                    except (TypeError, ValueError):
+                        pass
+                elif prop_type == "object":
+                    if isinstance(value, str):
+                        try:
+                            import json as _json
+
+                            value = _json.loads(value)
+                        except (ValueError, TypeError):
+                            pass
+                elif prop_type == "boolean":
+                    value = str(value).lower() in ("true", "1", "yes")
+                out[item["name"]] = value
+        return out
+    return {}
 
 
 def _coerce_int(value: Any, default: int, min_value: int, max_value: int) -> int:
