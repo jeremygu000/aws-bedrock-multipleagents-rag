@@ -1,0 +1,575 @@
+{
+  "id": "gen-qa-0001",
+  "user_input": "According to the chunk, why may younger musicians find it easier to focus on their careers?",
+  "reference": "The chunk explains that as people get older, they accumulate more responsibilities, while younger musicians have fewer obligations. This gives them more freedom to take risks and focus on their careers.",
+  "retrieved_contexts": [
+    "Definitely. You can track the pressures of building a micro to small business and directly correlate that to where a musician is at in their career timeline. Add to that the responsibilities people tend to accumulate as they get older and you can see that the apparent freedom of lower age gives a lot more scope for taking chances and focusing on your career to the exclusion of other obligations. Any kind of failure or public criticism can often be something that triggers shame and despondency as well."
+  ],
+  "ground_truth_context": "Add to that the responsibilities people tend to accumulate as they get older and you can see that the apparent freedom of lower age gives a lot more scope for taking chances and focusing on your career to the exclusion of other obligations.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/producer-and-manager-tom-larkin-talks-mental-health-in-the-music-industry",
+  "citation_title": "APRA AMCOS",
+  "question_type": "conceptual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "d6fdaf84-60fd-4264-8c22-0684e59d6743",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/producer-and-manager-tom-larkin-talks-mental-health-in-the-music-industry",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0002",
+  "user_input": "According to the chunk, what do young artists need to do to stand out in the niche country music market?",
+  "reference": "Young artists need to create anticipation and make a whole lot of noise to stand out in the niche market.",
+  "retrieved_contexts": [
+    "It’s still a very niche market and it's horses-for-courses, but it’s still great artists with great songs cutting through. Young artists need to create anticipation and make a whole lot of noise to stand out and they can’t be too driven by temptation that gives short term ‘feel good’. They need to create opportunities with songs that give them a get, to get their next get. Know if your song fits on a particular country radio outlet as there are only a few 24/7 stations and they are all very different from one another. Strategy needs to be different between hit artists and emerging artists and also different between the sub-genres of contemporary, alternative and traditional."
+  ],
+  "ground_truth_context": "Young artists need to create anticipation and make a whole lot of noise to stand out.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/country-music-promotion-101",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "adda0a88-85ff-4479-8848-9357b62c8517",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/country-music-promotion-101",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0003",
+  "user_input": "Which albums are nominated for both Album of the Year and Best Pop Vocal Album?",
+  "reference": "Taylor Swift’s Midnights and Miley Cyrus’ Endless Summer Vacation are both nominated for Album of the Year and Best Pop Vocal Album.",
+  "retrieved_contexts": [
+    "In the Album of the Year category, Taylor Swift’s Midnights includes a nod for Melbourne’s Keanu Beats, a writer and producer on ‘Karma’, which peaked at #2 on the Billboard Hot 100 in June. Midnights is also in contention for Best Pop Vocal Album and Taylor and Ice Spice are up for Best Pop Duo/Group Performance for ‘Karma’. Miley Cyrus’ Endless Summer Vacation is also nominated for Album of the Year, and it includes the one-and-only Sia as a songwriter and featured artist on ‘Muddy Feet’ and 'Violet Chemistry' and Sarah Aarons for co-writing ‘Jaded’ with Miley and Greg Kurstin. Endless Summer Vacation is also nominated for Best Pop Vocal Album."
+  ],
+  "ground_truth_context": "Midnights is also in contention for Best Pop Vocal Album. Miley Cyrus’ Endless Summer Vacation is also nominated for Album of the Year... Endless Summer Vacation is also nominated for Best Pop Vocal Album.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/aussie-and-kiwis-figure-in-to-2024-grammy-noms",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "22d4b311-d5bc-4ba5-a452-320061cdc961",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/aussie-and-kiwis-figure-in-to-2024-grammy-noms",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0004",
+  "user_input": "According to the chunk, what is Zander Hulme's view on environmental design in games?",
+  "reference": "Zander Hulme believes environmental design is not just about adding background ambience, but about creating a living world that helps sell the game and allows players to suspend their disbelief.",
+  "retrieved_contexts": [
+    "Game composer and sound designer Zander Hulme kicks off his 'Creating Ambience' masterclass by explaining his environmental design philosophy. \"It's not just whacking in some background ambience. It's about making a living world that kind of helps you sell your game and helps the player to suspend their belief when they enter into your little world.\" \"Without ambience, a game world can feel kind of empty and wrong.\" Well-designed ambience \"builds the imagination in your player's mind...it's actually quite efficient,\" says Zander. If you want to learn more about the technical aspects of ambient sound, make sure to watch the entire masterclass. High Score is presented by APRA AMCOS, in partnership with the Victorian Government through Creative Victoria , as part of Melbourne International Games Week ."
+  ],
+  "ground_truth_context": "\"It's not just whacking in some background ambience. It's about making a living world that kind of helps you sell your game and helps the player to suspend their belief when they enter into your little world.\"",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/high-score-takeaways",
+  "citation_title": "APRA AMCOS",
+  "question_type": "conceptual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "d422d776-baf9-41c0-9a3d-83ffe146179a",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/high-score-takeaways",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0005",
+  "user_input": "Which individual has received commissions from the Melbourne Symphony Orchestra?",
+  "reference": "Amy Bastow has received commissions from the Melbourne Symphony Orchestra.",
+  "retrieved_contexts": [
+    "After graduation, James found himself a position at Harmonix Music Systems, where he contributed audio and game design to their rhythm games. He has contributed on titles such as: ROCK BAND 4, AMPLITUDE HD, DROPMIX, and more. Amy Bastow (VIC) At just 30 years of age, Amy Bastow’s talents as a Film and Television Composer are already making waves, both in Australia and internationally. She has already gained the attention of Hollywood film-maker James Cameron (Titanic, Avatar), co-composing the score for his 3D feature documentary, Deepsea Challenge, which opened in August 2014 and screened across the United States, Asia, in Australia and throughout Europe. Her work on the documentary earned her a nomination for ‘Best Original Score’ at the 2015 AFI/AACTA Awards (The Australian Academy Awards). Amy has also written and produced music for iOS games, commercials, corporate videos and interactive media. Amy has received commissions from the Melbourne Symphony Orchestra, The Australian String Quartet, The Song Company, Warner Music and even composed a fanfare for The Honourable Dame Marie Bashir AD, CVO (former Governor of New South Wales). Her music has been screened and performed in dozens of festivals and concerts across Europe, Asia, the United States, New Zealand and Australia. Tim Shiel (VIC) Tim Shiel is an electronic musician, games composer and radio broadcaster based in Melbourne, Australia. Tim's work in gaming includes the score for the award-winning mobile game Duet. He also recently wrote the score for indie gaming documentary GameLoading: Rise of the Indies, a film which profiles the rapid growth and diversity of the global indie gaming community. He has released a series of albums and EPs both under his own name and his previous alias Faux Pas, and has been a key member of Gotye's touring band since 2011, touring extensively throughout North America, Europe and Asia. A passionate and outspoken champion of forward-thinking music, Tim is known for his on-air roles at 3RRR, Double J and triple j, and is a former judge of the Australian Music Prize. He is currently the host of Something More on Double J and triple j, a weekly show devoted to brave and creative music from around the world. Kavisha Kuruk (VIC) After graduating from Monash Uni with a Bachelor of Commerce (Accounting & Finance), Kavisha worked for a tax firm and then as the Financial Controller at a magazine publishing company. In 2014, her love of music drew her to White Sky where she quickly found herself working with some of her favourite bands. Having completed her CPA, Kavisha helped set up and run White Sky Tax in 2018. When she’s not at work, she’s usually at a gig or binge watching the latest TV shows. Kenny McAlpine (UK/VIC) I am currently working at Melbourne Conservatorium of Music, part of the Faculty of Fine arts and Music at the University of Melbourne, as Enterprise Fellow in Interactive Composition."
+  ],
+  "ground_truth_context": "Amy has received commissions from the Melbourne Symphony Orchestra.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about/supporting-the-industry/programs/high-score/high-score-2019",
+  "citation_title": "APRA AMCOS",
+  "question_type": "entity_lookup",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "39b77937-5e45-470e-a895-848455fcfbb6",
+    "citation_url": "https://www.apraamcos.com.au/about/supporting-the-industry/programs/high-score/high-score-2019",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0006",
+  "user_input": "According to APRA AMCOS and NATSIMO, what is the main criticism of the Productivity Commission's interim report?",
+  "reference": "They criticise the report for laying the groundwork to legitimise widespread theft of Australian works by AI companies and for perpetuating the myth that copyright is a barrier to innovation.",
+  "retrieved_contexts": [
+    "APRA AMCOS and the National Aboriginal and Torres Strait Islander Music Office (NATSIMO) have condemned the Productivity Commission's interim report. APRA Chair Jenny Morris: \"The Commission may couch this as policy exploration, but their direction is clear. They're laying the groundwork to legitimise what they themselves acknowledge is already widespread theft. We've witnessed the wholesale ingestion of Australian works by AI companies in the US, where over 30 court cases are currently underway challenging this practice.\" AMCOS Chair Jaime Gough: \"The Commission's recommendation also perpetuates the thoroughly debunked myth that copyright is a barrier to innovation, a favourite big tech talking point. WIPO studies consistently demonstrate that copyright protection actually drives innovation by creating economic incentives for creativity. When we protect creators' rights, we're fostering the very innovation the Commission claims to support.\" NATSIMO National Director, Leah Flanagan: \"This interim report exposes a glaring double standard... Yet now they seem content to allow the digital theft of ICIP that exists in our songs and music.\""
+  ],
+  "ground_truth_context": "They're laying the groundwork to legitimise what they themselves acknowledge is already widespread theft... The Commission's recommendation also perpetuates the thoroughly debunked myth that copyright is a barrier to innovation.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/ai-and-music-update-august-2025",
+  "citation_title": "APRA AMCOS",
+  "question_type": "conceptual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "ba235484-272c-4107-8fe6-c1db7d170b8a",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/ai-and-music-update-august-2025",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0007",
+  "user_input": "What is the time of the Anatomy of an Album event with Ruel & M-Phazes?",
+  "reference": "The event takes place from 4 - 6pm AEST.",
+  "retrieved_contexts": [
+    "Who Anatomy of an Album with Ruel & M-Phazes. Co-presented by Spotify. What From demo to master, Anatomy of an Album unpacks great Australian albums with the songwriters and producers who brought them to life. Time: 4 - 6pm AEST Where Spotify HQ - Level 17, 171 Sussex St, Sydney NSW 2000 Accessibility: The venue is fully wheelchair accessible, there is a drop-off area in front of Hyatt Regency, ramp and lift access at all points of the venue. Cost Free - places strictly limited Register Now"
+  ],
+  "ground_truth_context": "Time: 4 - 6pm AEST",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/anatomy-of-an-album-ruel-mphazes",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "5681a5e8-00d2-486a-9f6a-e3f51033e413",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/anatomy-of-an-album-ruel-mphazes",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0008",
+  "user_input": "What is the standard notice period required to resign from APRA membership?",
+  "reference": "The standard notice period is six months.",
+  "retrieved_contexts": [
+    "To cease your APRA membership all you need to do is contact us to let us know. We will be in touch to confirm the circumstances of your resignation so that we can make the necessary updates to our records, including changes to your songs’ registration details and timelines around when we should cease licensing your songs and distributing royalties to you. You will receive a letter of confirmation once your membership has ceased. There is a standard six-month notice period for resignation of membership, after which you will cease to be a member on the earlier of 30 June or 31 December. Ending your membership sooner may be possible in the appropriate circumstances, on request. If you have any questions about resigning your membership, please contact us ."
+  ],
+  "ground_truth_context": "There is a standard six-month notice period for resignation of membership.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/music-creators/membership-explained/managing-your-rights/apra-alternatives",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "f3943563-bd46-47c1-882c-b2043f473d69",
+    "citation_url": "https://www.apraamcos.com.au/music-creators/membership-explained/managing-your-rights/apra-alternatives",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0009",
+  "user_input": "How many workers from the Philippines, Vietnam, and Pakistan provided services to APRA during the reporting period?",
+  "reference": "23 workers provided services to APRA.",
+  "retrieved_contexts": [
+    "During the Reporting Period, APRA continued to utilise technology expertise and resources via two Australian third-party providers that source individuals from the Philippines, Vietnam and Pakistan – 23 workers located in these countries provided services to APRA. These individuals work in close virtual contact with the APRA technology team. Both providers are Australian entities that manage HR, payroll, office space and legal matters associated with resourcing from a number of countries in the Asian subcontinent and South-East Asian region."
+  ],
+  "ground_truth_context": "23 workers located in these countries provided services to APRA.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about/governance-policy/policies-procedures/modern-slavery-act-statement",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "6ddbbc7a-dbea-4c72-8674-3216c628a3da",
+    "citation_url": "https://www.apraamcos.com.au/about/governance-policy/policies-procedures/modern-slavery-act-statement",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0010",
+  "user_input": "According to the chunk, what is described as the best SXSW memory?",
+  "reference": "The best SXSW memory is the moment when you realise you have just witnessed something special, such as seeing bands for the first time in small rooms with like-minded fans, including seeing Chet Faker perform in a conference room.",
+  "retrieved_contexts": [
+    "Number of times at SXSW: Six. Top three tips for surviving SXSW: Be sociable. The best contacts I’ve met have been those that I’ve introduced myself to in the taco or bar line, in hotel lobbies waiting for meetings or generally in the queue waiting to watch the next band. It’s also the best time to connect with your Australian peers. The amount of industry I have met has largely been through The Aussie BBQ functions and shows. I know it’s a long way to go to meet a fellow Aussie, but it’s well worth it. Be a lone ranger. Never roll in crowds. You will miss everything otherwise. do512.com - the only Austin go-to guide you need. The best source for what’s on, where to go and the general cheat sheet to all things great in Austin. Best SXSW memory: That moment when you realise you just witnessed something special. Most of my memories are seeing bands for the first time in small rooms with like-minded, hungry music fans. At SXSW there are many of these moments, like seeing Chet Faker in the conference room doing three songs on a keyboard. Something that will never happen again. Just priceless."
+  ],
+  "ground_truth_context": "Best SXSW memory: That moment when you realise you just witnessed something special... like seeing Chet Faker in the conference room doing three songs on a keyboard.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/surviving-south-by-southwest-sxsw",
+  "citation_title": "APRA AMCOS",
+  "question_type": "conceptual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "8b4aae2f-c03a-419e-b141-946d25aa34ad",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/surviving-south-by-southwest-sxsw",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0011",
+  "user_input": "What awards did Julian Wilton and Narayana Johnson win at the Australian Game Developer Awards (AGDA)?",
+  "reference": "They won Best Game and Excellence In Music.",
+  "retrieved_contexts": [
+    "Massive Monster's Julian Wilton and composer Narayana Johnson (River Boy) shared their story on creating the sound and music for their hit game Cult of the Lamb. And then three nights later they proceeded to win Best Game and Excellence In Music (and more!) at the Australian Game Developer Awards (AGDA)."
+  ],
+  "ground_truth_context": "they proceeded to win Best Game and Excellence In Music (and more!) at the Australian Game Developer Awards (AGDA).",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/what-we-learned-high-score-22",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "d04e8184-80c4-4b46-99b9-16e2a6f44d6a",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/what-we-learned-high-score-22",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0012",
+  "user_input": "What are APRA’s core values?",
+  "reference": "APRA’s core values are collaboration, respect, skill, imagination, and accountability.",
+  "retrieved_contexts": [
+    "APRA believes our people and culture are what set us apart as a workplace. We are committed to fostering a safe, respectful, and inclusive environment for everyone. We expect everyone involved with APRA to respect others and to act lawfully, safely and responsibly. We believe everyone should be treated fairly and in accordance with the APRA’s core values of collaboration, respect, skill, imagination and accountability. We believe there is no place for any form of discrimination, harassment, bullying, vilification, sexual harassment or violence in our workplace, our industry and our society."
+  ],
+  "ground_truth_context": "the APRA’s core values of collaboration, respect, skill, imagination and accountability.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about/governance-policy/policies-procedures/modern-slavery-act-statement",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "222bd6c4-7fed-4644-873d-7605bf78d449",
+    "citation_url": "https://www.apraamcos.com.au/about/governance-policy/policies-procedures/modern-slavery-act-statement",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0013",
+  "user_input": "Who did the speaker employ as a co-composer on a documentary?",
+  "reference": "Belinda.",
+  "retrieved_contexts": [
+    "Yes, I was able to help with that, she also had a project of her own, and I guided her with working on the sound mix and with the director. I have employed Belinda as a co-composer on a documentary, and I’m waiting for an opportunity to employ Anna (the last woman I mentored) because she is very good at pop style writing."
+  ],
+  "ground_truth_context": "I have employed Belinda as a co-composer on a documentary.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/reflections-on-visibility-an-interview-with-amanda-brown-by-yantra-de-vilder",
+  "citation_title": "APRA AMCOS",
+  "question_type": "entity_lookup",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "729414fa-f31d-424e-82a0-1811a50f723d",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/reflections-on-visibility-an-interview-with-amanda-brown-by-yantra-de-vilder",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0014",
+  "user_input": "Who were the two most influential mentors mentioned in the text?",
+  "reference": "Martin Armiger and Michael A. Levine.",
+  "retrieved_contexts": [
+    "I’ve been fortunate to have had several mentors and champions over the years, but 2 that have been the most influential are Martin Armiger (my AFTRS Screen Music Lecturer) and Hollywood composer Michael A. Levine (Siren, Cold Case)."
+  ],
+  "ground_truth_context": "2 that have been the most influential are Martin Armiger ... and Michael A. Levine.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/an-insight-into-a-screen-composers-world",
+  "citation_title": "APRA AMCOS",
+  "question_type": "entity_lookup",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "e68f49ed-c157-4105-8a76-1f126458cf35",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/an-insight-into-a-screen-composers-world",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0015",
+  "user_input": "What is the purpose of the $8,000 honorarium provided by NATSIMO?",
+  "reference": "It is provided to cover living expenses and travel costs incurred from participating in the program.",
+  "retrieved_contexts": [
+    "NATSIMO will provide an honorarium of $8,000 (covering the 3-month duration of the Intensive) which is available to the successful applicant to cover living expenses and travel costs incurred as a result of participating in the program. Additionally, the participant will be given a discretionary budget to manage that will cover the hire of session musicians to perform on the final score for the recording process of the intensive."
+  ],
+  "ground_truth_context": "to cover living expenses and travel costs incurred as a result of participating in the program.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/we-answer-your-screen-composer-intensive-faqs",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "577f9c9f-6732-4bdd-ab74-8453b80e1647",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/we-answer-your-screen-composer-intensive-faqs",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0016",
+  "user_input": "What change did Robbie Miller make to his music after observing his teenage niece's listening behaviour?",
+  "reference": "He removed chord introductions and went straight to singing.",
+  "retrieved_contexts": [
+    "Byron Bay keynote speaker Robbie Miller discussed in his ‘brutally honest’ keynote, that after seeing his teenage niece skip through numerous songs on Spotify just a few seconds in, he decided to try a different approach. “It’s hard to get into the mind of every music listener,” said Robbie. “I gave up four bars of chord introductions and went straight to singing,” he said, with the intention to “keep them til the chorus.”"
+  ],
+  "ground_truth_context": "I gave up four bars of chord introductions and went straight to singing.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/9-things-regional-sessions",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "14c76a1d-8e63-4b51-8c64-f430326bdd11",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/9-things-regional-sessions",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0017",
+  "user_input": "Who is paired with Georgia Fields in the mentorship list?",
+  "reference": "Sasha Gavlek.",
+  "retrieved_contexts": [
+    "Alice Hurwood with Lucy G. Rash Ange Nishimwe (ange-bella) with Bumpy Athanasia Sakoutis (ATHANASIA) with KLP Ayda Akbal with Tammy Ari Doolie Shadforth (DOOLIE) with Alex Hosking Georgia Slater (Solly Fern) with Jannah Beth Kyah Parrott (Hayku Kyah) with Melody Forghani Layla George (Jean Elliot) with Tyler McLoughlan Lucie O’Connor (Lucie Tiger) with Nat Dunn Naomi Geste with Francois Tetaz Nicole Issa with Milly Petriella Roz Yuen with Milan Ring Sasha Gavlek with Georgia Fields Siobhan McGinnity (MAGNETS) with Mo'Ju"
+  ],
+  "ground_truth_context": "Sasha Gavlek with Georgia Fields",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/23-percent-mentorship-mentees-2025",
+  "citation_title": "APRA AMCOS",
+  "question_type": "relationship",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "22fadf42-403d-42d9-b7f1-627543c6a1f3",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/23-percent-mentorship-mentees-2025",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0018",
+  "user_input": "According to Dean Ormston, what is a key challenge for the government in supporting Australia’s contemporary music industry?",
+  "reference": "Developing a smart whole-of-government approach across sectors such as cultural diplomacy, trade, tourism, small business, education, health and arts.",
+  "retrieved_contexts": [
+    "The challenge for government is to develop a smart whole-of-government approach across cultural diplomacy, trade, tourism, small business, education, health and arts to take full advantage of the music industry’s impact."
+  ],
+  "ground_truth_context": "The challenge for government is to develop a smart whole-of-government approach across cultural diplomacy, trade, tourism, small business, education, health and arts.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/music-industry-3-point-plan-1",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "2bcea7db-cf4e-4599-98c2-c27bbc8b5bda",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/music-industry-3-point-plan-1",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0019",
+  "user_input": "What are the main ways recordings of TAFE events and activities can be shared?",
+  "reference": "They can be shared via password-protected TAFE platforms, email or messaging systems, TAFE websites or official social media channels, and conferencing platforms such as Zoom.",
+  "retrieved_contexts": [
+    "Recordings of TAFE events and activities... can be shared in the following ways: to students and staff via online, password protected TAFE platforms... via email, private messaging system... uploaded or livestreamed to a TAFE website or official social media channels... on conferencing platforms such as Zoom..."
+  ],
+  "ground_truth_context": "shared... via online, password protected TAFE platforms... email, private messaging system... TAFE website or official social media channels... conferencing platforms such as Zoom",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/music-licences/select-a-licence/education-licences/licensing-for-tafe",
+  "citation_title": "APRA AMCOS",
+  "question_type": "procedural",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "61b51b35-a624-4776-830b-962b39508d90",
+    "citation_url": "https://www.apraamcos.com.au/music-licences/select-a-licence/education-licences/licensing-for-tafe",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0020",
+  "user_input": "What is the maximum funding amount available for artists through the Art Residencies program?",
+  "reference": "$5,000.",
+  "retrieved_contexts": [
+    "Residencies are available in 2026 for six or 12 months and include up to $5,000 funding for artists."
+  ],
+  "ground_truth_context": "include up to $5,000 funding for artists.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/city-of-melbourne-annual-arts-grants",
+  "citation_title": "Annual Arts Grants and Residencies | City of Melbourne",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "3d366dc2-0bbb-497a-96bf-d0ceff81553e",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/city-of-melbourne-annual-arts-grants",
+    "citation_title": "Annual Arts Grants and Residencies | City of Melbourne",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0021",
+  "user_input": "Which organisations are mentioned as supporting Australian and New Zealand artists?",
+  "reference": "APRA AMCOS and triple j.",
+  "retrieved_contexts": [
+    "The credit is most likely due to the support of organisations like APRA AMCOS and triple j, who actively encourage and promote their local artists through exposure and grants."
+  ],
+  "ground_truth_context": "support of organisations like APRA AMCOS and triple j",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/want-to-know-more-about-entering-unsigned-only-get-the-facts",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "25efdc05-6753-4924-832e-ca9d5ce73aad",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/want-to-know-more-about-entering-unsigned-only-get-the-facts",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0022",
+  "user_input": "Is Hindley Street Music Hall wheelchair accessible?",
+  "reference": "Yes.",
+  "retrieved_contexts": [
+    "Hindley Street Music Hall is a wheelchair-accessible venue. There are wheelchair amenities located on both levels and companion cards are accepted."
+  ],
+  "ground_truth_context": "Hindley Street Music Hall is a wheelchair-accessible venue.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/songcraft-unify-off-the-record-adelaide",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "5bdeafa1-e6ec-4963-9ca7-25592d4b9b2a",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/songcraft-unify-off-the-record-adelaide",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0023",
+  "user_input": "What are the two types of music use reporting used for jingle distributions?",
+  "reference": "Music recognition technology and the Jingle self-reporting form.",
+  "retrieved_contexts": [
+    "We use two types of music use reporting for jingle distributions - Music recognition technology ... Jingle self-reporting form ..."
+  ],
+  "ground_truth_context": "We use two types of music use reporting for jingle distributions - Music recognition technology ... Jingle self-reporting form ...",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/search",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "07bfdada-ef3c-49d9-930a-a76d6b8e9a88",
+    "citation_url": "https://www.apraamcos.com.au/search",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0024",
+  "user_input": "What are the main benefits of being involved with APRA AMCOS according to the text?",
+  "reference": "Royalty collection and the opportunity to meet creative people through events held throughout the year and online.",
+  "retrieved_contexts": [
+    "APRA AMCOS is seriously such an amazing organisation. There are so many benefits - the main ones being royalty collection and getting to meet so many amazing creative people ... through all the events they hold throughout the year and online too!"
+  ],
+  "ground_truth_context": "There are so many benefits - the main ones being royalty collection and getting to meet so many amazing creative people ... through all the events they hold throughout the year and online too!",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/dance-music-tips-of-the-trade-with-amba-shepherd",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "a7dde064-ef30-4a17-ad93-8d755d70cb65",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/dance-music-tips-of-the-trade-with-amba-shepherd",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0025",
+  "user_input": "What is the eligibility requirement for the composer of a work submitted for the Performance of the Year category?",
+  "reference": "The work must be composed by an Australian citizen or a composer who has permanent residence in Australia.",
+  "retrieved_contexts": [
+    "The performed work must have been composed by an Australian citizen or by a composer who has permanent residence in Australia."
+  ],
+  "ground_truth_context": "The performed work must have been composed by an Australian citizen or by a composer who has permanent residence in Australia.",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about/supporting-the-industry/awards/art-music-awards-2022",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "dbb09a8c-bba9-4e75-a2d1-296b7bfc6f12",
+    "citation_url": "https://www.apraamcos.com.au/about/supporting-the-industry/awards/art-music-awards-2022",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
