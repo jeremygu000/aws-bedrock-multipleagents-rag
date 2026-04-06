@@ -361,6 +361,56 @@ class Settings(BaseSettings):
         description="Tavily API key for web search fallback (required when crag_enable_web_search=true)",
     )
 
+    # --- HyDE (Hypothetical Document Embeddings) settings ---
+    enable_hyde: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_HYDE",
+        description="Feature flag to enable HyDE pre-retrieval query expansion via hypothesis generation",
+    )
+    hyde_model_id: str = Field(
+        default="amazon.nova-pro-v1:0",
+        validation_alias="RAG_HYDE_MODEL_ID",
+        description="Bedrock model ID for hypothesis generation (should support 1M context, 5K output)",
+    )
+    hyde_num_hypotheses: int = Field(
+        default=1,
+        ge=1,
+        le=10,
+        validation_alias="RAG_HYDE_NUM_HYPOTHESES",
+        description="Number of hypothetical documents to generate (1=single, 3-5=multi-HyDE)",
+    )
+    hyde_temperature: float = Field(
+        default=0.65,
+        ge=0.0,
+        le=2.0,
+        validation_alias="RAG_HYDE_TEMPERATURE",
+        description="Temperature for hypothesis generation (0.5-0.75 optimal per HyDE paper)",
+    )
+    hyde_max_tokens: int = Field(
+        default=500,
+        ge=100,
+        le=2000,
+        validation_alias="RAG_HYDE_MAX_TOKENS",
+        description="Max output tokens per hypothesis document",
+    )
+    hyde_include_original: bool = Field(
+        default=True,
+        validation_alias="RAG_HYDE_INCLUDE_ORIGINAL",
+        description="Dual embedding strategy: include original query in hypothesis pool before aggregation",
+    )
+    hyde_aggregation: Literal["mean", "concat", "first"] = Field(
+        default="mean",
+        validation_alias="RAG_HYDE_AGGREGATION",
+        description="How to aggregate multiple hypothesis embeddings: mean (average), concat (concatenate), first (use first only)",
+    )
+    hyde_similarity_threshold: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_HYDE_SIMILARITY_THRESHOLD",
+        description="Semantic gap threshold: use HyDE when gap > this (0.2 recommended per Adaptive HyDE paper)",
+    )
+
     # --- Evaluation framework settings (Phase 4) ---
     enable_eval_tracing: bool = Field(
         default=False,

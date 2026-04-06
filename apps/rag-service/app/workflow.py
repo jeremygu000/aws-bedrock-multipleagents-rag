@@ -55,6 +55,10 @@ class RagWorkflowState(TypedDict, total=False):
     crag_retry_count: int
     web_search_results: list[dict[str, Any]]
     crag_rewritten_query: str
+    # --- HyDE (Hypothetical Document Embeddings) fields ---
+    hyde_hypothesis: str | None
+    hyde_embeddings: list[list[float]] | None
+    hyde_strategy: str  # "enabled" | "skipped" | "disabled" | "fallback"
 
 
 class RagWorkflow:
@@ -72,6 +76,7 @@ class RagWorkflow:
         retrieval_grader: RetrievalGrader | None = None,
         crag_query_rewriter: CragQueryRewriter | None = None,
         crag_web_searcher: CragWebSearcher | None = None,
+        hyde_retriever=None,
     ) -> None:
         """Create and compile graph with injected services."""
 
@@ -85,6 +90,7 @@ class RagWorkflow:
         self._retrieval_grader = retrieval_grader
         self._crag_query_rewriter = crag_query_rewriter
         self._crag_web_searcher = crag_web_searcher
+        self._hyde_retriever = hyde_retriever
 
         graph = StateGraph(RagWorkflowState)
 
@@ -278,7 +284,30 @@ class RagWorkflow:
     def _impl_build_request(self, state: RagWorkflowState) -> RagWorkflowState:
         top_k = state["top_k"]
         retrieval_query = state.get("rewritten_query") or state["query"]
-        query_embedding = self._query_processor.build_query_embedding(retrieval_query)
+        query_embedding = None
+        hyde_hypothesis = None
+        hyde_embeddings = None
+        hyde_strategy = "disabled"
+
+        try:
+            if self._hyde_retriever and self._settings.enable_hyde:
+                hyde_result = self._hyde_retriever.get_query_embeddings(retrieval_query)
+                hyde_embeddings = hyde_result.get("embeddings", [])
+                hyde_strategy = hyde_result.get("strategy", "disabled")
+                if hyde_embeddings:
+                    query_embedding = hyde_embeddings[0]
+                    logger.debug(f"HyDE enabled: strategy={hyde_strategy}, sources={hyde_result.get('sources', [])}")
+                else:
+                    logger.warning("HyDE returned no embeddings, falling back to standard embedding")
+                    hyde_strategy = "fallback"
+                    query_embedding = self._query_processor.build_query_embedding(retrieval_query)
+            else:
+                query_embedding = self._query_processor.build_query_embedding(retrieval_query)
+        except Exception as e:
+            logger.exception(f"HyDE retrieval failed, falling back to standard embedding: {e}")
+            hyde_strategy = "fallback"
+            query_embedding = self._query_processor.build_query_embedding(retrieval_query)
+
         request = RetrieveRequest(
             query=retrieval_query,
             query_embedding=query_embedding,
@@ -287,7 +316,13 @@ class RagWorkflow:
             k_final=top_k,
             filters=state["filters"],
         )
-        return {"request": request, "query_embedding": query_embedding}
+        return {
+            "request": request,
+            "query_embedding": query_embedding,
+            "hyde_hypothesis": hyde_hypothesis,
+            "hyde_embeddings": hyde_embeddings,
+            "hyde_strategy": hyde_strategy,
+        }
 
     def _node_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
         return self._traced_node("retrieve", self._impl_retrieve, state)

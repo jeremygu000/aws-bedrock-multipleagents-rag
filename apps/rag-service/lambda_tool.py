@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.crag import CragQueryRewriter, CragWebSearcher, RetrievalGrader
 from app.embedding_factory import get_embedding_client
 from app.graph_retriever import GraphRetriever
+from app.hyde_retriever import HyDEConfig, HyDERetriever
 from app.query_processing import QueryProcessor
 from app.qwen_client import QwenClient
 from app.repository import PostgresRepository
@@ -81,6 +82,24 @@ if settings.enable_crag:
     crag_query_rewriter = CragQueryRewriter(settings)
     crag_web_searcher = CragWebSearcher(settings)
 
+hyde_retriever = None
+if settings.enable_hyde:
+    hyde_config = HyDEConfig(
+        enabled=True,
+        temperature=settings.hyde_temperature,
+        max_hypothesis_tokens=settings.hyde_max_tokens,
+        include_original=settings.hyde_include_original,
+        num_hypotheses=settings.hyde_num_hypotheses,
+    )
+    from app.bedrock_embedding_client import BedrockEmbeddingClient
+
+    bedrock_client = BedrockEmbeddingClient(settings)
+    hyde_retriever = HyDERetriever(
+        llm_client=qwen_client,
+        embedding_model=bedrock_client,
+        config=hyde_config,
+    )
+
 workflow = RagWorkflow(
     settings=settings,
     repository=repository,
@@ -91,6 +110,7 @@ workflow = RagWorkflow(
     retrieval_grader=retrieval_grader,
     crag_query_rewriter=crag_query_rewriter,
     crag_web_searcher=crag_web_searcher,
+    hyde_retriever=hyde_retriever,
 )
 
 
