@@ -8,10 +8,10 @@
   "sample_size": 5,
   "groups": {
     "qa": {
-      "answer_relevancy": 0.091,
-      "faithfulness": 0.433,
-      "context_recall": 1.0,
-      "semantic_similarity": 0.067
+      "answer_relevancy": { "mean": 0.091, "tolerance": 0.05 },
+      "faithfulness": { "mean": 0.433, "tolerance": 0.1 },
+      "context_recall": { "mean": 1.0, "tolerance": 0.05 },
+      "semantic_similarity": { "mean": 0.067, "tolerance": 0.05 }
     }
   }
 }
