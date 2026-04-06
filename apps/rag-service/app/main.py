@@ -124,6 +124,21 @@ def _build_workflow() -> RagWorkflow:
         crag_query_rewriter = CragQueryRewriter(settings)
         crag_web_searcher = CragWebSearcher(settings)
 
+    self_reflection_node = None
+    if settings.enable_reflection:
+        from .adaptive_reflection_router import AdaptiveReflectionRouter
+        from .faithfulness_grader import FaithfulnessGrader
+        from .relevance_grader import RelevanceGrader
+        from .self_reflection_node import SelfReflectionNode
+
+        faithfulness_grader = FaithfulnessGrader(settings, embedding_client, qwen_client)
+        relevance_grader = RelevanceGrader(settings, embedding_client, qwen_client)
+        adaptive_router = AdaptiveReflectionRouter(enable_reflection=True)
+        self_reflection_node = SelfReflectionNode(
+            settings, faithfulness_grader, relevance_grader, adaptive_router
+        )
+        logger.info("SelfReflectionNode initialized for post-generation quality grading")
+
     return RagWorkflow(
         settings=settings,
         repository=repository,
@@ -137,6 +152,7 @@ def _build_workflow() -> RagWorkflow:
         crag_web_searcher=crag_web_searcher,
         decomposition_retriever=decomposition_retriever,
         community_store=community_store,
+        self_reflection_node=self_reflection_node,
     )
 
 

@@ -15,7 +15,11 @@ from .config import Settings
 from .faithfulness_grader import FaithfulnessGrader
 from .relevance_grader import RelevanceGrader
 from .self_reflection_models import (
+    FaithfulnessResult,
+    FaithfulnessVerdict,
     ReflectionResult,
+    RelevanceResult,
+    RelevanceVerdict,
     RetryAction,
 )
 
@@ -80,21 +84,10 @@ class SelfReflectionNode:
             )
 
             if not router_decision.should_reflect:
-                logger.debug(
-                    f"Skipping reflection: {router_decision.reason}"
+                logger.info(
+                    "Reflection skipped: %s", router_decision.reason,
                 )
-                # Return early with neutral result (assume answer is acceptable)
-                return ReflectionResult(
-                    faithfulness=await self._faithfulness_grader.grade_faithfulness(
-                        answer="", evidence_texts=[]
-                    ),
-                    relevance=await self._relevance_grader.grade_relevance(question, ""),
-                    should_retry=False,
-                    retry_action=RetryAction.ACCEPT,
-                    overall_confidence=0.7,
-                    explanation=router_decision.reason,
-                    latency_ms=0.0,
-                )
+                return self._neutral_result(router_decision.reason, latency_ms=0.0)
 
             # Step 2: Parallel grading (faithfulness + relevance)
             logger.debug(f"Running reflection on answer: {answer[:100]}...")
@@ -142,18 +135,11 @@ class SelfReflectionNode:
             )
 
         except Exception as e:
-            logger.error(f"Reflection failed: {e}", exc_info=True)
-            # Fail open: return neutral result
-            return ReflectionResult(
-                faithfulness=await self._faithfulness_grader.grade_faithfulness(
-                    answer="", evidence_texts=[]
-                ),
-                relevance=await self._relevance_grader.grade_relevance(question, ""),
-                should_retry=False,
-                retry_action=RetryAction.ACCEPT,
-                overall_confidence=0.5,
-                explanation=f"Reflection error: {str(e)[:100]}",
+            logger.error("Reflection failed: %s", e, exc_info=True)
+            return self._neutral_result(
+                f"Reflection error: {str(e)[:100]}",
                 latency_ms=(time.time() - start_time) * 1000,
+                confidence=0.5,
             )
 
     def _decide_retry_action(
@@ -204,3 +190,32 @@ class SelfReflectionNode:
             f"Intermediate scores (f={f_score:.2f}, r={r_score:.2f}), using stronger model"
         )
         return RetryAction.FALLBACK_MODEL
+
+    @staticmethod
+    def _neutral_result(
+        explanation: str,
+        latency_ms: float = 0.0,
+        confidence: float = 0.7,
+    ) -> ReflectionResult:
+        return ReflectionResult(
+            faithfulness=FaithfulnessResult(
+                verdict=FaithfulnessVerdict.FAITHFUL,
+                score=1.0,
+                total_claims=0,
+                supported_claims=0,
+                unsupported_claims=0,
+                explanation="Skipped",
+            ),
+            relevance=RelevanceResult(
+                verdict=RelevanceVerdict.RELEVANT,
+                score=1.0,
+                alignment_score=1.0,
+                completeness_score=1.0,
+                explanation="Skipped",
+            ),
+            should_retry=False,
+            retry_action=RetryAction.ACCEPT,
+            overall_confidence=confidence,
+            explanation=explanation,
+            latency_ms=latency_ms,
+        )

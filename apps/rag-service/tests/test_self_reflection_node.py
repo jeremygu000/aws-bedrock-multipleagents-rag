@@ -6,9 +6,7 @@ import pytest
 
 from app.adaptive_reflection_router import AdaptiveReflectionRouter
 from app.self_reflection_models import (
-    AdaptiveReflectionDecision,
     QueryComplexityScore,
-    RetryAction,
 )
 
 
@@ -44,11 +42,11 @@ class TestAdaptiveReflectionRouter:
         assert decision.should_reflect is True
 
     def test_low_hits_always_reflect(self):
-        """Reflect when retrieval yields too few hits."""
+        """Reflect when retrieval yields too few hits (non-entity query)."""
         router = AdaptiveReflectionRouter(enable_reflection=True)
 
         decision = router.should_reflect(
-            question="What is APRA policy",
+            question="Explain the difference between copyright law in Australia and the US",
             answer="I found limited information",
             hits_count=1,
             model_confidence=0.5,
@@ -58,12 +56,12 @@ class TestAdaptiveReflectionRouter:
         assert "Low hit count" in decision.reason
 
     def test_high_confidence_skips(self):
-        """Skip reflection for very high confidence answers."""
+        """Skip reflection for very high confidence answers (non-entity query)."""
         router = AdaptiveReflectionRouter(enable_reflection=True)
 
         decision = router.should_reflect(
-            question="What is 2+2?",
-            answer="4",
+            question="Summarise the latest regulatory changes in streaming royalties",
+            answer="The latest regulatory changes include...",
             hits_count=10,
             model_confidence=0.99,
         )

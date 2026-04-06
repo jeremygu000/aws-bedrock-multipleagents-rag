@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -69,12 +70,12 @@ Respond in JSON format only:
                 answer=answer[:1500],
             )
 
-            if self._qwen_client:
-                response = await self._qwen_client.agenerate(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=self._settings.qwen_model_id,
+            if self._qwen_client and self._qwen_client.is_configured():
+                response = await asyncio.to_thread(
+                    self._qwen_client.chat,
+                    "You are an expert evaluator. Output JSON only.",
+                    prompt,
                     max_tokens=300,
-                    temperature=0.0,
                 )
             else:
                 response = (

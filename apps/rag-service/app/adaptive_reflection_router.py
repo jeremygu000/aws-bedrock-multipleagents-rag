@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 
 from .models import RetrieveRequest
 from .self_reflection_models import AdaptiveReflectionDecision, QueryComplexityScore
@@ -179,11 +180,8 @@ class AdaptiveReflectionRouter:
                 reason=" | ".join(reasons),
             )
 
-        # Rule 6: Sample 30% of moderate-complexity queries for online learning
-        import random
-
         if complexity.estimated_complexity == "moderate":
-            if random.random() < 0.30:  # 30% baseline sampling
+            if random.random() < 0.30:  # noqa: S311
                 reasons.append("Sample: Moderate complexity query (30% baseline)")
                 return AdaptiveReflectionDecision(
                     should_reflect=True,

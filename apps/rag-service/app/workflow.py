@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any, Callable, TypedDict
@@ -18,6 +19,7 @@ from .query_decomposer import DecompositionResult, QueryDecomposer, SubQuestion
 from .query_processing import QueryProcessor
 from .repository import PostgresRepository
 from .reranker import LLMReranker
+from .self_reflection_models import RetryAction
 from .tracing import (
     CACHE_OPERATIONS,
     PIPELINE_NODE_ERRORS,
@@ -69,6 +71,11 @@ class RagWorkflowState(TypedDict, total=False):
     decomposition_used: bool
     # --- Community Detection fields ---
     community_summaries: list[dict[str, Any]]
+    # --- Self-Reflection fields ---
+    reflection_skipped: bool
+    reflection_result: dict[str, Any] | None
+    reflection_used: bool
+    reflection_retry_count: int
 
 
 class RagWorkflow:
@@ -90,6 +97,7 @@ class RagWorkflow:
         query_decomposer: QueryDecomposer | None = None,
         decomposition_retriever: DecompositionRetriever | None = None,
         community_store=None,
+        self_reflection_node=None,
     ) -> None:
         """Create and compile graph with injected services."""
 
@@ -107,6 +115,7 @@ class RagWorkflow:
         self._query_decomposer = query_decomposer
         self._decomposition_retriever = decomposition_retriever
         self._community_store = community_store
+        self._self_reflection_node = self_reflection_node
 
         graph = StateGraph(RagWorkflowState)
 
@@ -127,6 +136,7 @@ class RagWorkflow:
         graph.add_node("build_citations", self._node_build_citations)
         graph.add_node("choose_model", self._node_choose_model)
         graph.add_node("generate_answer", self._node_generate_answer)
+        graph.add_node("reflect", self._node_reflect)
         graph.add_node("store_cache", self._node_store_cache)
 
         graph.add_edge(START, "check_cache")
@@ -158,7 +168,21 @@ class RagWorkflow:
         graph.add_edge("crag_web_search", "build_citations")
         graph.add_edge("build_citations", "choose_model")
         graph.add_edge("choose_model", "generate_answer")
-        graph.add_edge("generate_answer", "store_cache")
+        graph.add_conditional_edges(
+            "generate_answer",
+            self._route_after_generation,
+            {"reflect": "reflect", "store_cache": "store_cache"},
+        )
+        graph.add_conditional_edges(
+            "reflect",
+            self._route_after_reflection,
+            {
+                "accept": "store_cache",
+                "retry_retrieval": "rewrite_query",
+                "refine_answer": "generate_answer",
+                "fallback_model": "choose_model",
+            },
+        )
         graph.add_edge("store_cache", END)
 
         self._graph = graph.compile()
@@ -850,4 +874,101 @@ class RagWorkflow:
         if should:
             return "decompose"
         return "retrieve"
+
+    # ------------------------------------------------------------------
+    # Self-Reflection node + routing
+    # ------------------------------------------------------------------
+
+    def _node_reflect(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("reflect", self._impl_reflect, state)
+
+    def _impl_reflect(self, state: RagWorkflowState) -> RagWorkflowState:
+        if not self._self_reflection_node:
+            logger.info("Reflection: node not injected, accepting answer as-is")
+            return {"reflection_skipped": True, "reflection_used": False}
+
+        question = state.get("rewritten_query") or state.get("query", "")
+        answer = state.get("answer", "")
+        hits = state.get("reranked_hits") or state.get("hits", [])
+        retry_count = state.get("reflection_retry_count", 0)
+        max_retries = getattr(self._settings, "reflection_max_retries", 1)
+
+        if retry_count >= max_retries:
+            logger.warning(
+                "Reflection: retry limit reached (%d/%d), accepting answer",
+                retry_count, max_retries,
+            )
+            return {
+                "reflection_skipped": True,
+                "reflection_used": True,
+                "reflection_result": {"retry_action": RetryAction.ACCEPT.value, "explanation": "Max retries reached"},
+            }
+
+        logger.info(
+            "Reflection: grading answer (len=%d, hits=%d, retry=%d/%d) for query=%r",
+            len(answer), len(hits), retry_count, max_retries, question[:80],
+        )
+
+        try:
+            result = asyncio.run(
+                self._self_reflection_node.reflect_on_answer(
+                    question=question,
+                    answer=answer,
+                    hits=hits,
+                )
+            )
+        except Exception as exc:
+            logger.error("Reflection: failed (%s), accepting answer as-is", exc, exc_info=True)
+            return {"reflection_skipped": True, "reflection_used": False}
+
+        result_dict = result.model_dump()
+        logger.info(
+            "Reflection: verdict=%s, confidence=%.2f, action=%s, latency=%.0fms | %s",
+            "retry" if result.should_retry else "accept",
+            result.overall_confidence,
+            result.retry_action.value,
+            result.latency_ms,
+            result.explanation,
+        )
+
+        return {
+            "reflection_result": result_dict,
+            "reflection_skipped": not result.should_retry and result.retry_action == RetryAction.ACCEPT,
+            "reflection_used": True,
+            "reflection_retry_count": retry_count + (1 if result.should_retry else 0),
+        }
+
+    def _route_after_generation(self, state: RagWorkflowState) -> str:
+        if not self._settings.enable_reflection or self._self_reflection_node is None:
+            logger.debug("Reflection: disabled, routing directly to store_cache")
+            return "store_cache"
+
+        retry_count = state.get("reflection_retry_count", 0)
+        max_retries = getattr(self._settings, "reflection_max_retries", 1)
+        if retry_count >= max_retries:
+            logger.info(
+                "Reflection: retry count %d >= max %d, skipping to store_cache",
+                retry_count, max_retries,
+            )
+            return "store_cache"
+
+        logger.info("Reflection: routing to reflect node")
+        return "reflect"
+
+    @staticmethod
+    def _route_after_reflection(state: RagWorkflowState) -> str:
+        result = state.get("reflection_result")
+        if not result:
+            return "accept"
+
+        action = result.get("retry_action", RetryAction.ACCEPT.value)
+        action_to_route = {
+            RetryAction.ACCEPT.value: "accept",
+            RetryAction.RETRY_RETRIEVAL.value: "retry_retrieval",
+            RetryAction.REFINE_ANSWER.value: "refine_answer",
+            RetryAction.FALLBACK_MODEL.value: "fallback_model",
+        }
+        route = action_to_route.get(action, "accept")
+        logger.info("Reflection routing: action=%s → %s", action, route)
+        return route
 

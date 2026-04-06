@@ -488,6 +488,41 @@ class Settings(BaseSettings):
         description="Number of community summaries to retrieve per query",
     )
 
+    # --- Self-Reflection / LLM-as-Judge settings ---
+    enable_reflection: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_REFLECTION",
+        description="Enable post-generation self-reflection (faithfulness + relevance grading)",
+    )
+    reflection_faithfulness_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_REFLECTION_FAITHFULNESS_THRESHOLD",
+        description="Minimum faithfulness score to accept answer without retry",
+    )
+    reflection_relevance_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_REFLECTION_RELEVANCE_THRESHOLD",
+        description="Minimum relevance score to accept answer without retry",
+    )
+    reflection_skip_rate_target: float = Field(
+        default=0.65,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_REFLECTION_SKIP_RATE_TARGET",
+        description="Target skip rate for adaptive reflection router (0.65 = skip 65% simple queries)",
+    )
+    reflection_max_retries: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        validation_alias="RAG_REFLECTION_MAX_RETRIES",
+        description="Maximum retry attempts when reflection rejects an answer",
+    )
+
     hyde_similarity_threshold: float = Field(
         default=0.2,
         ge=0.0,

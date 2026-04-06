@@ -6,6 +6,7 @@ whether an answer is grounded in retrieved documents.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -159,18 +160,18 @@ JSON response only (no markdown, no extra text):"""
         try:
             prompt = self.CLAIM_EXTRACTION_PROMPT.format(answer=answer[:2000])
 
-            if self._qwen_client:
-                # Use Qwen for fast claim extraction
-                response = await self._qwen_client.agenerate(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=self._settings.qwen_model_id,
+            if self._qwen_client and self._qwen_client.is_configured():
+                # Use Qwen for fast claim extraction (sync chat wrapped for async)
+                text = await asyncio.to_thread(
+                    self._qwen_client.chat,
+                    "You extract atomic claims from text.",
+                    prompt,
                     max_tokens=500,
-                    temperature=0.0,
                 )
-                text = response
             else:
-                # Fallback: use Bedrock Nova Pro
-                text = "CLAIM: " + answer[:200]  # Simple fallback
+                # Fallback: use answer itself as a single claim
+                logger.debug("Qwen not configured, using answer as single claim")
+                text = "CLAIM: " + answer[:200]
 
             # Parse claims from response
             claims = []
@@ -197,12 +198,12 @@ JSON response only (no markdown, no extra text):"""
                 evidence=evidence[:3000],
             )
 
-            if self._qwen_client:
-                response = await self._qwen_client.agenerate(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=self._settings.qwen_model_id,
+            if self._qwen_client and self._qwen_client.is_configured():
+                response = await asyncio.to_thread(
+                    self._qwen_client.chat,
+                    "You are a strict fact-checker. Output JSON only.",
+                    prompt,
                     max_tokens=200,
-                    temperature=0.0,
                 )
             else:
                 response = '{"supported": false, "confidence": 0.5, "explanation": "Unable to verify"}'
