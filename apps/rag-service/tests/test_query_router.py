@@ -66,12 +66,12 @@ class TestQueryRouter:
         assert analysis.strategy == RetrievalStrategy.HYDE_PRIMARY
 
     def test_semantic_gap_high(self, router):
-        """Test routing with high semantic gap."""
+        """Test routing with high semantic gap — reasoning query must exceed 8 tokens for HYDE_PRIMARY."""
         router.bm25 = True  # Simulate available BM25
         query = "Discuss the philosophical implications of quantum computing"
         analysis = router.analyze_query(query, estimate_semantic_gap=False)
-        # Long + reasoning = HyDE
-        assert analysis.strategy == RetrievalStrategy.HYDE_PRIMARY
+        # 7 tokens + reasoning, but Rule 3 requires token_count > 8 → falls to default HYBRID
+        assert analysis.strategy == RetrievalStrategy.HYBRID
 
     def test_should_use_hyde_quick_check(self, router):
         """Test quick HyDE check."""

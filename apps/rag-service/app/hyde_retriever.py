@@ -110,8 +110,8 @@ Passage:"""
         if re.search(r"\b(19|20)\d{2}\b|\b(0?[1-9]|1[0-2])/\d{1,2}\b", query):
             return True
 
-        # Pattern: IDs or codes (alphanumeric with hyphens)
-        if re.search(r"\b[A-Z]{2,}-\d+\b|\bID:\s*\d+\b", query):
+        # Pattern: IDs or codes (alphanumeric with hyphens, WINF identifiers)
+        if re.search(r"\b[A-Z]{2,}-\d+\b|\bID:\s*\w+\b|\bWINF\w+\b", query):
             return True
 
         return False
