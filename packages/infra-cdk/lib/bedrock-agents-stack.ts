@@ -261,6 +261,15 @@ export class BedrockAgentsStack extends cdk.Stack {
       // Cloud environment: use DashScope Qwen API (not local Ollama).
       QWEN_USE_OLLAMA_NATIVE: processEnv.QWEN_USE_OLLAMA_NATIVE ?? "false",
       QWEN_AUTH_REQUIRED: processEnv.QWEN_AUTH_REQUIRED ?? "true",
+      // CRAG (Corrective RAG) — off by default, opt-in via env.
+      RAG_ENABLE_CRAG: processEnv.RAG_ENABLE_CRAG ?? "false",
+      RAG_CRAG_UPPER_THRESHOLD: processEnv.RAG_CRAG_UPPER_THRESHOLD ?? "0.7",
+      RAG_CRAG_LOWER_THRESHOLD: processEnv.RAG_CRAG_LOWER_THRESHOLD ?? "0.3",
+      RAG_CRAG_MIN_RELEVANT_DOCS: processEnv.RAG_CRAG_MIN_RELEVANT_DOCS ?? "1",
+      RAG_CRAG_ENABLE_WEB_SEARCH: processEnv.RAG_CRAG_ENABLE_WEB_SEARCH ?? "false",
+      RAG_CRAG_WEB_SEARCH_K: processEnv.RAG_CRAG_WEB_SEARCH_K ?? "3",
+      RAG_CRAG_GRADER_MODEL: processEnv.RAG_CRAG_GRADER_MODEL ?? "",
+      TAVILY_API_KEY: processEnv.TAVILY_API_KEY ?? "",
     };
 
     // Explicit local override only. Avoid injecting plaintext password by default.

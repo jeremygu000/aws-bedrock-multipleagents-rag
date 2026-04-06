@@ -20,6 +20,7 @@ from .answer_generator import (
     RoutedAnswerGenerator,
 )
 from .config import get_settings
+from .crag import CragQueryRewriter, CragWebSearcher, RetrievalGrader
 from .document_manager import delete_document
 from .document_parser import _EXTENSION_TO_MIME, SUPPORTED_MIME_TYPES
 from .embedding_factory import get_embedding_client
@@ -97,6 +98,15 @@ def _build_workflow() -> RagWorkflow:
         QueryCache(settings, repository._get_engine()) if settings.enable_query_cache else None
     )
 
+    # CRAG components — only instantiate when feature flag is on.
+    retrieval_grader = None
+    crag_query_rewriter = None
+    crag_web_searcher = None
+    if settings.enable_crag:
+        retrieval_grader = RetrievalGrader(settings, qwen_client)
+        crag_query_rewriter = CragQueryRewriter(settings, qwen_client)
+        crag_web_searcher = CragWebSearcher(settings)
+
     return RagWorkflow(
         settings=settings,
         repository=repository,
@@ -105,6 +115,9 @@ def _build_workflow() -> RagWorkflow:
         reranker=reranker,
         graph_retriever=graph_retriever,
         query_cache=query_cache,
+        retrieval_grader=retrieval_grader,
+        crag_query_rewriter=crag_query_rewriter,
+        crag_web_searcher=crag_web_searcher,
     )
 
 

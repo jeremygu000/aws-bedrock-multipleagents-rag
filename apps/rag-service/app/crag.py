@@ -55,7 +55,14 @@ class RetrievalGrader:
 
         relevant: list[dict[str, Any]] = []
         for hit in hits:
-            if self.grade(question, hit.get("chunk_text", "")):
+            is_relevant = self.grade(question, hit.get("chunk_text", ""))
+            logger.info(
+                "CRAG grade: chunk=%s relevant=%s score=%.4f",
+                hit.get("chunk_id", "?")[:16],
+                is_relevant,
+                float(hit.get("score", 0)),
+            )
+            if is_relevant:
                 relevant.append(hit)
 
         ratio = len(relevant) / len(hits)
@@ -70,6 +77,15 @@ class RetrievalGrader:
         else:
             verdict = "ambiguous"
 
+        logger.info(
+            "CRAG verdict=%s relevant=%d/%d ratio=%.2f thresholds=[%.2f, %.2f]",
+            verdict,
+            len(relevant),
+            len(hits),
+            ratio,
+            lower,
+            upper,
+        )
         return relevant, verdict
 
     @staticmethod
@@ -97,7 +113,9 @@ class CragQueryRewriter:
 
         try:
             rewritten = self._qwen.chat(_REWRITER_SYSTEM_PROMPT, query, max_tokens=200)
-            return rewritten.strip() or query
+            result = rewritten.strip() or query
+            logger.info("CRAG rewrite: original=%r → rewritten=%r", query[:120], result[:120])
+            return result
         except Exception:
             logger.exception("CRAG query rewrite failed, using original query")
             return query
@@ -109,6 +127,7 @@ class CragWebSearcher:
 
     def search(self, query: str) -> list[dict[str, Any]]:
         if not self._settings.crag_enable_web_search:
+            logger.info("CRAG web search disabled, skipping")
             return []
 
         api_key = self._settings.tavily_api_key
@@ -117,7 +136,9 @@ class CragWebSearcher:
             return []
 
         try:
-            return self._tavily_search(query, api_key)
+            results = self._tavily_search(query, api_key)
+            logger.info("CRAG web search: query=%r results=%d", query[:120], len(results))
+            return results
         except Exception:
             logger.exception("CRAG web search failed")
             return []

@@ -12,6 +12,7 @@ from app.answer_generator import (
 )
 from app.bedrock_action import handle_rag_action
 from app.config import get_settings
+from app.crag import CragQueryRewriter, CragWebSearcher, RetrievalGrader
 from app.embedding_factory import get_embedding_client
 from app.graph_retriever import GraphRetriever
 from app.query_processing import QueryProcessor
@@ -70,6 +71,14 @@ def _build_graph_retriever() -> GraphRetriever | None:
 
 graph_retriever = _build_graph_retriever()
 
+retrieval_grader = None
+crag_query_rewriter = None
+crag_web_searcher = None
+if settings.enable_crag:
+    retrieval_grader = RetrievalGrader(settings, qwen_client)
+    crag_query_rewriter = CragQueryRewriter(settings, qwen_client)
+    crag_web_searcher = CragWebSearcher(settings)
+
 workflow = RagWorkflow(
     settings=settings,
     repository=repository,
@@ -77,6 +86,9 @@ workflow = RagWorkflow(
     answer_generator=answer_generator,
     reranker=reranker,
     graph_retriever=graph_retriever,
+    retrieval_grader=retrieval_grader,
+    crag_query_rewriter=crag_query_rewriter,
+    crag_web_searcher=crag_web_searcher,
 )
 
 

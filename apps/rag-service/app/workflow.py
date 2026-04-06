@@ -369,13 +369,16 @@ class RagWorkflow:
 
     def _impl_grade_retrieval(self, state: RagWorkflowState) -> RagWorkflowState:
         if not self._settings.enable_crag or not self._retrieval_grader:
+            logger.info("CRAG disabled, skipping retrieval grading")
             return {"retrieval_verdict": "correct"}
 
         query = state.get("rewritten_query") or state.get("query", "")
         hits = state.get("reranked_hits") or state.get("fused_hits") or []
         if not hits:
+            logger.info("CRAG: no hits to grade → verdict=incorrect")
             return {"retrieval_verdict": "incorrect", "reranked_hits": []}
 
+        logger.info("CRAG grading %d hits for query=%r", len(hits), query[:80])
         relevant, verdict = self._retrieval_grader.grade_hits(query, hits)
         return {
             "retrieval_verdict": verdict,
@@ -403,6 +406,7 @@ class RagWorkflow:
         query = state.get("crag_rewritten_query") or state.get("query", "")
         web_hits = self._crag_web_searcher.search(query)
         if not web_hits:
+            logger.info("CRAG web search returned no results")
             return {"web_search_results": []}
 
         verdict = state.get("retrieval_verdict", "incorrect")
@@ -410,14 +414,26 @@ class RagWorkflow:
 
         if verdict == "ambiguous":
             merged = existing_hits + web_hits
+            logger.info(
+                "CRAG merge (ambiguous): %d existing + %d web = %d total",
+                len(existing_hits),
+                len(web_hits),
+                len(merged),
+            )
         else:
             merged = web_hits if web_hits else existing_hits
+            logger.info(
+                "CRAG replace (incorrect): %d existing → %d web hits",
+                len(existing_hits),
+                len(web_hits),
+            )
 
         return {"reranked_hits": merged, "web_search_results": web_hits}
 
     @staticmethod
     def _route_after_grade_retrieval(state: RagWorkflowState) -> str:
         verdict = state.get("retrieval_verdict", "correct")
+        logger.info("CRAG routing: verdict=%s → %s", verdict, "correct" if verdict == "correct" else "needs_web_search")
         if verdict == "correct":
             return "correct"
         return "needs_web_search"
