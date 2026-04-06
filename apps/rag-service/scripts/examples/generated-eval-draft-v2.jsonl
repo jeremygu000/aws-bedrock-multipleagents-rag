@@ -19,7 +19,6 @@
     "citation_month": 3,
     "generated_from": "generate_eval_dataset.py",
     "llm_model": "qwen3:32b",
-    "ground_truth_context": "Any kind of failure or public criticism can often be something that triggers shame and despondency as well."
   }
 }
 {
@@ -49,6 +48,10 @@
   "id": "gen-qa-0003",
   "user_input": "Which albums are nominated for both Album of the Year and Best Pop Vocal Album?",
   "reference": "Midnights and Endless Summer Vacation.",
+  "reference_list": [
+    "midnights",
+    "endless summer vacation"
+  ],
   "retrieved_contexts": [
     "In the Album of the Year category, Taylor Swift’s Midnights ... Midnights is also in contention for Best Pop Vocal Album ... Miley Cyrus’ Endless Summer Vacation is also nominated for Album of the Year ... Endless Summer Vacation is also nominated for Best Pop Vocal Album."
   ],
@@ -229,16 +232,338 @@
     "llm_model": "qwen3:32b"
   }
 }
-{"id": "gen-qa-0011", "user_input": "What award did Julian Wilton and Narayana Johnson win at the Australian Game Developer Awards?", "reference": "Best Game and Excellence In Music", "retrieved_contexts": ["Massive Monster's Julian Wilton and composer Narayana Johnson (River Boy) shared their story on creating the sound and music for their hit game Cult of the Lamb . And then three nights later they proceeded to win Best Game and Excellence In Music (and more!) at the Australian Game Developer Awards (AGDA) . How they started: Give a brief – Define the tone, look at inspirations Explore & Iterate Let River Boy do his thing \"Bring on the Willow Beats, bring on the River Boy, bring in those nature songs, those beats and make it really unique,” said Julian, who was a fan of Narayana's bands and solo work before connecting to make Cult of the Lamb . Narayana explained his approach, \"At the very beginning phases was when most of the feedback would come in and I was sending in all these tracks. I was trying to narrow down what everyone was looking for. And then when I figured out what was working and wasn’t, it was easier and easier.”"], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/what-we-learned-high-score-22", "citation_title": "APRA AMCOS", "question_type": "factual", "ground_truth_context": "And then three nights later they proceeded to win Best Game and Excellence In Music (and more!) at the Australian Game Developer Awards (AGDA)", "metadata": {"category": "qa", "source_chunk_id": "d04e8184-80c4-4b46-99b9-16e2a6f44d6a", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/what-we-learned-high-score-22", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "And then three nights later they proceeded to win Best Game and Excellence In Music (and more!) at the Australian Game Developer Awards (AGDA)"}}
-{"id": "gen-qa-0012", "user_input": "What are APRA’s core values?", "reference": "Collaboration, respect, skill, imagination and accountability", "retrieved_contexts": ["APRA believes our people and culture are what set us apart as a workplace. We are committed to fostering a safe, respectful, and inclusive environment for everyone. We expect everyone involved with APRA to respect others and to act lawfully, safely and responsibly. We believe everyone should be treated fairly and in accordance with the APRA’s core values of collaboration, respect, skill, imagination and accountability. We believe there is no place for any form of discrimination, harassment, bullying, vilification, sexual harassment or violence in our workplace, our industry and our society. We respect cultural, ethnic, religious, disability, age, gender and sexual orientation differences. Our expectation is we all act with integrity, transparency and honesty, staying professional and courteous and always creating and maintaining a safe environment for others. We comply with relevant state, territory and federal laws, community expectations and ethical standards related to human rights and modern slavery, in respect of our employees, our members, customers and our business operations. We ensure our employment conditions exceed Modern Awards and the National Employment Standards. We also ensure appropriate hours of work and leave, and take significant measures to sustain the health, safety and wellbeing of our employees, contractors and visitors."], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about/governance-policy/policies-procedures/modern-slavery-act-statement", "citation_title": "APRA AMCOS", "question_type": "factual", "ground_truth_context": "in accordance with the APRA’s core values of collaboration, respect, skill, imagination and accountability.", "metadata": {"category": "qa", "source_chunk_id": "222bd6c4-7fed-4644-873d-7605bf78d449", "citation_url": "https://www.apraamcos.com.au/about/governance-policy/policies-procedures/modern-slavery-act-statement", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "in accordance with the APRA’s core values of collaboration, respect, skill, imagination and accountability."}}
-{"id": "gen-qa-0013", "user_input": "Who did the speaker employ as a co-composer on a documentary?", "reference": "Belinda", "retrieved_contexts": ["Yes, I was able to help with that, she also had a project of her own, and I guided her with working on the sound mix and with the director. I have employed Belinda as a co-­‐composer on a documentary, and I’m waiting for an opportunity to employ Anna (the last woman I mentored) because she is very good at pop style writing. She is based in Muswellbrook and we worked over Skype during Covid. Through a director friend we arranged a gig on a student animation where she was learning on the job, which is the best way rather than an academic exercise."], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/reflections-on-visibility-an-interview-with-amanda-brown-by-yantra-de-vilder", "citation_title": "APRA AMCOS", "question_type": "entity_lookup", "ground_truth_context": "I have employed Belinda as a co-­‐composer on a documentary", "metadata": {"category": "qa", "source_chunk_id": "729414fa-f31d-424e-82a0-1811a50f723d", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/reflections-on-visibility-an-interview-with-amanda-brown-by-yantra-de-vilder", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "I have employed Belinda as a co-­‐composer on a documentary"}}
-{"id": "gen-qa-0014", "user_input": "Who are the two most influential mentors mentioned in the text?", "reference": "Martin Armiger and Michael A. Levine", "retrieved_contexts": ["I’ve been fortunate to have had several mentors and champions over the years, but 2 that have been the most influential are Martin Armiger (my AFTRS Screen Music Lecturer) and Hollywood composer Michael A. Levine ( Siren, Cold Case ). Many a time I remember presenting ideas to Martin that seemed far fetched or a little too unconventional but he always encouraged me to give it a go and more importantly when others were dubious, he fought for me to have the creative space I needed to explore. Being both a realist and a dreamer he was always available to discuss the results in a down to earth way which as a developing young artist is immensely valuable. Without that support I wouldn’t have the confidence to continue to explore and develop my unique voice. Michael was a mentor I met at a summer workshop run by ASCAP and NYU. Having now the confidence to use my “voice” Michael has been the mentor that has really helped me find a place to use it. He invited me to LA, encouraging me to make the move since he was sure I would be a good fit in LA, putting his name on the line when introducing me to his colleagues which have led to fruitful collaborations and further mentors. You just need one champion, and when things start to look like it’s not going to work out, Michael will call me to remind me to hang in there and keep doing what I’m doing because he believes in what I’m doing. I hope everyone is lucky enough to have such a relationship. This journey can be a lonely one, with hours working in a darkened studio, not sure you are making an impact, so mentors and champions are a guiding light along that unknown path."], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/an-insight-into-a-screen-composers-world", "citation_title": "APRA AMCOS", "question_type": "entity_lookup", "ground_truth_context": "I’ve been fortunate to have had several mentors and champions over the years, but 2 that have been the most influential are Martin Armiger (my AFTRS Screen Music Lecturer) and Hollywood composer Michael A. Levine ( Siren, Cold Case ).", "metadata": {"category": "qa", "source_chunk_id": "e68f49ed-c157-4105-8a76-1f126458cf35", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/an-insight-into-a-screen-composers-world", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "I’ve been fortunate to have had several mentors and champions over the years, but 2 that have been the most influential are Martin Armiger (my AFTRS Screen Music Lecturer) and Hollywood composer Michael A. Levine ( Siren, Cold Case )."}}
-{"id": "gen-qa-0015", "user_input": "How much is the honorarium provided by NATSIMO for the Intensive?", "reference": "$8,000", "retrieved_contexts": ["NATSIMO will provide an honorarium of $8,000 (covering the 3-month duration of the Intensive) which is available to the successful applicant to cover living expenses and travel costs incurred as a result of participating in the program. Additionally, the participant will be given a discretionary budget to manage that will cover the hire of session musicians to perform on the final score for the recording process of the intensive. The participant must provide the budget to NATSIMO for approval before these specific funds are awarded."], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/we-answer-your-screen-composer-intensive-faqs", "citation_title": "APRA AMCOS", "question_type": "factual", "ground_truth_context": "NATSIMO will provide an honorarium of $8,000 (covering the 3-month duration of the Intensive)", "metadata": {"category": "qa", "source_chunk_id": "577f9c9f-6732-4bdd-ab74-8453b80e1647", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/we-answer-your-screen-composer-intensive-faqs", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "NATSIMO will provide an honorarium of $8,000 (covering the 3-month duration of the Intensive)"}}
-{"id": "gen-qa-0016", "user_input": "What approach did Robbie Miller decide to try after observing his teenage niece's behavior with Spotify?", "reference": "He gave up four bars of chord introductions and went straight to singing.", "retrieved_contexts": ["Byron Bay keynote speaker Robbie Miller discussed in his ‘brutally honest’ keynote, that after seeing his teenage niece skip through numerous songs on Spotify just a few seconds in, he decided to try a different approach. “It’s hard to get into the mind of every music listener,” said Robbie. “I gave up four bars of chord introductions and went straight to singing,” he said, with the intention to “keep them til the chorus.” Wollongong keynote speaker Jim Moginie gave a similar tip, “If you want a win: don’t make us wait for a chorus.”"], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/9-things-regional-sessions", "citation_title": "APRA AMCOS", "question_type": "procedural", "ground_truth_context": "I gave up four bars of chord introductions and went straight to singing", "metadata": {"category": "qa", "source_chunk_id": "14c76a1d-8e63-4b51-8c64-f430326bdd11", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/9-things-regional-sessions", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "I gave up four bars of chord introductions and went straight to singing"}}
-{"id": "gen-qa-0017", "user_input": "What is the name of the organization represented by Dean Ormston in the provided text?", "reference": "APRA AMCOS", "retrieved_contexts": ["“The cultural, social and economic benefits of investing in Australia’s contemporary music industry are substantive and far-reaching. The challenge for government is to develop a smart whole-of-government approach across cultural diplomacy, trade, tourism, small business, education, health and arts to take full advantage of the music industry’s impact. The opportunity for government is to see dividends in employment opportunities throughout the industries that rely heavily on music whether it be hospitality or the visitor economy, and delivering on the huge appetite for Australian music around the world.” Dean Ormston, APRA AMCOS \"A strong music economy and recognition of the true economic and cultural value of local music benefits more than artists and music industry professionals looking to return to touring. The business of music now extends from legacy music catalogues and IP ownership, to gaming and tech industries and everything in between – with the correct government support, this is a significant potential driver of GDP. We currently have an increasingly diverse, important cultural new wave of Australian artists, including Genesis Owusu, Budjerah, and the first Australian ARIA #1 of 2020, Huski. Thanks to COVID these artists have struggled to have their music heard. We cannot risk losing a whole generation of young Australian artists with the potential to be recognised on the same global stage as Flume, Rufus Du Sol, Tame Impala and plenty of others. Whichever party forms government, it is critical that these priorities are addressed, and the real value of music is acknowledged and supported in the same way that the government supports film, TV, and sport.” Annabelle Herd, ARIA and PPCA “Australia needs a vibrant arts and entertainment industry, not just to support other Australian industries and contribute to our economic recovery from Covid, but to drive social interaction and well-being in our communities – at a time when it’s never been needed more. We need support from all parties and candidates to drive investment and rebuild skills and capacity in our industry.” Evelyn Richardson, Live Performance Australia (LPA) “The live music industry is the training ground of the future Australian music industry. It is where the ecosystem starts and is how artists and music industry workers and businesses get their first start. It’s where the Australian public fall in love with Australian music. The sole traders and small to medium businesses that drive live music in Australia are still recovering from the COVID-19 shutdown. They need targeted investment in skills development and training so we can staff the return of live music long term and a government backed insurance scheme so we can have certainty in the future.” Stephen Wade, Australian Live Music Business Council (ALMBC) “Whoever wins the election on May 21 has an opportunity to fast track the local and global success of great Australian music and leave a legacy for generations to come. The last two years have been devastating for so many in the music industry."], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/music-industry-3-point-plan-1", "citation_title": "APRA AMCOS", "question_type": "entity_lookup", "ground_truth_context": "Dean Ormston, APRA AMCOS", "metadata": {"category": "qa", "source_chunk_id": "2bcea7db-cf4e-4599-98c2-c27bbc8b5bda", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/music-industry-3-point-plan-1", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "Dean Ormston, APRA AMCOS"}}
-{"id": "gen-qa-0018", "user_input": "What is the maximum funding amount available for an Annual Arts Grant?", "reference": "$20,000", "retrieved_contexts": ["This program supports creatives in either: Annual Arts Grants – Grants available up to $20,000 for one-off arts projects that result in a public outcome either online or within City of Melbourne municipality in 2026. Open to individuals, groups and small to medium arts organisations. or Art Residencies - These grants provide studio spaces and facilities for artists and small to medium arts organisations to support the development of their creative practice. Applications that propose collaborations and partnerships are welcome. Residencies are available in 2026 for six or 12 months and include up to $5,000 funding for artists. Boyd Studio-1 Boyd Garret and Kathleen Syme Library (for writers) Art and Heritage Collection The Annual Arts Grants program supports works that are welcoming, inclusive, and accessible to people of all abilities. We are committed to helping our artists and arts organisations implement best practices to continually enhance the experience for all attendees. Visit our Accessibility checklist and solutions guide for festivals and events. For further resources, visit Make your business accessible . The City of Melbourne is a child safe organisation ."], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/city-of-melbourne-annual-arts-grants", "citation_title": "Annual Arts Grants and Residencies | City of Melbourne", "question_type": "factual", "ground_truth_context": "Annual Arts Grants – Grants available up to $20,000 for one-off arts projects that result in a public outcome either online or within City of Melbourne municipality in 2026.", "metadata": {"category": "qa", "source_chunk_id": "3d366dc2-0bbb-497a-96bf-d0ceff81553e", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/city-of-melbourne-annual-arts-grants", "citation_title": "Annual Arts Grants and Residencies | City of Melbourne", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "Annual Arts Grants – Grants available up to $20,000 for one-off arts projects that result in a public outcome either online or within City of Melbourne municipality in 2026."}}
-{"id": "gen-qa-0019", "user_input": "Which organizations are mentioned as supporting artists in Australia and New Zealand?", "reference": "APRA AMCOS and triple j", "retrieved_contexts": ["UO always looks forward to entries from Australia and New Zealand because the artists are so creative and interesting. The credit is most likely due to the support of organisations like APRA AMCOS and triple j, who actively encourage and promote their local artists through exposure and grants. That kind of support allows artists more creative freedom to find their true self and form, and UO believes that helps set them apart. ISC has had a long list of successful past winners, including Gotye, Vance Joy, Amy Shark, Kimbra, Kate Miller-Heidke, Dean Lewis, Gin Wigmore, Kasey Chambers, The Presets and on and on. UO hope that more Aussies and Kiwis will also consider entering the Unsigned Only Music Competition so UO can continue to help undiscovered artists get more recognition here in the USA and abroad."], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/want-to-know-more-about-entering-unsigned-only-get-the-facts", "citation_title": "APRA AMCOS", "question_type": "entity_lookup", "ground_truth_context": "The credit is most likely due to the support of organisations like APRA AMCOS and triple j, who actively encourage and promote their local artists through exposure and grants.", "metadata": {"category": "qa", "source_chunk_id": "25efdc05-6753-4924-832e-ca9d5ce73aad", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/want-to-know-more-about-entering-unsigned-only-get-the-facts", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "The credit is most likely due to the support of organisations like APRA AMCOS and triple j, who actively encourage and promote their local artists through exposure and grants."}}
-{"id": "gen-qa-0020", "user_input": "Is Hindley Street Musical Hall wheelchair accessible?", "reference": "Yes", "retrieved_contexts": ["Hindley Street Musical Hall , 149 Hindley St, Adelaide Accessibility: Hindley Street Music Hall is a wheelchair-accessible venue. There are wheelchair amenities located on both levels and companion cards are accepted. There is a lift located in our main foyer entrance that services all levels of the venue. Support animals and Guide/Assistance Dogs are welcomed at the venue, please come to the Box Office upon arrival so we can make your visit enjoyable for you and your plus one. If you have any questions please contact the venue on hello@hindleymusichall.com.au ."], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/songcraft-unify-off-the-record-adelaide", "citation_title": "APRA AMCOS", "question_type": "factual", "ground_truth_context": "Hindley Street Music Hall is a wheelchair-accessible venue.", "metadata": {"category": "qa", "source_chunk_id": "5bdeafa1-e6ec-4963-9ca7-25592d4b9b2a", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/songcraft-unify-off-the-record-adelaide", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "Hindley Street Music Hall is a wheelchair-accessible venue."}}
-{"id": "gen-qa-0021", "user_input": "Which cities in Australia use music recognition technology for jingle distributions?", "reference": "Sydney, Melbourne, Brisbane, Adelaide, Perth", "retrieved_contexts": ["work? We use two types of music use reporting for jingle distributions -Music recognition technology (for jingles broadcast on Australian TV and radio in Sydney, Melbourne, Brisbane, Adelaide &amp; Perth; New Zealand radio in Auckland, Christchurch &amp; Wellington; and New Zealand TV in Auckland). Upload the audio associated with your jingles in the Writer Portal.Jingle self-reporting form (for jingles broadcast in all other areas). If your ad is only played in these non-metro areas, you will need to self-report via the Jingle reporting (domestic) form.To increase the opportunity for our MRT supplier to successfully recognise music contained within advertisements, please ensure you upload the highest quality MP3 or WAV files available to you. Load more results"], "category": "qa", "citation_url": "https://www.apraamcos.com.au/search", "citation_title": "APRA AMCOS", "question_type": "factual", "ground_truth_context": "for jingles broadcast on Australian TV and radio in Sydney, Melbourne, Brisbane, Adelaide & Perth", "metadata": {"category": "qa", "source_chunk_id": "07bfdada-ef3c-49d9-930a-a76d6b8e9a88", "citation_url": "https://www.apraamcos.com.au/search", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "for jingles broadcast on Australian TV and radio in Sydney, Melbourne, Brisbane, Adelaide & Perth"}}
-{"id": "gen-qa-0022", "user_input": "What are the main benefits of being part of APRA AMCOS according to the text?", "reference": "Royalty collection and meeting creative people through events.", "retrieved_contexts": ["APRA AMCOS is seriously such an amazing organisation. There are so many benefits - the main ones being royalty collection and getting to meet so many amazing creative people (writers/publishers/music people) through all the events they hold throughout the year and online too! My advice is to go to all the events. They are so well run and super relevant in my opinion. All the guys at APRA AMCOS are genuinely interested in helping songwriters succeed and creating connections wherever possible which I think is really amazing."], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/dance-music-tips-of-the-trade-with-amba-shepherd", "citation_title": "APRA AMCOS", "question_type": "factual", "ground_truth_context": "the main ones being royalty collection and getting to meet so many amazing creative people (writers/publishers/music people) through all the events they hold throughout the year and online too!", "metadata": {"category": "qa", "source_chunk_id": "a7dde064-ef30-4a17-ad93-8d755d70cb65", "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/dance-music-tips-of-the-trade-with-amba-shepherd", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "the main ones being royalty collection and getting to meet so many amazing creative people (writers/publishers/music people) through all the events they hold throughout the year and online too!"}}
-{"id": "gen-qa-0023", "user_input": "What is the maximum duration for a performance sample or showreel that can be submitted for works over 10 minutes?", "reference": "10 minutes", "retrieved_contexts": ["Definition: a. For the performance of a single Australian work, showcasing the performer(s)’ success in revealing the nature and intention of a composition with clear notated instructions for the performer. Works with significant improvisatory aspects should instead be submitted for Performance of the Year: Jazz / Improvised Music. General: b. The performance must have taken place publicly in the year prior to that of the Award (2021). Public broadcast of a studio or concert performance in the same year is eligible as a public performance. (This includes radio broadcasts, live streams, podcasts, or other digital distribution of a live recording) c. The performed work must have been composed by an Australian citizen or by a composer who has permanent residence in Australia. There is no requirement on a year of composition or completion (heritage works are eligible). d. The performers need not be citizens or permanent residents of Australia. e. A performance may only be submitted in a single Performance of the Year category. If a work is eligible for multiple categories, the nominee may select which category to submit under. Nomination: f. Self-nomination by the performer(s) in this category is not permitted g. The nominator must clearly provide the Title and Composer of the work, and the Performer(s) of the work along with a short paragraph articulating the reason for nomination. h. Each nominator can only nominate a single work in this category each year. Submission: i. Performers may only have a performance of a single work in this Performance of the Year category. If multiple performances by the same performer are nominated, the performer will be asked to select which one they would like to proceed with. j. Submissions will be deemed ineligible if they are not accompanied by appropriate documentation: - Title of the work - All composers of the work - Performer of the work - Any librettists or sources for text used in the work (as appropriate) - An audio and/or video recording of the nominated performance. For works over 10 minutes, a 10-minute or less sample or showreel of the work should also be provided (in addition to complete sound recording). - Music score, performance instructions or lead sheets (in PDF file format) - Abstract of up to 500 words presenting the rationale for the nomination - Supporting documentation such as program notes - If using Indigenous content, evidence of consultation with the appropriate communities and permissions to use their cultural content and intellectual property Assessment: j. The Annual Awards will be decided by a panel drawn from the General Committee, based on completed submissions. (Please see Section E: DECISION-MAKING PROCEDURES and Section F: APPOINTMENT OF GENERAL AND LUMINARY AWARDS COMMITTEES for further information) . l. Performances will be assessed solely on: - their quality and interpretation m. All Committees may reserve the right not to make an Award in any single or collective category. n. Decisions reached by the Committee are final, no discussion regarding the result shall be entered into."], "category": "qa", "citation_url": "https://www.apraamcos.com.au/about/supporting-the-industry/awards/art-music-awards-2022", "citation_title": "APRA AMCOS", "question_type": "factual", "ground_truth_context": "- For works over 10 minutes, a 10-minute or less sample or showreel of the work should also be provided (in addition to complete sound recording).", "metadata": {"category": "qa", "source_chunk_id": "dbb09a8c-bba9-4e75-a2d1-296b7bfc6f12", "citation_url": "https://www.apraamcos.com.au/about/supporting-the-industry/awards/art-music-awards-2022", "citation_title": "APRA AMCOS", "citation_year": 2026, "citation_month": 3, "generated_from": "generate_eval_dataset.py", "llm_model": "qwen3:32b", "ground_truth_context": "- For works over 10 minutes, a 10-minute or less sample or showreel of the work should also be provided (in addition to complete sound recording)."}}
+{
+  "id": "gen-qa-0011",
+  "user_input": "Which awards did Julian Wilton and Narayana Johnson win at the Australian Game Developer Awards?",
+  "reference": "Best Game and Excellence In Music.",,
+  "reference_list": [
+    "best game",
+    "excellence in music"
+  ]
+  "retrieved_contexts": [
+    "Massive Monster's Julian Wilton and composer Narayana Johnson (River Boy) ... they proceeded to win Best Game and Excellence In Music (and more!) at the Australian Game Developer Awards (AGDA)."
+  ],
+  "ground_truth_context": "they proceeded to win Best Game and Excellence In Music (and more!) at the Australian Game Developer Awards (AGDA)",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/what-we-learned-high-score-22",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "d04e8184-80c4-4b46-99b9-16e2a6f44d6a",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/what-we-learned-high-score-22",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0012",
+  "user_input": "What are APRA’s core values?",
+  "reference": "collaboration, respect, skill, imagination and accountability",,
+  "reference_list": [
+    "collaboration",
+    "respect",
+    "skill",
+    "imagination",
+    "accountability"
+  ]
+  "retrieved_contexts": [
+    "We believe everyone should be treated fairly and in accordance with the APRA’s core values of collaboration, respect, skill, imagination and accountability."
+  ],
+  "ground_truth_context": "core values of collaboration, respect, skill, imagination and accountability",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about/governance-policy/policies-procedures/modern-slavery-act-statement",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "222bd6c4-7fed-4644-873d-7605bf78d449",
+    "citation_url": "https://www.apraamcos.com.au/about/governance-policy/policies-procedures/modern-slavery-act-statement",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0013",
+  "user_input": "Who did the speaker employ as a co-composer on a documentary?",
+  "reference": "belinda gehlert",
+  "retrieved_contexts": [
+    "I have employed Belinda as a co-composer on a documentary..."
+  ],
+  "ground_truth_context": "I have employed Belinda as a co-composer on a documentary",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/reflections-on-visibility-an-interview-with-amanda-brown-by-yantra-de-vilder",
+  "citation_title": "APRA AMCOS",
+  "question_type": "entity_lookup",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "729414fa-f31d-424e-82a0-1811a50f723d",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/reflections-on-visibility-an-interview-with-amanda-brown-by-yantra-de-vilder",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0014",
+  "user_input": "Who are the two most influential mentors mentioned in the text?",
+  "reference": "Martin Armiger and Michael A. Levine",
+  "reference_list": [
+    "martin armiger",
+    "michael a. levine"
+  ],
+  "retrieved_contexts": [
+    "I’ve been fortunate to have had several mentors and champions over the years, but 2 that have been the most influential are Martin Armiger (my AFTRS Screen Music Lecturer) and Hollywood composer Michael A. Levine ( Siren, Cold Case ). Many a time I remember presenting ideas to Martin that seemed far fetched or a little too unconventional but he always encouraged me to give it a go and more importantly when others were dubious, he fought for me to have the creative space I needed to explore. Being both a realist and a dreamer he was always available to discuss the results in a down to earth way which as a developing young artist is immensely valuable. Without that support I wouldn’t have the confidence to continue to explore and develop my unique voice. Michael was a mentor I met at a summer workshop run by ASCAP and NYU. Having now the confidence to use my “voice” Michael has been the mentor that has really helped me find a place to use it. He invited me to LA, encouraging me to make the move since he was sure I would be a good fit in LA, putting his name on the line when introducing me to his colleagues which have led to fruitful collaborations and further mentors. You just need one champion, and when things start to look like it’s not going to work out, Michael will call me to remind me to hang in there and keep doing what I’m doing because he believes in what I’m doing. I hope everyone is lucky enough to have such a relationship. This journey can be a lonely one, with hours working in a darkened studio, not sure you are making an impact, so mentors and champions are a guiding light along that unknown path."
+  ],
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/an-insight-into-a-screen-composers-world",
+  "citation_title": "APRA AMCOS",
+  "question_type": "entity_lookup",
+  "ground_truth_context": "I’ve been fortunate to have had several mentors and champions over the years, but 2 that have been the most influential are Martin Armiger (my AFTRS Screen Music Lecturer) and Hollywood composer Michael A. Levine ( Siren, Cold Case ).",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "e68f49ed-c157-4105-8a76-1f126458cf35",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/an-insight-into-a-screen-composers-world",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0015",
+  "user_input": "How much is the honorarium provided by NATSIMO for the Intensive?",
+  "reference": "$8,000",
+  "reference_value": 8000,
+  "retrieved_contexts": [
+    "NATSIMO will provide an honorarium of $8,000 (covering the 3-month duration of the Intensive) which is available to the successful applicant to cover living expenses and travel costs incurred as a result of participating in the program. Additionally, the participant will be given a discretionary budget to manage that will cover the hire of session musicians to perform on the final score for the recording process of the intensive. The participant must provide the budget to NATSIMO for approval before these specific funds are awarded."
+  ],
+  "ground_truth_context": "NATSIMO will provide an honorarium of $8,000 (covering the 3-month duration of the Intensive)",
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/we-answer-your-screen-composer-intensive-faqs",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "577f9c9f-6732-4bdd-ab74-8453b80e1647",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/we-answer-your-screen-composer-intensive-faqs",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0016",
+  "user_input": "What approach did Robbie Miller decide to try after observing his teenage niece's behavior with Spotify?",
+  "reference": "gave up four bars of chord introductions and went straight to singing",
+  "retrieved_contexts": [
+    "Byron Bay keynote speaker Robbie Miller discussed in his ‘brutally honest’ keynote, that after seeing his teenage niece skip through numerous songs on Spotify just a few seconds in, he decided to try a different approach. “It’s hard to get into the mind of every music listener,” said Robbie. “I gave up four bars of chord introductions and went straight to singing,” he said, with the intention to “keep them til the chorus.” Wollongong keynote speaker Jim Moginie gave a similar tip, “If you want a win: don’t make us wait for a chorus.”"
+  ],
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/9-things-regional-sessions",
+  "citation_title": "APRA AMCOS",
+  "question_type": "procedural",
+  "ground_truth_context": "I gave up four bars of chord introductions and went straight to singing",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "14c76a1d-8e63-4b51-8c64-f430326bdd11",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/9-things-regional-sessions",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0017",
+  "user_input": "What is the name of the organization represented by Dean Ormston in the provided text?",
+  "reference": "apra amcos",
+  "retrieved_contexts": [
+    "“The cultural, social and economic benefits of investing in Australia’s contemporary music industry are substantive and far-reaching. The challenge for government is to develop a smart whole-of-government approach across cultural diplomacy, trade, tourism, small business, education, health and arts to take full advantage of the music industry’s impact. The opportunity for government is to see dividends in employment opportunities throughout the industries that rely heavily on music whether it be hospitality or the visitor economy, and delivering on the huge appetite for Australian music around the world.” Dean Ormston, APRA AMCOS \"A strong music economy and recognition of the true economic and cultural value of local music benefits more than artists and music industry professionals looking to return to touring. The business of music now extends from legacy music catalogues and IP ownership, to gaming and tech industries and everything in between – with the correct government support, this is a significant potential driver of GDP. We currently have an increasingly diverse, important cultural new wave of Australian artists, including Genesis Owusu, Budjerah, and the first Australian ARIA #1 of 2020, Huski. Thanks to COVID these artists have struggled to have their music heard. We cannot risk losing a whole generation of young Australian artists with the potential to be recognised on the same global stage as Flume, Rufus Du Sol, Tame Impala and plenty of others. Whichever party forms government, it is critical that these priorities are addressed, and the real value of music is acknowledged and supported in the same way that the government supports film, TV, and sport.” Annabelle Herd, ARIA and PPCA “Australia needs a vibrant arts and entertainment industry, not just to support other Australian industries and contribute to our economic recovery from Covid, but to drive social interaction and well-being in our communities – at a time when it’s never been needed more. We need support from all parties and candidates to drive investment and rebuild skills and capacity in our industry.” Evelyn Richardson, Live Performance Australia (LPA) “The live music industry is the training ground of the future Australian music industry. It is where the ecosystem starts and is how artists and music industry workers and businesses get their first start. It’s where the Australian public fall in love with Australian music. The sole traders and small to medium businesses that drive live music in Australia are still recovering from the COVID-19 shutdown. They need targeted investment in skills development and training so we can staff the return of live music long term and a government backed insurance scheme so we can have certainty in the future.” Stephen Wade, Australian Live Music Business Council (ALMBC) “Whoever wins the election on May 21 has an opportunity to fast track the local and global success of great Australian music and leave a legacy for generations to come. The last two years have been devastating for so many in the music industry."
+  ],
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/music-industry-3-point-plan-1",
+  "citation_title": "APRA AMCOS",
+  "question_type": "entity_lookup",
+  "ground_truth_context": "Dean Ormston, APRA AMCOS",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "2bcea7db-cf4e-4599-98c2-c27bbc8b5bda",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/music-industry-3-point-plan-1",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0018",
+  "user_input": "What was the maximum funding amount available for an Annual Arts Grant in 2026?",
+  "reference": "$20,000",
+  "retrieved_contexts": [
+    "This program supports creatives in either: Annual Arts Grants – Grants available up to $20,000 for one-off arts projects that result in a public outcome either online or within City of Melbourne municipality in 2026. Open to individuals, groups and small to medium arts organisations."
+  ],
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/city-of-melbourne-annual-arts-grants",
+  "citation_title": "Annual Arts Grants and Residencies | City of Melbourne",
+  "question_type": "factual",
+  "ground_truth_context": "Annual Arts Grants – Grants available up to $20,000 for one-off arts projects that result in a public outcome either online or within City of Melbourne municipality in 2026.",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "3d366dc2-0bbb-497a-96bf-d0ceff81553e",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/city-of-melbourne-annual-arts-grants",
+    "citation_title": "Annual Arts Grants and Residencies | City of Melbourne",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0019",
+  "user_input": "Which organizations are mentioned as supporting artists in Australia and New Zealand?",
+  "reference": "APRA AMCOS and triple j",
+  "reference_list": [
+    "apra amcos",
+    "triple j"
+  ],
+  "retrieved_contexts": [
+    "The credit is most likely due to the support of organisations like APRA AMCOS and triple j, who actively encourage and promote their local artists through exposure and grants."
+  ],
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/want-to-know-more-about-entering-unsigned-only-get-the-facts",
+  "citation_title": "APRA AMCOS",
+  "question_type": "entity_lookup",
+  "ground_truth_context": "The credit is most likely due to the support of organisations like APRA AMCOS and triple j, who actively encourage and promote their local artists through exposure and grants.",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "25efdc05-6753-4924-832e-ca9d5ce73aad",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/want-to-know-more-about-entering-unsigned-only-get-the-facts",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0020",
+  "user_input": "Is Hindley Street Musical Hall wheelchair accessible?",
+  "reference": "wheelchair-accessible",
+  "retrieved_contexts": [
+    "Hindley Street Music Hall is a wheelchair-accessible venue. There are wheelchair amenities located on both levels and companion cards are accepted. There is a lift located in our main foyer entrance that services all levels of the venue."
+  ],
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/songcraft-unify-off-the-record-adelaide",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "ground_truth_context": "Hindley Street Music Hall is a wheelchair-accessible venue.",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "5bdeafa1-e6ec-4963-9ca7-25592d4b9b2a",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/songcraft-unify-off-the-record-adelaide",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0021",
+  "user_input": "Which cities in Australia use music recognition technology for jingle distributions?",
+  "reference": "Sydney, Melbourne, Brisbane, Adelaide, Perth",
+  "reference_list": [
+    "sydney",
+    "melbourne",
+    "brisbane",
+    "adelaide",
+    "perth"
+  ],
+  "retrieved_contexts": [
+    "Music recognition technology (for jingles broadcast on Australian TV and radio in Sydney, Melbourne, Brisbane, Adelaide & Perth)."
+  ],
+  "category": "qa",
+  "citation_url": "REPLACE_WITH_CANONICAL_SOURCE_URL",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "ground_truth_context": "for jingles broadcast on Australian TV and radio in Sydney, Melbourne, Brisbane, Adelaide & Perth",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "07bfdada-ef3c-49d9-930a-a76d6b8e9a88",
+    "citation_url": "REPLACE_WITH_CANONICAL_SOURCE_URL",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0022",
+  "user_input": "What are the main benefits of being part of APRA AMCOS according to the text?",
+  "reference": "Royalty collection and meeting creative people through events.",
+  "reference_list": [
+    "royalty collection",
+    "meeting creative people through events"
+  ],
+  "retrieved_contexts": [
+    "the main ones being royalty collection and getting to meet so many amazing creative people (writers/publishers/music people) through all the events they hold throughout the year and online too!"
+  ],
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/dance-music-tips-of-the-trade-with-amba-shepherd",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "ground_truth_context": "the main ones being royalty collection and getting to meet so many amazing creative people (writers/publishers/music people) through all the events they hold throughout the year and online too!",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "a7dde064-ef30-4a17-ad93-8d755d70cb65",
+    "citation_url": "https://www.apraamcos.com.au/about-us/news-and-events/dance-music-tips-of-the-trade-with-amba-shepherd",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+{
+  "id": "gen-qa-0023",
+  "user_input": "What is the maximum duration for a performance sample or showreel that can be submitted for works over 10 minutes?",
+  "reference": "10 minutes",
+  "reference_list": [
+    "10 minutes",
+    "10-minute or less"
+  ],
+  "retrieved_contexts": [
+    "For works over 10 minutes, a 10-minute or less sample or showreel of the work should also be provided (in addition to complete sound recording)."
+  ],
+  "category": "qa",
+  "citation_url": "https://www.apraamcos.com.au/about/supporting-the-industry/awards/art-music-awards-2022",
+  "citation_title": "APRA AMCOS",
+  "question_type": "factual",
+  "ground_truth_context": "For works over 10 minutes, a 10-minute or less sample or showreel of the work should also be provided (in addition to complete sound recording).",
+  "metadata": {
+    "category": "qa",
+    "source_chunk_id": "dbb09a8c-bba9-4e75-a2d1-296b7bfc6f12",
+    "citation_url": "https://www.apraamcos.com.au/about/supporting-the-industry/awards/art-music-awards-2022",
+    "citation_title": "APRA AMCOS",
+    "citation_year": 2026,
+    "citation_month": 3,
+    "generated_from": "generate_eval_dataset.py",
+    "llm_model": "qwen3:32b"
+  }
+}
+

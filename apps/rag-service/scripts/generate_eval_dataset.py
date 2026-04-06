@@ -222,17 +222,27 @@ _NAV_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+_SEARCH_PAGE_URL_PATTERNS = re.compile(
+    r"(/search\b|[?&]q=|[?&]query=|[?&]search=|/results\b)",
+    re.IGNORECASE,
+)
+
 
 def _is_chunk_clean(chunk: dict[str, Any]) -> bool:
     """Return False for noisy chunks that are unsuitable for Q/A generation.
 
     Filters:
+    - Search result pages (URL contains /search, ?q=, etc.)
     - Excessive HTML tags (> 10 occurrences of '<')
     - Too many URLs (> 5 occurrences of 'http')
     - Navigation debris (nav patterns occupy > 20 % of text)
     - Too short after stripping (< 100 characters)
     - No natural language (fewer than 2 sentence-ending punctuation marks)
     """
+    url: str = chunk.get("citation_url", "")
+    if url and _SEARCH_PAGE_URL_PATTERNS.search(url):
+        return False
+
     text: str = chunk.get("chunk_text", "")
     stripped = text.strip()
 
@@ -258,23 +268,49 @@ def _is_chunk_clean(chunk: dict[str, Any]) -> bool:
     return True
 
 
+def _clean_chunk_text(text: str) -> str:
+    """Pre-process chunk text before sending to LLM for QA generation.
+
+    Removes:
+    - Residual HTML tags
+    - Excessive whitespace / blank lines
+    - Common web artifacts (e.g. "Skip to content", breadcrumb arrows)
+    """
+    cleaned = re.sub(r"<[^>]+>", " ", text)
+    cleaned = re.sub(r"\s*[›»>]\s*", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return cleaned.strip()
+
+
 def generate_qa(
     chunk: dict[str, Any],
     ollama_url: str,
     model: str,
     num_questions: int,
 ) -> list[dict[str, Any]]:
-    """Call Ollama to generate Q/A pairs for a single chunk.
+    """Call Ollama to generate Q/A pairs for a single chunk."""
+    cleaned_text = _clean_chunk_text(chunk["chunk_text"][:4000])
 
-    Returns a list of dicts with keys: question, reference_answer, question_type.
-    Returns empty list on failure.
-    """
+    temporal_hint = ""
+    year = chunk.get("citation_year")
+    if year:
+        month = chunk.get("citation_month")
+        date_str = f"{year}-{month:02d}" if month else str(year)
+        temporal_hint = (
+            f"\nIMPORTANT: This content is from {date_str}. "
+            "If the question involves time-sensitive data (e.g. 'current', 'latest'), "
+            f"anchor it to {date_str} explicitly (e.g. 'As of {date_str}, what is...').\n"
+        )
+
     prompt = QA_PROMPT_TEMPLATE.format(
-        chunk_text=chunk["chunk_text"][:4000],
+        chunk_text=cleaned_text,
         citation_title=chunk["citation_title"] or "Unknown",
         citation_url=chunk["citation_url"] or "Unknown",
         num_questions=num_questions,
     )
+    if temporal_hint:
+        prompt = prompt + temporal_hint
 
     try:
         response = httpx.post(
@@ -356,6 +392,24 @@ def _parse_llm_output(raw_content: str, chunk_id: str, chunk_text: str = "") -> 
     return []
 
 
+_TRUNCATED_CONTEXT = re.compile(
+    r"(\.\.\.$|…$|\.{3,}$|\[\.\.\.?\]|<truncated>|<snip>)",
+    re.IGNORECASE,
+)
+
+_MULTI_ANSWER_DELIMITERS = re.compile(r"\s+and\s+|\s*&\s*|\s*,\s+and\s+", re.IGNORECASE)
+
+
+def _normalize_reference(answer: str) -> str:
+    """Normalize multi-value answers to use `;` as delimiter."""
+    if ";" in answer:
+        return answer
+    parts = _MULTI_ANSWER_DELIMITERS.split(answer)
+    if len(parts) >= 2 and all(len(p.strip()) > 1 for p in parts):
+        return "; ".join(p.strip() for p in parts)
+    return answer
+
+
 def _validate_qa_items(
     items: list[Any], chunk_id: str, chunk_text: str = ""
 ) -> list[dict[str, Any]]:
@@ -411,6 +465,14 @@ def _validate_qa_items(
             logger.debug("Rejecting item (missing ground_truth_context) in chunk %s", chunk_id)
             continue
 
+        if _TRUNCATED_CONTEXT.search(ground_truth_context):
+            logger.debug("Rejecting item (truncated ground_truth_context) in chunk %s", chunk_id)
+            continue
+
+        if len(ground_truth_context) < 20:
+            logger.debug("Rejecting item (ground_truth_context too short) in chunk %s", chunk_id)
+            continue
+
         if chunk_words:
             context_words = set(re.findall(r"\b\w+\b", ground_truth_context.lower()))
             overlap = chunk_words & context_words
@@ -420,6 +482,8 @@ def _validate_qa_items(
                     chunk_id,
                 )
                 continue
+
+        reference_answer = _normalize_reference(reference_answer)
 
         valid.append(
             {
@@ -460,9 +524,87 @@ def build_output_record(
             "citation_month": chunk["citation_month"],
             "generated_from": "generate_eval_dataset.py",
             "llm_model": model,
-            "ground_truth_context": qa.get("ground_truth_context", ""),
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Validator
+# ---------------------------------------------------------------------------
+
+_REQUIRED_FIELDS = {"id", "user_input", "reference", "retrieved_contexts", "category", "citation_url"}
+_VALID_QUESTION_TYPES = {"factual", "conceptual", "procedural", "entity_lookup", "relationship"}
+
+
+def validate_dataset(path: str) -> bool:
+    errors: list[str] = []
+
+    with open(path, encoding="utf-8") as f:
+        content = f.read().strip()
+
+    records: list[dict[str, Any]] = []
+    try:
+        parsed = json.loads(content)
+        if isinstance(parsed, list):
+            records = [r for r in parsed if isinstance(r, dict)]
+        elif isinstance(parsed, dict):
+            records = [parsed]
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        pos = 0
+        while pos < len(content):
+            while pos < len(content) and content[pos] in " \t\n\r":
+                pos += 1
+            if pos >= len(content):
+                break
+            try:
+                obj, end_pos = decoder.raw_decode(content, pos)
+                if isinstance(obj, dict):
+                    records.append(obj)
+                pos = end_pos
+            except json.JSONDecodeError:
+                pos += 1
+
+    if not records:
+        errors.append("No valid JSON records found in file")
+
+    for idx, record in enumerate(records, start=1):
+        rid = record.get("id", f"record-{idx}")
+
+        missing = _REQUIRED_FIELDS - set(record.keys())
+        if missing:
+            errors.append(f"{rid}: missing fields {missing}")
+
+        ref = record.get("reference", "")
+        if not ref or len(ref.strip()) < 2:
+            errors.append(f"{rid}: empty or trivial reference")
+
+        ctx = record.get("retrieved_contexts", [])
+        if not ctx or not isinstance(ctx, list) or not ctx[0]:
+            errors.append(f"{rid}: missing retrieved_contexts")
+
+        qtype = record.get("question_type", "")
+        if qtype and qtype not in _VALID_QUESTION_TYPES:
+            errors.append(f"{rid}: invalid question_type '{qtype}'")
+
+        url = record.get("citation_url", "")
+        if url and _SEARCH_PAGE_URL_PATTERNS.search(url):
+            errors.append(f"{rid}: citation_url looks like a search page")
+
+        gtc = record.get("ground_truth_context", "")
+        if gtc and _TRUNCATED_CONTEXT.search(gtc):
+            errors.append(f"{rid}: ground_truth_context appears truncated")
+
+    print(f"\nValidated {len(records)} record(s) in {path}", file=sys.stderr)
+
+    if errors:
+        print(f"❌ Validation FAILED — {len(errors)} issue(s):\n", file=sys.stderr)
+        for e in errors:
+            print(f"  • {e}", file=sys.stderr)
+        return False
+
+    print("✅ Validation passed — all records conform to schema.", file=sys.stderr)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -528,11 +670,20 @@ def parse_args() -> argparse.Namespace:
         default="qa",
         help="Category for generated items (default: qa)",
     )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Validate an existing JSONL file (--output) instead of generating",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+
+    if args.validate:
+        ok = validate_dataset(args.output)
+        sys.exit(0 if ok else 1)
 
     s = get_settings()
     logger.info(

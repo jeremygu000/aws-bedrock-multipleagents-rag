@@ -99,7 +99,10 @@ def get_default_metric_preferences(group_name: str) -> list[str] | None:
     return None
 
 
-def resolve_region(explicit_region: str | None) -> str:
+def resolve_region(explicit_region: str | None, provider: str = "bedrock") -> str:
+    if provider == "ollama":
+        return os.environ.get("AWS_DEFAULT_REGION", "ap-southeast-2")
+
     region = (
         explicit_region
         or os.environ.get("RAGAS_AWS_REGION")
@@ -115,7 +118,27 @@ def resolve_region(explicit_region: str | None) -> str:
     return region
 
 
-def build_evaluator_models(llm_model: str, embedding_model: str, region: str) -> tuple[Any, Any, str]:
+def build_evaluator_models(
+    llm_model: str, embedding_model: str, region: str, provider: str = "bedrock"
+) -> tuple[Any, Any, str]:
+    if provider == "ollama":
+        return _build_ollama_models(llm_model, embedding_model)
+    return _build_bedrock_models(llm_model, embedding_model, region)
+
+
+def _build_ollama_models(llm_model: str, embedding_model: str) -> tuple[Any, Any, str]:
+    from ragas.embeddings.base import embedding_factory
+    from ragas.llms import llm_factory
+
+    llm_id = llm_model if llm_model.startswith("ollama") else f"ollama_chat/{llm_model}"
+    embed_id = embedding_model if embedding_model.startswith("ollama") else f"ollama/{embedding_model}"
+
+    llm = llm_factory(llm_id, provider="litellm", timeout=300)
+    embeddings = embedding_factory("litellm", model=embed_id)
+    return llm, embeddings, "ollama"
+
+
+def _build_bedrock_models(llm_model: str, embedding_model: str, region: str) -> tuple[Any, Any, str]:
     try:
         from ragas.embeddings.base import embedding_factory
         from ragas.llms import llm_factory
@@ -320,17 +343,31 @@ def main() -> None:
             "Supported: response_relevancy, faithfulness, context_recall, factual_correctness, semantic_similarity."
         ),
     )
+    parser.add_argument(
+        "--provider",
+        default=os.environ.get("RAGAS_EVAL_PROVIDER", "bedrock"),
+        choices=["bedrock", "ollama"],
+        help="Evaluator provider: bedrock (default) or ollama for local models.",
+    )
     raw_args = sys.argv[1:]
     args = parser.parse_args(raw_args[1:] if raw_args and raw_args[0] == "--" else raw_args)
 
-    if not args.llm_model:
-        raise ValueError(
-            "Missing evaluator LLM model. Pass --llm-model or set RAGAS_EVAL_LLM_MODEL."
-        )
-    if not args.embedding_model:
-        raise ValueError(
-            "Missing evaluator embedding model. Pass --embedding-model or set RAGAS_EVAL_EMBEDDING_MODEL."
-        )
+    if args.provider == "ollama":
+        if not args.llm_model:
+            args.llm_model = os.environ.get("RAGAS_EVAL_LLM_MODEL", "qwen3:32b")
+        if not args.embedding_model:
+            args.embedding_model = os.environ.get(
+                "RAGAS_EVAL_EMBEDDING_MODEL", "nomic-embed-text:latest"
+            )
+    else:
+        if not args.llm_model:
+            raise ValueError(
+                "Missing evaluator LLM model. Pass --llm-model or set RAGAS_EVAL_LLM_MODEL."
+            )
+        if not args.embedding_model:
+            raise ValueError(
+                "Missing evaluator embedding model. Pass --embedding-model or set RAGAS_EVAL_EMBEDDING_MODEL."
+            )
     if args.group_by not in {"category", "none"}:
         raise ValueError("--group-by must be either category or none.")
 
@@ -340,9 +377,9 @@ def main() -> None:
     if not rows:
         raise ValueError("Input dataset is empty.")
 
-    region = resolve_region(args.region)
+    region = resolve_region(args.region, args.provider)
     llm, embeddings, provider = build_evaluator_models(
-        args.llm_model, args.embedding_model, region
+        args.llm_model, args.embedding_model, region, args.provider
     )
     requested_metrics = parse_metric_list(args.metrics)
     grouped = group_rows(rows, args.group_by)
