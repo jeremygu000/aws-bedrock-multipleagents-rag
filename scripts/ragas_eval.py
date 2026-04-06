@@ -175,16 +175,12 @@ def _build_bedrock_models(
             model=llm_model,
             region_name=region,
             max_tokens=2048,
-            timeout=timeout,
-            max_retries=3,
         )
     )
     embeddings = LangchainEmbeddingsWrapper(
         BedrockEmbeddings(
             model_id=embedding_model,
             region_name=region,
-            timeout=timeout,
-            max_retries=3,
         )
     )
     return llm, embeddings, "langchain-aws"

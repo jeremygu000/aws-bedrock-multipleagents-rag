@@ -18,8 +18,22 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { env as processEnv } from "node:process";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 const FOUNDATION_MODEL_ID = "amazon.nova-pro-v1:0";
+
+/**
+ * Build a short hash from a Bedrock agent's mutable properties so that the
+ * associated CfnAgentAlias description changes whenever the agent is updated.
+ * This forces CloudFormation to update the alias (and create a new version).
+ */
+const agentContentHash = (agent: bedrock.CfnAgent): string => {
+  const source = JSON.stringify({
+    model: agent.foundationModel,
+    instruction: agent.instruction,
+  });
+  return createHash("sha256").update(source).digest("hex").slice(0, 8);
+};
 
 /**
  * Read a UTF-8 text file from disk.
@@ -528,6 +542,7 @@ export class BedrockAgentsStack extends cdk.Stack {
     const workAlias = new bedrock.CfnAgentAlias(this, "WorkAlias", {
       agentAliasName: "live",
       agentId: workAgent.attrAgentId,
+      description: `v-${agentContentHash(workAgent)}`,
     });
 
     // Specialist agent for APRA grounded Q&A via rag_search.
@@ -567,6 +582,7 @@ export class BedrockAgentsStack extends cdk.Stack {
     const qaAlias = new bedrock.CfnAgentAlias(this, "QaAlias", {
       agentAliasName: "live",
       agentId: qaAgent.attrAgentId,
+      description: `v-${agentContentHash(qaAgent)}`,
     });
 
     // Multi-agent collaboration requires the supervisor service role to read and invoke collaborator aliases.
@@ -670,6 +686,7 @@ export class BedrockAgentsStack extends cdk.Stack {
     const supervisorAlias = new bedrock.CfnAgentAlias(this, "SupervisorAlias", {
       agentAliasName: "live",
       agentId: supervisor.attrAgentId,
+      description: `v-${agentContentHash(supervisor)}`,
     });
     supervisorAlias.node.addDependency(workCollaborator);
     supervisorAlias.node.addDependency(qaCollaborator);
