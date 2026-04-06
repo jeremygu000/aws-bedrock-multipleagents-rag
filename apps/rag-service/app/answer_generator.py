@@ -104,6 +104,24 @@ def _build_graph_evidence_block(graph_context: GraphContext | None) -> str:
     return graph_context.to_evidence_text()
 
 
+def _build_community_evidence_block(
+    community_summaries: list[dict[str, Any]] | None,
+) -> str:
+    if not community_summaries:
+        return ""
+    parts = []
+    for i, cs in enumerate(community_summaries, 1):
+        findings_text = "; ".join(cs.get("findings", []))
+        parts.append(
+            f"--- Community [{i}] ---\n"
+            f"Topic: {cs.get('title', 'Unknown')}\n"
+            f"Summary: {cs.get('summary', '')}\n"
+            f"Key Findings: {findings_text}\n"
+            f"Entities: {cs.get('entity_count', 0)} | Rating: {cs.get('rating', 0):.1f}/10"
+        )
+    return "\n\n".join(parts)
+
+
 class BedrockConverseAnswerGenerator:
     """Generate grounded answers with Amazon Bedrock Runtime `converse`."""
 
@@ -121,6 +139,7 @@ class BedrockConverseAnswerGenerator:
         complexity: str = "medium",
         keywords: list[str] | None = None,
         graph_context: GraphContext | None = None,
+        community_summaries: list[dict[str, Any]] | None = None,
     ) -> str:
         """Generate citation-aware answer text using Bedrock model."""
 
@@ -135,7 +154,8 @@ class BedrockConverseAnswerGenerator:
             include_scores=self._settings.enable_relevance_scores_in_evidence,
         )
         graph_evidence = _build_graph_evidence_block(graph_context)
-        has_graph = bool(graph_evidence)
+        community_evidence = _build_community_evidence_block(community_summaries)
+        has_graph = bool(graph_evidence) or bool(community_evidence)
         system_prompt = _get_intent_system_prompt(
             intent, self._settings, has_graph_context=has_graph
         )
@@ -143,10 +163,11 @@ class BedrockConverseAnswerGenerator:
         if keywords:
             keyword_line = f"Key topics: {', '.join(keywords)}\n"
 
-        # Build evidence section: graph evidence first (structural context), then text chunks.
         evidence_parts: list[str] = []
         if graph_evidence:
             evidence_parts.append(f"=== KNOWLEDGE GRAPH ===\n{graph_evidence}")
+        if community_evidence:
+            evidence_parts.append(f"=== COMMUNITY CONTEXT ===\n{community_evidence}")
         evidence_parts.append(f"=== TEXT EVIDENCE ===\n{context_block}")
         evidence_section = "\n\n".join(evidence_parts)
 
@@ -204,6 +225,7 @@ class BedrockConverseAnswerGenerator:
         complexity: str = "medium",
         keywords: list[str] | None = None,
         graph_context: GraphContext | None = None,
+        community_summaries: list[dict[str, Any]] | None = None,
     ) -> Iterator[str]:
         """Stream answer tokens using Bedrock converse_stream API."""
 
@@ -217,7 +239,8 @@ class BedrockConverseAnswerGenerator:
             include_scores=self._settings.enable_relevance_scores_in_evidence,
         )
         graph_evidence = _build_graph_evidence_block(graph_context)
-        has_graph = bool(graph_evidence)
+        community_evidence = _build_community_evidence_block(community_summaries)
+        has_graph = bool(graph_evidence) or bool(community_evidence)
         system_prompt = _get_intent_system_prompt(
             intent, self._settings, has_graph_context=has_graph
         )
@@ -228,6 +251,8 @@ class BedrockConverseAnswerGenerator:
         evidence_parts: list[str] = []
         if graph_evidence:
             evidence_parts.append(f"=== KNOWLEDGE GRAPH ===\n{graph_evidence}")
+        if community_evidence:
+            evidence_parts.append(f"=== COMMUNITY CONTEXT ===\n{community_evidence}")
         evidence_parts.append(f"=== TEXT EVIDENCE ===\n{context_block}")
         evidence_section = "\n\n".join(evidence_parts)
 
@@ -282,6 +307,7 @@ class QwenAnswerGenerator:
         complexity: str = "medium",
         keywords: list[str] | None = None,
         graph_context: GraphContext | None = None,
+        community_summaries: list[dict[str, Any]] | None = None,
     ) -> str:
         """Generate citation-aware answer text using Qwen."""
 
@@ -296,7 +322,8 @@ class QwenAnswerGenerator:
             include_scores=self._settings.enable_relevance_scores_in_evidence,
         )
         graph_evidence = _build_graph_evidence_block(graph_context)
-        has_graph = bool(graph_evidence)
+        community_evidence = _build_community_evidence_block(community_summaries)
+        has_graph = bool(graph_evidence) or bool(community_evidence)
         system_prompt = _get_intent_system_prompt(
             intent, self._settings, has_graph_context=has_graph
         )
@@ -304,10 +331,11 @@ class QwenAnswerGenerator:
         if keywords:
             keyword_line = f"Key topics: {', '.join(keywords)}\n"
 
-        # Build evidence section: graph evidence first (structural context), then text chunks.
         evidence_parts: list[str] = []
         if graph_evidence:
             evidence_parts.append(f"=== KNOWLEDGE GRAPH ===\n{graph_evidence}")
+        if community_evidence:
+            evidence_parts.append(f"=== COMMUNITY CONTEXT ===\n{community_evidence}")
         evidence_parts.append(f"=== TEXT EVIDENCE ===\n{context_block}")
         evidence_section = "\n\n".join(evidence_parts)
 
@@ -336,6 +364,7 @@ class QwenAnswerGenerator:
         complexity: str = "medium",
         keywords: list[str] | None = None,
         graph_context: GraphContext | None = None,
+        community_summaries: list[dict[str, Any]] | None = None,
     ) -> Iterator[str]:
         """Stream answer tokens using Qwen chat-completions streaming."""
 
@@ -349,7 +378,8 @@ class QwenAnswerGenerator:
             include_scores=self._settings.enable_relevance_scores_in_evidence,
         )
         graph_evidence = _build_graph_evidence_block(graph_context)
-        has_graph = bool(graph_evidence)
+        community_evidence = _build_community_evidence_block(community_summaries)
+        has_graph = bool(graph_evidence) or bool(community_evidence)
         system_prompt = _get_intent_system_prompt(
             intent, self._settings, has_graph_context=has_graph
         )
@@ -360,6 +390,8 @@ class QwenAnswerGenerator:
         evidence_parts: list[str] = []
         if graph_evidence:
             evidence_parts.append(f"=== KNOWLEDGE GRAPH ===\n{graph_evidence}")
+        if community_evidence:
+            evidence_parts.append(f"=== COMMUNITY CONTEXT ===\n{community_evidence}")
         evidence_parts.append(f"=== TEXT EVIDENCE ===\n{context_block}")
         evidence_section = "\n\n".join(evidence_parts)
 
@@ -394,6 +426,7 @@ class RoutedAnswerGenerator:
         complexity: str = "medium",
         keywords: list[str] | None = None,
         graph_context: GraphContext | None = None,
+        community_summaries: list[dict[str, Any]] | None = None,
     ) -> tuple[str, ModelRoute]:
         """Generate answer using preferred model with automatic fallback.
 
@@ -412,11 +445,11 @@ class RoutedAnswerGenerator:
                         complexity=complexity,
                         keywords=keywords,
                         graph_context=graph_context,
+                        community_summaries=community_summaries,
                     ),
                     "qwen-plus",
                 )
             except Exception:
-                # Fallback to Bedrock if Qwen call fails at runtime.
                 return (
                     self._bedrock.generate(
                         query,
@@ -425,6 +458,7 @@ class RoutedAnswerGenerator:
                         complexity=complexity,
                         keywords=keywords,
                         graph_context=graph_context,
+                        community_summaries=community_summaries,
                     ),
                     "nova-lite",
                 )
@@ -439,6 +473,7 @@ class RoutedAnswerGenerator:
                         complexity=complexity,
                         keywords=keywords,
                         graph_context=graph_context,
+                        community_summaries=community_summaries,
                     ),
                     "nova-lite",
                 )
@@ -452,6 +487,7 @@ class RoutedAnswerGenerator:
                             complexity=complexity,
                             keywords=keywords,
                             graph_context=graph_context,
+                            community_summaries=community_summaries,
                         ),
                         "qwen-plus",
                     )
@@ -465,6 +501,7 @@ class RoutedAnswerGenerator:
                 complexity=complexity,
                 keywords=keywords,
                 graph_context=graph_context,
+                community_summaries=community_summaries,
             ),
             "nova-lite",
         )
@@ -478,6 +515,7 @@ class RoutedAnswerGenerator:
         complexity: str = "medium",
         keywords: list[str] | None = None,
         graph_context: GraphContext | None = None,
+        community_summaries: list[dict[str, Any]] | None = None,
     ) -> tuple[Iterator[str], ModelRoute]:
         """Stream answer using preferred model with automatic fallback.
 
@@ -493,6 +531,7 @@ class RoutedAnswerGenerator:
             "complexity": complexity,
             "keywords": keywords,
             "graph_context": graph_context,
+            "community_summaries": community_summaries,
         }
 
         if preferred_model == "qwen-plus" and self._qwen.is_available():

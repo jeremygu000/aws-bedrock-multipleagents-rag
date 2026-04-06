@@ -75,9 +75,11 @@ class FakeAnswerGenerator:
         complexity: str = "medium",
         keywords: list[str] | None = None,
         graph_context: GraphContext | None = None,
+        community_summaries: list[dict] | None = None,
     ):
         self.calls.append((query, hits, preferred_model))
         self.last_graph_context = graph_context
+        self.last_community_summaries = community_summaries
         return ("final-answer", preferred_model)
 
 

@@ -67,6 +67,9 @@ class RagWorkflowState(TypedDict, total=False):
     sub_questions: list[SubQuestion]
     sub_question_hits_list: list[list[dict[str, Any]]]
     decomposition_used: bool
+    # --- Community Detection fields ---
+    community_summaries: list[dict[str, Any]]
+
 
 class RagWorkflow:
     """Compiled workflow for intent/rewrite/retrieve/answer stages."""
@@ -86,6 +89,7 @@ class RagWorkflow:
         hyde_retriever=None,
         query_decomposer: QueryDecomposer | None = None,
         decomposition_retriever: DecompositionRetriever | None = None,
+        community_store=None,
     ) -> None:
         """Create and compile graph with injected services."""
 
@@ -102,6 +106,7 @@ class RagWorkflow:
         self._hyde_retriever = hyde_retriever
         self._query_decomposer = query_decomposer
         self._decomposition_retriever = decomposition_retriever
+        self._community_store = community_store
 
         graph = StateGraph(RagWorkflowState)
 
@@ -493,18 +498,42 @@ class RagWorkflow:
             mode = RetrievalMode.MIX
 
         if mode.skip_graph or not self._graph_retriever:
-            return {"graph_context": GraphContext()}
-
-        strategy = mode.graph_strategy or "hybrid"
-        query = state.get("rewritten_query") or state["query"]
-
-        try:
-            graph_context = self._graph_retriever.retrieve(query, strategy=strategy)
-        except Exception:
-            logger.exception("Graph retrieval failed, falling back to empty context")
             graph_context = GraphContext()
+        else:
+            strategy = mode.graph_strategy or "hybrid"
+            query = state.get("rewritten_query") or state["query"]
 
-        return {"graph_context": graph_context}
+            try:
+                graph_context = self._graph_retriever.retrieve(query, strategy=strategy)
+            except Exception:
+                logger.exception("Graph retrieval failed, falling back to empty context")
+                graph_context = GraphContext()
+
+        community_data: list[dict[str, Any]] = []
+        if self._community_store and self._settings.enable_community_detection:
+            try:
+                summaries = self._community_store.get_community_summaries(level=0)
+                top_summaries = summaries[: self._settings.community_top_k]
+                community_data = [
+                    {
+                        "title": s.title,
+                        "summary": s.summary,
+                        "findings": s.findings,
+                        "rating": s.rating,
+                        "entity_count": s.entity_count,
+                    }
+                    for s in top_summaries
+                ]
+                logger.info(
+                    "Community retrieval: %d summaries (top_k=%d)",
+                    len(community_data),
+                    self._settings.community_top_k,
+                )
+            except Exception:
+                logger.exception("Community summary retrieval failed")
+                community_data = []
+
+        return {"graph_context": graph_context, "community_summaries": community_data}
 
     def _node_fuse(self, state: RagWorkflowState) -> RagWorkflowState:
         return self._traced_node("fuse", self._impl_fuse, state)
@@ -666,6 +695,7 @@ class RagWorkflow:
         ll = state.get("ll_keywords", [])
         keywords = list(dict.fromkeys(hl + ll))
         graph_context: GraphContext | None = state.get("graph_context")
+        community_summaries = state.get("community_summaries")
         answer, used_model = self._answer_generator.generate(
             query=state["query"],
             hits=state.get("reranked_hits") or state.get("hits", []),
@@ -674,6 +704,7 @@ class RagWorkflow:
             complexity=state.get("complexity", "medium"),
             keywords=keywords or None,
             graph_context=graph_context,
+            community_summaries=community_summaries,
         )
         return {"answer": answer, "answer_model": used_model}
 

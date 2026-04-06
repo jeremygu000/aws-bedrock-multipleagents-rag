@@ -68,24 +68,25 @@ reranker = LLMReranker(settings=settings, qwen_client=qwen_client)
 
 
 def _build_workflow() -> RagWorkflow:
+    neo4j_repo = None
+    if settings.enable_neo4j:
+        from .graph_repository import Neo4jRepository
+        from .secrets import resolve_neo4j_password
+
+        neo4j_password = resolve_neo4j_password(settings)
+        neo4j_repo = Neo4jRepository(
+            uri=settings.neo4j_uri,
+            username=settings.neo4j_username,
+            password=neo4j_password,
+            database=settings.neo4j_database,
+        )
+
     graph_retriever = None
     if settings.enable_graph_retrieval:
         from .entity_vector_store import EntityVectorStore
         from .graph_retriever import GraphRetriever
 
         vector_store = EntityVectorStore(settings)
-        neo4j_repo = None
-        if settings.enable_neo4j:
-            from .graph_repository import Neo4jRepository
-            from .secrets import resolve_neo4j_password
-
-            neo4j_password = resolve_neo4j_password(settings)
-            neo4j_repo = Neo4jRepository(
-                uri=settings.neo4j_uri,
-                username=settings.neo4j_username,
-                password=neo4j_password,
-                database=settings.neo4j_database,
-            )
         graph_retriever = GraphRetriever(
             qwen_client=qwen_client,
             vector_store=vector_store,
@@ -93,6 +94,13 @@ def _build_workflow() -> RagWorkflow:
             settings=settings,
             embedding_client=embedding_client,
         )
+
+    community_store = None
+    if settings.enable_community_detection and neo4j_repo is not None:
+        from .community_detection import CommunityStore
+
+        community_store = CommunityStore(neo4j_repo=neo4j_repo, settings=settings)
+        logger.info("CommunityStore initialized for community-enhanced retrieval")
 
     query_cache = (
         QueryCache(settings, repository._get_engine()) if settings.enable_query_cache else None
@@ -128,6 +136,7 @@ def _build_workflow() -> RagWorkflow:
         crag_query_rewriter=crag_query_rewriter,
         crag_web_searcher=crag_web_searcher,
         decomposition_retriever=decomposition_retriever,
+        community_store=community_store,
     )
 
 
@@ -349,6 +358,7 @@ async def retrieve_stream(
         ll = state.get("ll_keywords", [])
         keywords = list(dict.fromkeys(hl + ll))
         graph_context: GraphContext | None = state.get("graph_context")
+        community_summaries = state.get("community_summaries")
         hits = state.get("reranked_hits") or state.get("hits", [])
         preferred_model = state.get("preferred_model", "nova-lite")
 
@@ -361,6 +371,7 @@ async def retrieve_stream(
                 complexity=state.get("complexity", "medium"),
                 keywords=keywords or None,
                 graph_context=graph_context,
+                community_summaries=community_summaries,
             )
         except Exception as exc:
             logger.exception("Stream generation setup failed: %s", exc)

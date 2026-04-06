@@ -444,6 +444,50 @@ class Settings(BaseSettings):
         description="Bedrock model ID for sub-question generation (Nova Pro recommended)",
     )
 
+    # --- Community Detection settings (Phase 3.5) ---
+    enable_community_detection: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_COMMUNITY_DETECTION",
+        description="Feature flag to enable Leiden community detection for global queries",
+    )
+    community_resolution: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=5.0,
+        validation_alias="RAG_COMMUNITY_RESOLUTION",
+        description="Leiden resolution parameter gamma (higher = more communities)",
+    )
+    community_max_levels: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        validation_alias="RAG_COMMUNITY_MAX_LEVELS",
+    )
+    community_min_size: int = Field(
+        default=3,
+        ge=2,
+        le=20,
+        validation_alias="RAG_COMMUNITY_MIN_SIZE",
+        description="Minimum entities per community (smaller merged into parent)",
+    )
+    community_summary_model: str = Field(
+        default="amazon.nova-pro-v1:0",
+        validation_alias="RAG_COMMUNITY_SUMMARY_MODEL",
+    )
+    community_summary_max_tokens: int = Field(
+        default=1000,
+        ge=100,
+        le=5000,
+        validation_alias="RAG_COMMUNITY_SUMMARY_MAX_TOKENS",
+    )
+    community_top_k: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        validation_alias="RAG_COMMUNITY_TOP_K",
+        description="Number of community summaries to retrieve per query",
+    )
+
     hyde_similarity_threshold: float = Field(
         default=0.2,
         ge=0.0,
