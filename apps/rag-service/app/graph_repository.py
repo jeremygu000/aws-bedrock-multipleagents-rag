@@ -11,9 +11,10 @@ on first use and must be explicitly closed via ``close()``.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from neo4j import GraphDatabase, ManagedTransaction
+if TYPE_CHECKING:
+    from neo4j import ManagedTransaction
 
 from .entity_extraction_models import (
     EntityType,
@@ -345,6 +346,8 @@ class Neo4jRepository:
 
     def _get_driver(self):
         if self._driver is None:
+            from neo4j import GraphDatabase
+
             self._driver = GraphDatabase.driver(
                 self._uri,
                 auth=(self._username, self._password),

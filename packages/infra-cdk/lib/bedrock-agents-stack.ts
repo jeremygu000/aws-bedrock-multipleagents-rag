@@ -238,6 +238,19 @@ export class BedrockAgentsStack extends cdk.Stack {
         processEnv.RAG_ROUTE_COMPLEX_QUERY_TOKEN_THRESHOLD ?? "18",
       RAG_ENABLE_QUERY_REWRITE: processEnv.RAG_ENABLE_QUERY_REWRITE ?? "true",
       RAG_ENABLE_HYBRID_RETRIEVAL: processEnv.RAG_ENABLE_HYBRID_RETRIEVAL ?? "true",
+      RAG_ENABLE_KEYWORD_EXTRACTION: processEnv.RAG_ENABLE_KEYWORD_EXTRACTION ?? "true",
+      RAG_ENABLE_RERANKING: processEnv.RAG_ENABLE_RERANKING ?? "true",
+      // Graph retrieval (Phase 3) — off by default, opt-in via env.
+      RAG_ENABLE_GRAPH_RETRIEVAL: processEnv.RAG_ENABLE_GRAPH_RETRIEVAL ?? "false",
+      RAG_ENABLE_NEO4J: processEnv.RAG_ENABLE_NEO4J ?? "false",
+      RAG_ENABLE_ENTITY_EXTRACTION: processEnv.RAG_ENABLE_ENTITY_EXTRACTION ?? "false",
+      // Neo4j connection (only used when RAG_ENABLE_NEO4J=true).
+      RAG_NEO4J_URI: processEnv.RAG_NEO4J_URI ?? "",
+      RAG_NEO4J_USERNAME: processEnv.RAG_NEO4J_USERNAME ?? "neo4j",
+      RAG_NEO4J_PASSWORD_SECRET_ARN: processEnv.RAG_NEO4J_PASSWORD_SECRET_ARN ?? "",
+      RAG_NEO4J_DATABASE: processEnv.RAG_NEO4J_DATABASE ?? "neo4j",
+      // Query cache — off by default, opt-in via env.
+      RAG_ENABLE_QUERY_CACHE: processEnv.RAG_ENABLE_QUERY_CACHE ?? "false",
       RAG_S3_BUCKET: processEnv.RAG_S3_BUCKET ?? "",
       RAG_INGESTION_QUEUE_URL: processEnv.RAG_INGESTION_QUEUE_URL ?? "",
       RAG_CHUNK_SIZE: processEnv.RAG_CHUNK_SIZE ?? "512",
@@ -302,6 +315,16 @@ export class BedrockAgentsStack extends cdk.Stack {
         qwenApiKeySecretArn,
       );
       qwenApiKeySecret.grantRead(ragSearchFn);
+    }
+
+    const neo4jPasswordSecretArn = ragSearchFnEnv.RAG_NEO4J_PASSWORD_SECRET_ARN;
+    if (neo4jPasswordSecretArn) {
+      const neo4jPasswordSecret = secretsmanager.Secret.fromSecretCompleteArn(
+        this,
+        "Neo4jPasswordSecret",
+        neo4jPasswordSecretArn,
+      );
+      neo4jPasswordSecret.grantRead(ragSearchFn);
     }
 
     // Allow RAG Lambda to call Bedrock Converse for answer generation + embeddings.
@@ -418,6 +441,14 @@ export class BedrockAgentsStack extends cdk.Stack {
         qwenApiKeySecretArn,
       );
       qwenApiKeySecret2.grantRead(ingestionFn);
+    }
+    if (neo4jPasswordSecretArn) {
+      const neo4jPasswordSecret2 = secretsmanager.Secret.fromSecretCompleteArn(
+        this,
+        "IngestionNeo4jPasswordSecret",
+        neo4jPasswordSecretArn,
+      );
+      neo4jPasswordSecret2.grantRead(ingestionFn);
     }
 
     const supervisorToolLogGroup = new logs.LogGroup(this, "SupervisorToolFnLogGroup", {
@@ -604,11 +635,11 @@ export class BedrockAgentsStack extends cdk.Stack {
       autoPrepare: false,
       instruction: [
         "You are a routing supervisor.",
-        "Route work search requests to WorkSearchAgent.",
-        "Route APRA AMCOS domain questions to ApraQaAgent.",
+        "Route work search requests to WorkSearchAgent — ONLY when the user explicitly wants to look up a specific work by title, writer name, ISWC, ISRC, or publisher.",
+        "Route ALL other questions to ApraQaAgent — including questions about composers, films, scores, events, programs, grants, funding, awards, industry news, and APRA AMCOS policies or initiatives.",
         "Do NOT ask clarification questions — always forward the user's complete query to the appropriate specialist agent.",
         "If the request could be either work search or Q&A, route to ApraQaAgent.",
-        "Only refuse if the request is clearly unrelated to music, licensing, or APRA AMCOS.",
+        "NEVER refuse a query. If you are unsure whether it relates to APRA AMCOS, route to ApraQaAgent and let it search.",
       ].join("\n"),
     });
 

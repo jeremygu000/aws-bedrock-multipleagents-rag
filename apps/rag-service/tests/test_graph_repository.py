@@ -207,7 +207,7 @@ class TestNeo4jRepositoryInit:
 
 
 class TestNeo4jRepositoryConnection:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_get_driver_creates_on_first_call(self, mock_gd_driver):
         mock_driver = MagicMock()
         mock_gd_driver.return_value = mock_driver
@@ -219,7 +219,7 @@ class TestNeo4jRepositoryConnection:
             auth=("neo4j", "test"),
         )
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_get_driver_reuses_existing(self, mock_gd_driver):
         mock_driver = MagicMock()
         mock_gd_driver.return_value = mock_driver
@@ -228,7 +228,7 @@ class TestNeo4jRepositoryConnection:
         repo._get_driver()
         mock_gd_driver.assert_called_once()
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_close_shuts_down_driver(self, mock_gd_driver):
         mock_driver = MagicMock()
         mock_gd_driver.return_value = mock_driver
@@ -245,7 +245,7 @@ class TestNeo4jRepositoryConnection:
 
 
 class TestUpsertEntity:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_upsert_entity_returns_entity_id(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -268,7 +268,7 @@ class TestUpsertEntity:
         result = repo.upsert_entity(entity)
         assert result == "e1"
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_upsert_entity_returns_none_on_no_record(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -285,7 +285,7 @@ class TestUpsertEntity:
         result = repo.upsert_entity(_make_entity())
         assert result is None
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_upsert_entity_uses_no_apoc_cypher_by_default(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -310,7 +310,7 @@ class TestUpsertEntity:
         assert len(captured_cypher) == 1
         assert "apoc" not in captured_cypher[0].lower()
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_upsert_entity_uses_apoc_cypher_when_enabled(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -338,7 +338,7 @@ class TestUpsertEntity:
 
 
 class TestUpsertRelation:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_upsert_relation_returns_true(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -369,7 +369,7 @@ class TestUpsertRelation:
 
 
 class TestUpsertBatch:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_batch_upsert_counts(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -397,7 +397,7 @@ class TestUpsertBatch:
         assert result["entities_written"] == 2
         assert result["relations_written"] == 1
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_batch_upsert_empty_lists(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -407,7 +407,7 @@ class TestUpsertBatch:
         assert result == {"entities_written": 0, "relations_written": 0}
         mock_session.execute_write.assert_not_called()
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_batch_upsert_skips_invalid_relations(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -437,7 +437,7 @@ class TestUpsertBatch:
 
 
 class TestGetEntity:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_get_entity_found(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -470,7 +470,7 @@ class TestGetEntity:
         assert entity.name == "Yesterday"
         assert entity.type == EntityType.WORK
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_get_entity_not_found(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -490,7 +490,7 @@ class TestGetEntity:
 
 
 class TestGetEntityNeighbors:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_get_neighbors_no_apoc(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -522,7 +522,7 @@ class TestGetEntityNeighbors:
         assert len(neighbors) == 1
         assert neighbors[0].name == "John"
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_get_neighbors_empty(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -542,7 +542,7 @@ class TestGetEntityNeighbors:
 
 
 class TestGetRelationsForEntities:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_returns_relation_dicts(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -577,7 +577,7 @@ class TestGetRelationsForEntities:
 
 
 class TestSearchEntitiesFulltext:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_returns_entity_score_tuples(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -613,7 +613,7 @@ class TestSearchEntitiesFulltext:
 
 
 class TestEnsureIndexes:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_runs_three_index_statements(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -624,7 +624,7 @@ class TestEnsureIndexes:
 
 
 class TestHealthCheck:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_healthy(self, mock_gd_driver):
         mock_driver = MagicMock()
         mock_gd_driver.return_value = mock_driver
@@ -634,7 +634,7 @@ class TestHealthCheck:
         assert repo.health_check() is True
         mock_driver.verify_connectivity.assert_called_once()
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_unhealthy(self, mock_gd_driver):
         mock_driver = MagicMock()
         mock_gd_driver.return_value = mock_driver
@@ -728,7 +728,7 @@ class TestResolveNeo4jPassword:
 
 
 class TestDeleteOperations:
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_delete_entities_by_source_chunks_empty_returns_zero(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -737,7 +737,7 @@ class TestDeleteOperations:
         assert count == 0
         mock_session.execute_write.assert_not_called()
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_delete_entities_by_source_chunks_returns_count(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -760,7 +760,7 @@ class TestDeleteOperations:
         count = repo.delete_entities_by_source_chunks(["c1", "c2"])
         assert count == 3
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_prune_shared_entities_empty_returns_zero(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -769,7 +769,7 @@ class TestDeleteOperations:
         assert count == 0
         mock_session.execute_write.assert_not_called()
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_prune_shared_entities_returns_count(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -786,7 +786,7 @@ class TestDeleteOperations:
         count = repo.prune_shared_entities(["c1", "c2"])
         assert count == 2
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_cleanup_orphan_relations_returns_count(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -803,7 +803,7 @@ class TestDeleteOperations:
         count = repo.cleanup_orphan_relations()
         assert count == 1
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_delete_relations_by_source_chunks_empty_returns_zero(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
@@ -812,7 +812,7 @@ class TestDeleteOperations:
         assert count == 0
         mock_session.execute_write.assert_not_called()
 
-    @patch("app.graph_repository.GraphDatabase.driver")
+    @patch("neo4j.GraphDatabase.driver")
     def test_delete_relations_by_source_chunks_returns_count(self, mock_gd_driver):
         mock_driver, mock_session = _mock_driver()
         mock_gd_driver.return_value = mock_driver
