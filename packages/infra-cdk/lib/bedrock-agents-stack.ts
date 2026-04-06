@@ -31,6 +31,7 @@ const agentContentHash = (agent: bedrock.CfnAgent): string => {
   const source = JSON.stringify({
     model: agent.foundationModel,
     instruction: agent.instruction,
+    guardrail: agent.guardrailConfiguration ?? null,
   });
   return createHash("sha256").update(source).digest("hex").slice(0, 8);
 };
@@ -95,7 +96,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       },
     });
 
-    const workGuardrailV1 = new bedrock.CfnGuardrailVersion(this, "WorkGuardrailLowV1", {
+    const _workGuardrailV1 = new bedrock.CfnGuardrailVersion(this, "WorkGuardrailLowV1", {
       guardrailIdentifier: workGuardrail.attrGuardrailId,
       description: "v1 low restriction for work search",
     });
@@ -113,13 +114,13 @@ export class BedrockAgentsStack extends cdk.Stack {
           { type: "INSULTS", inputStrength: "LOW", outputStrength: "LOW" },
           { type: "SEXUAL", inputStrength: "LOW", outputStrength: "LOW" },
           { type: "VIOLENCE", inputStrength: "LOW", outputStrength: "LOW" },
-          { type: "MISCONDUCT", inputStrength: "LOW", outputStrength: "LOW" },
+          { type: "MISCONDUCT", inputStrength: "MEDIUM", outputStrength: "MEDIUM" },
           { type: "PROMPT_ATTACK", inputStrength: "LOW", outputStrength: "NONE" },
         ],
       },
     });
 
-    const qaGuardrailV1 = new bedrock.CfnGuardrailVersion(this, "QaGuardrailStrictV1", {
+    const _qaGuardrailV1 = new bedrock.CfnGuardrailVersion(this, "QaGuardrailStrictV1", {
       guardrailIdentifier: qaGuardrail.attrGuardrailId,
       description: "v1 strict for APRA QA",
     });
@@ -229,6 +230,14 @@ export class BedrockAgentsStack extends cdk.Stack {
       RAG_NEO4J_USERNAME: processEnv.RAG_NEO4J_USERNAME ?? "neo4j",
       RAG_NEO4J_PASSWORD_SECRET_ARN: processEnv.RAG_NEO4J_PASSWORD_SECRET_ARN ?? "",
       RAG_NEO4J_DATABASE: processEnv.RAG_NEO4J_DATABASE ?? "neo4j",
+      // Community detection (Phase 3.5) — off by default, opt-in via env.
+      RAG_ENABLE_COMMUNITY_DETECTION: processEnv.RAG_ENABLE_COMMUNITY_DETECTION ?? "false",
+      RAG_COMMUNITY_RESOLUTION: processEnv.RAG_COMMUNITY_RESOLUTION ?? "1.0",
+      RAG_COMMUNITY_MAX_LEVELS: processEnv.RAG_COMMUNITY_MAX_LEVELS ?? "3",
+      RAG_COMMUNITY_MIN_SIZE: processEnv.RAG_COMMUNITY_MIN_SIZE ?? "3",
+      RAG_COMMUNITY_SUMMARY_MODEL: processEnv.RAG_COMMUNITY_SUMMARY_MODEL ?? "amazon.nova-pro-v1:0",
+      RAG_COMMUNITY_SUMMARY_MAX_TOKENS: processEnv.RAG_COMMUNITY_SUMMARY_MAX_TOKENS ?? "1000",
+      RAG_COMMUNITY_TOP_K: processEnv.RAG_COMMUNITY_TOP_K ?? "5",
       // Query cache — off by default, opt-in via env.
       RAG_ENABLE_QUERY_CACHE: processEnv.RAG_ENABLE_QUERY_CACHE ?? "false",
       RAG_S3_BUCKET: processEnv.RAG_S3_BUCKET ?? "",
@@ -542,10 +551,10 @@ export class BedrockAgentsStack extends cdk.Stack {
       foundationModel: FOUNDATION_MODEL_ID,
       agentResourceRoleArn: workAgentRole.roleArn,
       autoPrepare: true,
-      guardrailConfiguration: {
-        guardrailIdentifier: workGuardrail.attrGuardrailId,
-        guardrailVersion: workGuardrailV1.attrVersion,
-      },
+      // guardrailConfiguration: {
+      //   guardrailIdentifier: workGuardrail.attrGuardrailId,
+      //   guardrailVersion: workGuardrailV1.attrVersion,
+      // },
       instruction: [
         "You are a Work Search agent.",
         "Goal: find the correct work using title, writer, ISWC, ISRC, or publishers.",
@@ -580,10 +589,10 @@ export class BedrockAgentsStack extends cdk.Stack {
       foundationModel: FOUNDATION_MODEL_ID,
       agentResourceRoleArn: qaAgentRole.roleArn,
       autoPrepare: true,
-      guardrailConfiguration: {
-        guardrailIdentifier: qaGuardrail.attrGuardrailId,
-        guardrailVersion: qaGuardrailV1.attrVersion,
-      },
+      // guardrailConfiguration: {
+      //   guardrailIdentifier: qaGuardrail.attrGuardrailId,
+      //   guardrailVersion: qaGuardrailV1.attrVersion,
+      // },
       instruction: [
         "You are an APRA AMCOS domain Q&A agent.",
         "Only answer APRA AMCOS related questions.",

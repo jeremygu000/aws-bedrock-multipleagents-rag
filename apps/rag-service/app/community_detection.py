@@ -425,7 +425,7 @@ class CommunityDetector:
             try:
                 partition = la.find_partition(  # type: ignore[union-attr]
                     graph,
-                    la.ModularityVertexPartition,  # type: ignore[union-attr]
+                    la.RBConfigurationVertexPartition,  # type: ignore[union-attr]
                     weights="weight" if graph.ecount() > 0 else None,
                     resolution_parameter=gamma,
                 )
