@@ -24,9 +24,17 @@ def load_rows(path: Path) -> list[dict[str, Any]]:
     return [coerce_row(json.loads(line)) for line in raw.splitlines() if line.strip()]
 
 
+_RAGAS_FIELD_KEYS = ("reference", "retrieved_contexts", "ground_truth_context")
+
+
 def coerce_row(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Each input row must be a JSON object.")
+    metadata = value.get("metadata")
+    if isinstance(metadata, dict):
+        for key in _RAGAS_FIELD_KEYS:
+            if key not in value and key in metadata:
+                value[key] = metadata[key]
     return value
 
 
@@ -126,62 +134,76 @@ def build_evaluator_models(
     return _build_bedrock_models(llm_model, embedding_model, region)
 
 
+def _patch_embed_query(embeddings: Any) -> None:
+    """RAGAS 0.4.3 _answer_relevance calls embed_query but modern providers only have embed_text."""
+    if not hasattr(embeddings, "embed_query") and hasattr(embeddings, "embed_text"):
+        embeddings.embed_query = embeddings.embed_text
+    if not hasattr(embeddings, "aembed_query") and hasattr(embeddings, "aembed_text"):
+        embeddings.aembed_query = embeddings.aembed_text
+
+
 def _build_ollama_models(llm_model: str, embedding_model: str) -> tuple[Any, Any, str]:
+    from openai import OpenAI
     from ragas.embeddings.base import embedding_factory
     from ragas.llms import llm_factory
 
-    llm_id = llm_model if llm_model.startswith("ollama") else f"ollama_chat/{llm_model}"
+    ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     embed_id = embedding_model if embedding_model.startswith("ollama") else f"ollama/{embedding_model}"
 
-    llm = llm_factory(llm_id, provider="litellm", timeout=300)
-    embeddings = embedding_factory("litellm", model=embed_id)
+    client = OpenAI(base_url=f"{ollama_base}/v1", api_key="ollama")
+    llm = llm_factory(llm_model, client=client, temperature=0.3)
+    embeddings = embedding_factory(
+        "litellm", model=embed_id, api_base=ollama_base, timeout=300
+    )
+    _patch_embed_query(embeddings)
     return llm, embeddings, "ollama"
 
 
 def _build_bedrock_models(llm_model: str, embedding_model: str, region: str) -> tuple[Any, Any, str]:
-    try:
-        from ragas.embeddings.base import embedding_factory
-        from ragas.llms import llm_factory
+    from langchain_aws import BedrockEmbeddings, ChatBedrockConverse
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    from ragas.llms import LangchainLLMWrapper
 
-        llm = llm_factory(f"bedrock/{llm_model}", provider="litellm", timeout=180)
-        embeddings = embedding_factory("litellm", model=f"bedrock/{embedding_model}")
-        return llm, embeddings, "litellm"
-    except Exception:
-        from langchain_aws import BedrockEmbeddings, ChatBedrockConverse
-        from ragas.embeddings import LangchainEmbeddingsWrapper
-        from ragas.llms import LangchainLLMWrapper
-
-        llm = LangchainLLMWrapper(
-            ChatBedrockConverse(model=llm_model, region_name=region, max_tokens=2048)
-        )
-        embeddings = LangchainEmbeddingsWrapper(
-            BedrockEmbeddings(model_id=embedding_model, region_name=region)
-        )
-        return llm, embeddings, "langchain-aws"
+    llm = LangchainLLMWrapper(
+        ChatBedrockConverse(model=llm_model, region_name=region, max_tokens=2048)
+    )
+    embeddings = LangchainEmbeddingsWrapper(
+        BedrockEmbeddings(model_id=embedding_model, region_name=region)
+    )
+    return llm, embeddings, "langchain-aws"
 
 
 def import_metrics() -> dict[str, Any]:
     try:
         from ragas.metrics.collections import (
+            ContextRecall,
             Faithfulness,
             FactualCorrectness,
-            LLMContextRecall,
             ResponseRelevancy,
             SemanticSimilarity,
         )
     except ImportError:
-        from ragas.metrics import (  # type: ignore[no-redef]
-            Faithfulness,
-            FactualCorrectness,
-            LLMContextRecall,
-            ResponseRelevancy,
-            SemanticSimilarity,
-        )
+        try:
+            from ragas.metrics.collections import (  # type: ignore[no-redef]
+                Faithfulness,
+                FactualCorrectness,
+                LLMContextRecall as ContextRecall,  # type: ignore[no-redef]
+                ResponseRelevancy,
+                SemanticSimilarity,
+            )
+        except ImportError:
+            from ragas.metrics import (  # type: ignore[no-redef]
+                Faithfulness,
+                FactualCorrectness,
+                LLMContextRecall as ContextRecall,  # type: ignore[no-redef]
+                ResponseRelevancy,
+                SemanticSimilarity,
+            )
 
     return {
         "response_relevancy": ResponseRelevancy,
         "faithfulness": Faithfulness,
-        "context_recall": LLMContextRecall,
+        "context_recall": ContextRecall,
         "factual_correctness": FactualCorrectness,
         "semantic_similarity": SemanticSimilarity,
     }
@@ -353,12 +375,10 @@ def main() -> None:
     args = parser.parse_args(raw_args[1:] if raw_args and raw_args[0] == "--" else raw_args)
 
     if args.provider == "ollama":
-        if not args.llm_model:
-            args.llm_model = os.environ.get("RAGAS_EVAL_LLM_MODEL", "qwen3:32b")
-        if not args.embedding_model:
-            args.embedding_model = os.environ.get(
-                "RAGAS_EVAL_EMBEDDING_MODEL", "nomic-embed-text:latest"
-            )
+        if not args.llm_model or args.llm_model.startswith(("amazon.", "anthropic.", "bedrock/")):
+            args.llm_model = "qwen3:32b"
+        if not args.embedding_model or args.embedding_model.startswith(("amazon.", "bedrock/")):
+            args.embedding_model = "nomic-embed-text:latest"
     else:
         if not args.llm_model:
             raise ValueError(

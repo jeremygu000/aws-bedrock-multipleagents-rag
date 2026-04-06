@@ -1,6 +1,17 @@
 {
-  "_comment": "RAGAS baseline metrics. Update via: pnpm eval:update-baseline. Values will be populated after first full evaluation run.",
+  "_comment": "RAGAS baseline metrics. Update via: pnpm eval:update-baseline. Values populated from 5-row smoke test with Nova Pro judge.",
   "version": 1,
   "created": "2026-04-06T00:00:00Z",
-  "groups": {}
+  "updated": "2026-04-06T15:30:00Z",
+  "judge_model": "amazon.nova-pro-v1:0",
+  "embedding_model": "amazon.titan-embed-text-v2:0",
+  "sample_size": 5,
+  "groups": {
+    "qa": {
+      "answer_relevancy": 0.091,
+      "faithfulness": 0.433,
+      "context_recall": 1.0,
+      "semantic_similarity": 0.067
+    }
+  }
 }
