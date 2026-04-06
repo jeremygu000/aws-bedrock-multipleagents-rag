@@ -1,16 +1,16 @@
 {
-  "_comment": "Absolute minimum thresholds for RAGAS quality gate. Per-group overrides take precedence over defaults. Thresholds set conservatively for initial baseline — raise as agent improves.",
+  "_comment": "Minimum thresholds for RAGAS quality gate. Per-group overrides take precedence over defaults. Values are stepping-stone targets based on 20-row hybrid-search eval (2026-04-06). Raise as agent improves toward gap-report targets (faithfulness>0.85, relevancy>0.85).",
   "defaults": {
-    "faithfulness": 0.2,
-    "answer_relevancy": 0.02,
+    "faithfulness": 0.4,
+    "answer_relevancy": 0.3,
     "context_recall": 0.5,
-    "factual_correctness": 0.0,
-    "semantic_similarity": 0.05
+    "factual_correctness": 0.15,
+    "semantic_similarity": 0.3
   },
   "groups": {
     "qa": {
-      "semantic_similarity": 0.05,
-      "factual_correctness": 0.0
+      "semantic_similarity": 0.3,
+      "factual_correctness": 0.15
     },
     "work-search": {
       "semantic_similarity": 0.05

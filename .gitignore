@@ -39,3 +39,4 @@ Thumbs.db
 .idea/
 .vscode/
 .opencode/package-lock.json
+docs/project-analysis-and-gap-report.md

@@ -78,7 +78,7 @@ jobs:
             --output tmp/evals/supervisor-ragas-results.json
         env:
           BEDROCK_SUPERVISOR_ALIAS_ARN: ${{ secrets.BEDROCK_SUPERVISOR_ALIAS_ARN }}
-          RAGAS_EVAL_LLM_MODEL: "amazon.nova-lite-v1:0"
+          RAGAS_EVAL_LLM_MODEL: "amazon.nova-pro-v1:0"
           RAGAS_EVAL_EMBEDDING_MODEL: "amazon.titan-embed-text-v2:0"
 
       - name: Generate new baseline

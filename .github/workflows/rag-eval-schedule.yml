@@ -1,44 +1,33 @@
-name: RAG Evaluation
+name: Weekly RAGAS Regression
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "apps/rag-service/**"
-      - "scripts/ragas_eval.py"
-      - "scripts/ragas_ci_gate.py"
-      - "eval/**"
-  push:
-    branches: [main]
-    paths:
-      - "apps/rag-service/**"
-      - "scripts/ragas_eval.py"
-      - "scripts/ragas_ci_gate.py"
-      - "eval/**"
+  schedule:
+    # Every Monday at 03:00 UTC (14:00 AEST)
+    - cron: "0 3 * * 1"
   workflow_dispatch:
     inputs:
       dataset:
-        description: "Eval dataset path (default: eval/golden-set.jsonl)"
+        description: "Eval dataset path"
         required: false
         default: "eval/golden-set.jsonl"
-      strict:
-        description: "Fail on NaN metrics"
+      notify_on_pass:
+        description: "Create issue even on pass (for tracking)"
         required: false
         type: boolean
         default: false
 
 permissions:
   contents: read
-  pull-requests: write
+  issues: write
 
 env:
   AWS_REGION: ap-southeast-2
 
 jobs:
-  rag-eval:
-    name: RAGAS Evaluation
+  weekly-regression:
+    name: Weekly RAGAS Regression
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -103,22 +92,18 @@ jobs:
           RAGAS_EVAL_EMBEDDING_MODEL: "amazon.titan-embed-text-v2:0"
           RAGAS_EVAL_TIMEOUT: "300"
 
-      - name: Run eval:agent (native output for work-search)
+      - name: Run eval:work-search (rule-based)
         run: |
           pnpm eval:agent -- \
             --agent supervisor \
             --input "${{ steps.dataset.outputs.path }}" \
             --output tmp/evals/supervisor-native.jsonl
-        continue-on-error: true
-        env:
-          BEDROCK_SUPERVISOR_ALIAS_ARN: ${{ secrets.BEDROCK_SUPERVISOR_ALIAS_ARN }}
-
-      - name: Run eval:work-search (rule-based)
-        run: |
           pnpm eval:work-search -- \
             --input tmp/evals/supervisor-native.jsonl \
             --output tmp/evals/work-search-rules.json
         continue-on-error: true
+        env:
+          BEDROCK_SUPERVISOR_ALIAS_ARN: ${{ secrets.BEDROCK_SUPERVISOR_ALIAS_ARN }}
 
       - name: Run quality gate
         id: gate
@@ -127,92 +112,82 @@ jobs:
           if [ -f eval/baselines/metrics-v1.json ]; then
             GATE_ARGS="$GATE_ARGS --baseline eval/baselines/metrics-v1.json"
           fi
-          if [ "${{ github.event.inputs.strict }}" = "true" ]; then
-            GATE_ARGS="$GATE_ARGS --strict"
-          fi
           GATE_ARGS="$GATE_ARGS --json-output tmp/evals/gate-report.json"
           python3 scripts/ragas_ci_gate.py $GATE_ARGS
+        continue-on-error: true
 
       - name: Upload eval artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ragas-eval-results
+          name: weekly-regression-${{ github.run_number }}
           path: |
             tmp/evals/supervisor-ragas.jsonl
             tmp/evals/supervisor-ragas-results.json
             tmp/evals/gate-report.json
             tmp/evals/work-search-rules.json
-          retention-days: 30
+          retention-days: 90
 
-      - name: Comment PR with results
-        if: github.event_name == 'pull_request' && always()
+      - name: Create issue on failure or tracking
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            let body = '## 🔍 RAGAS Evaluation Results\n\n';
+            let gatePassed = true;
+            let body = '';
 
             try {
               const gate = JSON.parse(fs.readFileSync('tmp/evals/gate-report.json', 'utf8'));
-              const icon = gate.passed ? '✅' : '❌';
-              body += `**Status**: ${icon} ${gate.passed ? 'PASSED' : 'FAILED'}\n`;
-              body += `**Checks**: ${gate.checks_passed}/${gate.checks_total} passed\n\n`;
+              gatePassed = gate.passed;
 
-              if (gate.failures && gate.failures.length > 0) {
-                body += '### Failures\n';
-                body += '| Group | Metric | Value | Threshold | Reason |\n';
-                body += '|-------|--------|-------|-----------|--------|\n';
-                for (const f of gate.failures) {
-                  body += `| ${f.group} | ${f.metric} | ${f.value?.toFixed(4) ?? 'NaN'} | ${f.threshold ?? '-'} | ${f.reason} |\n`;
-                }
-                body += '\n';
-              }
+              const icon = gate.passed ? 'PASSED' : 'FAILED';
+              body += `## Weekly RAGAS Regression: ${icon}\n\n`;
+              body += `**Date**: ${new Date().toISOString().split('T')[0]}\n`;
+              body += `**Checks**: ${gate.checks_passed}/${gate.checks_total} passed\n`;
+              body += `**Run**: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n`;
 
-              if (gate.improvements && gate.improvements.length > 0) {
-                body += '### 🎉 Improvements\n';
-                for (const imp of gate.improvements) {
-                  body += `- **${imp.group}/${imp.metric}**: ${imp.value?.toFixed(4)} (baseline: ${imp.baseline_mean})\n`;
-                }
-                body += '\n';
-              }
-
-              body += '### Per-Group Summary\n';
+              body += '### Results\n';
               body += '| Group | Metric | Value | Passed |\n';
               body += '|-------|--------|-------|--------|\n';
               for (const [group, metrics] of Object.entries(gate.groups)) {
                 for (const [metric, info] of Object.entries(metrics)) {
-                  const mIcon = info.passed ? '✅' : '❌';
+                  const mIcon = info.passed ? 'yes' : 'NO';
                   body += `| ${group} | ${metric} | ${info.value?.toFixed(4) ?? 'NaN'} | ${mIcon} |\n`;
                 }
               }
+
+              if (gate.failures && gate.failures.length > 0) {
+                body += '\n### Failures\n';
+                for (const f of gate.failures) {
+                  body += `- **${f.group}/${f.metric}**: ${f.value?.toFixed(4) ?? 'NaN'} (threshold: ${f.threshold ?? '-'}, reason: ${f.reason})\n`;
+                }
+              }
+
+              if (gate.improvements && gate.improvements.length > 0) {
+                body += '\n### Improvements\n';
+                for (const imp of gate.improvements) {
+                  body += `- **${imp.group}/${imp.metric}**: ${imp.value?.toFixed(4)} (baseline: ${imp.baseline_mean})\n`;
+                }
+              }
             } catch (e) {
-              body += `⚠️ Could not parse gate report: ${e.message}\n`;
+              gatePassed = false;
+              body = `## Weekly RAGAS Regression: ERROR\n\nCould not parse gate report: ${e.message}\n`;
+              body += `\n**Run**: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n`;
             }
 
-            body += '\n<details><summary>📎 Full results available in workflow artifacts</summary>\n\n';
-            body += `Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n`;
-            body += '</details>';
+            const shouldNotify = '${{ github.event.inputs.notify_on_pass }}' === 'true';
+            if (!gatePassed || shouldNotify) {
+              const labels = gatePassed ? ['eval', 'tracking'] : ['eval', 'regression'];
+              const title = gatePassed
+                ? `Weekly RAGAS Regression: PASSED (${new Date().toISOString().split('T')[0]})`
+                : `Weekly RAGAS Regression: FAILED (${new Date().toISOString().split('T')[0]})`;
 
-            // Find and update existing comment or create new one
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const botComment = comments.find(c => c.body.includes('RAGAS Evaluation Results'));
-            if (botComment) {
-              await github.rest.issues.updateComment({
+              await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                comment_id: botComment.id,
+                title,
                 body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
+                labels,
               });
             }
