@@ -13,6 +13,7 @@ from .graph_retriever import GraphRetriever
 from .hybrid_fusion import fuse_graph_and_traditional
 from .models import GraphContext, RetrievalMode, RetrieveRequest
 from .query_cache import QueryCache
+from .query_decomposer import DecompositionResult, QueryDecomposer, SubQuestion
 from .query_processing import QueryProcessor
 from .repository import PostgresRepository
 from .reranker import LLMReranker
@@ -59,7 +60,12 @@ class RagWorkflowState(TypedDict, total=False):
     hyde_hypothesis: str | None
     hyde_embeddings: list[list[float]] | None
     hyde_strategy: str  # "enabled" | "skipped" | "disabled" | "fallback"
-
+    # --- Query Decomposition fields ---
+    should_decompose: bool
+    decomposition_decision: DecompositionResult | None
+    sub_questions: list[SubQuestion]
+    sub_question_hits_list: list[list[dict[str, Any]]]
+    decomposition_used: bool
 
 class RagWorkflow:
     """Compiled workflow for intent/rewrite/retrieve/answer stages."""
@@ -77,6 +83,7 @@ class RagWorkflow:
         crag_query_rewriter: CragQueryRewriter | None = None,
         crag_web_searcher: CragWebSearcher | None = None,
         hyde_retriever=None,
+        query_decomposer: QueryDecomposer | None = None,
     ) -> None:
         """Create and compile graph with injected services."""
 
@@ -91,6 +98,7 @@ class RagWorkflow:
         self._crag_query_rewriter = crag_query_rewriter
         self._crag_web_searcher = crag_web_searcher
         self._hyde_retriever = hyde_retriever
+        self._query_decomposer = query_decomposer
 
         graph = StateGraph(RagWorkflowState)
 
@@ -100,6 +108,7 @@ class RagWorkflow:
         graph.add_node("determine_mode", self._node_determine_mode)
         graph.add_node("rewrite_query", self._node_rewrite_query)
         graph.add_node("build_request", self._node_build_request)
+        graph.add_node("decompose_query", self._node_decompose_query)
         graph.add_node("retrieve", self._node_retrieve)
         graph.add_node("graph_retrieve", self._node_graph_retrieve)
         graph.add_node("fuse", self._node_fuse)
@@ -122,7 +131,12 @@ class RagWorkflow:
         graph.add_edge("extract_keywords", "determine_mode")
         graph.add_edge("determine_mode", "rewrite_query")
         graph.add_edge("rewrite_query", "build_request")
-        graph.add_edge("build_request", "retrieve")
+        graph.add_conditional_edges(
+            "build_request",
+            self._route_after_build_request,
+            {"decompose": "decompose_query", "retrieve": "retrieve"},
+        )
+        graph.add_edge("decompose_query", "retrieve")
         graph.add_edge("retrieve", "graph_retrieve")
         graph.add_edge("graph_retrieve", "fuse")
         graph.add_edge("fuse", "rerank")
@@ -150,6 +164,7 @@ class RagWorkflow:
             "determine_mode",
             "rewrite_query",
             "build_request",
+            "decompose_query",
             "retrieve",
             "graph_retrieve",
             "fuse",
@@ -172,7 +187,12 @@ class RagWorkflow:
         pre_gen_graph.add_edge("extract_keywords", "determine_mode")
         pre_gen_graph.add_edge("determine_mode", "rewrite_query")
         pre_gen_graph.add_edge("rewrite_query", "build_request")
-        pre_gen_graph.add_edge("build_request", "retrieve")
+        pre_gen_graph.add_conditional_edges(
+            "build_request",
+            self._route_after_build_request,
+            {"decompose": "decompose_query", "retrieve": "retrieve"},
+        )
+        pre_gen_graph.add_edge("decompose_query", "retrieve")
         pre_gen_graph.add_edge("retrieve", "graph_retrieve")
         pre_gen_graph.add_edge("graph_retrieve", "fuse")
         pre_gen_graph.add_edge("fuse", "rerank")
@@ -331,12 +351,30 @@ class RagWorkflow:
             k_final=top_k,
             filters=state["filters"],
         )
+
+        should_decompose = False
+        if self._query_decomposer and self._settings.enable_query_decomposition:
+            complexity = state.get("complexity", "medium")
+            decision = self._query_decomposer.should_decompose(retrieval_query, complexity)
+            should_decompose = decision.should_decompose
+            logger.info(
+                "Decomposition build_request: should_decompose=%s, confidence=%.2f, est_subq=%d, reasoning=%s",
+                should_decompose, decision.confidence,
+                decision.estimated_sub_questions, decision.reasoning,
+            )
+        else:
+            logger.info(
+                "Decomposition build_request: SKIPPED (enabled=%s, decomposer_init=%s)",
+                self._settings.enable_query_decomposition, self._query_decomposer is not None,
+            )
+
         return {
             "request": request,
             "query_embedding": query_embedding,
             "hyde_hypothesis": hyde_hypothesis,
             "hyde_embeddings": hyde_embeddings,
             "hyde_strategy": hyde_strategy,
+            "should_decompose": should_decompose,
         }
 
     def _node_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
@@ -617,3 +655,71 @@ class RagWorkflow:
             logger.exception("Failed to store result in query cache")
 
         return {}
+
+    def _node_decompose_query(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("decompose_query", self._impl_decompose_query, state)
+
+    def _impl_decompose_query(self, state: RagWorkflowState) -> RagWorkflowState:
+        if not self._query_decomposer or not self._settings.enable_query_decomposition:
+            logger.info("Decomposition: disabled (enable_query_decomposition=%s, decomposer=%s)",
+                        self._settings.enable_query_decomposition, self._query_decomposer is not None)
+            return {
+                "decomposition_used": False,
+                "decomposition_decision": None,
+                "sub_questions": [],
+                "sub_question_hits_list": [],
+            }
+
+        query = state.get("rewritten_query") or state["query"]
+        logger.info("Decomposition: generating sub-questions for query=%r (len=%d tokens)",
+                    query[:100], len(query.split()))
+
+        try:
+            result = self._query_decomposer.decompose_query(query)
+        except Exception as e:
+            logger.exception("Decomposition: LLM generation failed: %s", e)
+            return {
+                "decomposition_used": False,
+                "decomposition_decision": None,
+                "sub_questions": [],
+                "sub_question_hits_list": [],
+            }
+
+        if result.should_decompose and result.sub_questions:
+            sub_q_summaries = [
+                f"  [{sq.id}] {sq.question[:80]} (focus={sq.focus}, strategy={sq.retrieve_strategy})"
+                for sq in result.sub_questions
+            ]
+            logger.info(
+                "Decomposition: SUCCESS — generated %d sub-questions for query=%r:\n%s",
+                len(result.sub_questions),
+                query[:80],
+                "\n".join(sub_q_summaries),
+            )
+            return {
+                "decomposition_decision": result,
+                "sub_questions": result.sub_questions,
+                "decomposition_used": True,
+            }
+        else:
+            logger.info(
+                "Decomposition: skipped after LLM call — should_decompose=%s, sub_questions=%d, reasoning=%s",
+                result.should_decompose,
+                len(result.sub_questions),
+                result.decision_reasoning,
+            )
+            return {
+                "decomposition_decision": result,
+                "decomposition_used": False,
+                "sub_questions": [],
+                "sub_question_hits_list": [],
+            }
+
+    def _route_after_build_request(self, state: RagWorkflowState) -> str:
+        should = state.get("should_decompose", False)
+        logger.info("Decomposition routing: should_decompose=%s → %s",
+                    should, "decompose" if should else "retrieve")
+        if should:
+            return "decompose"
+        return "retrieve"
+

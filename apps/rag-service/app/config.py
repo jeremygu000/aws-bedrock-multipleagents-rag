@@ -403,6 +403,47 @@ class Settings(BaseSettings):
         validation_alias="RAG_HYDE_AGGREGATION",
         description="How to aggregate multiple hypothesis embeddings: mean (average), concat (concatenate), first (use first only)",
     )
+
+    # --- Query Decomposition settings (Multi-hop reasoning) ---
+    enable_query_decomposition: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_QUERY_DECOMPOSITION",
+        description="Feature flag to enable query decomposition for complex multi-hop reasoning queries",
+    )
+    decomposition_min_tokens: int = Field(
+        default=15,
+        ge=5,
+        le=50,
+        validation_alias="RAG_DECOMPOSITION_MIN_TOKENS",
+        description="Minimum query length (tokens) to consider for decomposition",
+    )
+    decomposition_semantic_gap_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_DECOMPOSITION_SEMANTIC_GAP_THRESHOLD",
+        description="Semantic gap threshold above which decomposition is recommended",
+    )
+    decomposition_max_subquestions: int = Field(
+        default=3,
+        ge=2,
+        le=5,
+        validation_alias="RAG_DECOMPOSITION_MAX_SUBQUESTIONS",
+        description="Maximum number of sub-questions to generate per decomposition",
+    )
+    decomposition_timeout_s: int = Field(
+        default=10,
+        ge=5,
+        le=60,
+        validation_alias="RAG_DECOMPOSITION_TIMEOUT_S",
+        description="Timeout in seconds for sub-question generation via LLM",
+    )
+    decomposition_model_id: str = Field(
+        default="amazon.nova-pro-v1:0",
+        validation_alias="RAG_DECOMPOSITION_MODEL_ID",
+        description="Bedrock model ID for sub-question generation (Nova Pro recommended)",
+    )
+
     hyde_similarity_threshold: float = Field(
         default=0.2,
         ge=0.0,
