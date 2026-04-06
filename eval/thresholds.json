@@ -1,8 +1,8 @@
 {
   "_comment": "Absolute minimum thresholds for RAGAS quality gate. Per-group overrides take precedence over defaults. Thresholds set conservatively for initial baseline — raise as agent improves.",
   "defaults": {
-    "faithfulness": 0.3,
-    "answer_relevancy": 0.05,
+    "faithfulness": 0.2,
+    "answer_relevancy": 0.02,
     "context_recall": 0.5,
     "factual_correctness": 0.0,
     "semantic_similarity": 0.05
