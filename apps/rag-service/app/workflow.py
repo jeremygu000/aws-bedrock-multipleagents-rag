@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from .answer_generator import ModelRoute, RoutedAnswerGenerator
 from .config import Settings
 from .crag import CragQueryRewriter, CragWebSearcher, RetrievalGrader
+from .decomposition_retriever import DecompositionRetriever
 from .graph_retriever import GraphRetriever
 from .hybrid_fusion import fuse_graph_and_traditional
 from .models import GraphContext, RetrievalMode, RetrieveRequest
@@ -84,6 +85,7 @@ class RagWorkflow:
         crag_web_searcher: CragWebSearcher | None = None,
         hyde_retriever=None,
         query_decomposer: QueryDecomposer | None = None,
+        decomposition_retriever: DecompositionRetriever | None = None,
     ) -> None:
         """Create and compile graph with injected services."""
 
@@ -99,6 +101,7 @@ class RagWorkflow:
         self._crag_web_searcher = crag_web_searcher
         self._hyde_retriever = hyde_retriever
         self._query_decomposer = query_decomposer
+        self._decomposition_retriever = decomposition_retriever
 
         graph = StateGraph(RagWorkflowState)
 
@@ -381,10 +384,104 @@ class RagWorkflow:
         return self._traced_node("retrieve", self._impl_retrieve, state)
 
     def _impl_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
-        hits = self._repository.retrieve(state["request"])
+        """Retrieve documents, handling decomposition if sub-questions exist."""
+        decomposition_used = state.get("decomposition_used", False)
+        sub_questions = state.get("sub_questions", [])
+        request = state["request"]
+        
+        # Path 1: Decomposition with sub-questions
+        if decomposition_used and sub_questions and self._decomposition_retriever:
+            logger.info(
+                "Retrieve: decomposition path — retrieving %d sub-questions in parallel",
+                len(sub_questions),
+            )
+            try:
+                # Extract question strings from SubQuestion objects
+                sub_q_strings = [sq.question for sq in sub_questions]
+                
+                # Parallel retrieval
+                sub_hits_list = self._decomposition_retriever.retrieve_sub_questions_parallel(
+                    sub_q_strings,
+                    request,
+                    timeout_seconds=self._settings.decomposition_timeout_s,
+                )
+                
+                # Store for potential later use (e.g., synthesis)
+                state["sub_question_hits_list"] = sub_hits_list
+                
+                # Merge: collect all unique hits (by source_id) from all sub-questions
+                merged_hits = self._merge_decomposition_hits(sub_hits_list, request.k_final)
+                
+                RETRIEVAL_HIT_COUNT.observe(len(merged_hits))
+                logger.info(
+                    "Retrieve: decomposition merge complete — %d merged hits from %d sub-questions",
+                    len(merged_hits),
+                    len(sub_questions),
+                )
+                return {
+                    "hits": merged_hits,
+                    "sub_question_hits_list": sub_hits_list,
+                }
+            except Exception as e:
+                logger.exception(
+                    "Retrieve: decomposition retrieval failed, falling back to main query: %s", e
+                )
+                # Fall through to standard retrieval
+        
+        # Path 2: Standard single-query retrieval
+        logger.info(
+            "Retrieve: standard path — query=%r (decomposition_used=%s, sub_questions=%d)",
+            request.query[:60],
+            decomposition_used,
+            len(sub_questions),
+        )
+        hits = self._repository.retrieve(request)
         RETRIEVAL_HIT_COUNT.observe(len(hits))
         return {"hits": hits}
 
+    
+    def _merge_decomposition_hits(
+        self,
+        hits_lists: list[list[dict[str, Any]]],
+        k_final: int,
+        dedup_key: str = "sourceId",
+    ) -> list[dict[str, Any]]:
+        """Merge and deduplicate hits from multiple sub-questions.
+        
+        Strategy: Collect all hits, group by dedup_key, keep first occurrence,
+        maintain relative ranking by appearance order (earlier = higher confidence).
+        
+        Args:
+            hits_lists: List of hit lists from each sub-question retrieval
+            k_final: Target number of merged hits
+            dedup_key: Field to use for deduplication (default: sourceId)
+        
+        Returns:
+            Deduplicated and ranked hits list
+        """
+        seen_ids = set()
+        merged = []
+        
+        for hits in hits_lists:
+            for hit in hits:
+                hit_id = hit.get(dedup_key)
+                if hit_id and hit_id not in seen_ids:
+                    merged.append(hit)
+                    seen_ids.add(hit_id)
+                    if len(merged) >= k_final:
+                        logger.info(
+                            "_merge_decomposition_hits: reached k_final=%d, stopping",
+                            k_final,
+                        )
+                        return merged
+        
+        logger.info(
+            "_merge_decomposition_hits: merged %d unique hits (from %d hit lists, k_final=%d)",
+            len(merged),
+            len(hits_lists),
+            k_final,
+        )
+        return merged
     def _node_graph_retrieve(self, state: RagWorkflowState) -> RagWorkflowState:
         return self._traced_node("graph_retrieve", self._impl_graph_retrieve, state)
 
