@@ -231,6 +231,9 @@ export class BedrockAgentsStack extends cdk.Stack {
       RAG_CHUNK_MIN_SIZE: processEnv.RAG_CHUNK_MIN_SIZE ?? "50",
       RAG_EMBED_BATCH_SIZE: processEnv.RAG_EMBED_BATCH_SIZE ?? "20",
       RAG_MAX_UPLOAD_SIZE_MB: processEnv.RAG_MAX_UPLOAD_SIZE_MB ?? "50",
+      // Cloud environment: use DashScope Qwen API (not local Ollama).
+      QWEN_USE_OLLAMA_NATIVE: processEnv.QWEN_USE_OLLAMA_NATIVE ?? "false",
+      QWEN_AUTH_REQUIRED: processEnv.QWEN_AUTH_REQUIRED ?? "true",
     };
 
     // Explicit local override only. Avoid injecting plaintext password by default.
@@ -286,6 +289,14 @@ export class BedrockAgentsStack extends cdk.Stack {
       );
       qwenApiKeySecret.grantRead(ragSearchFn);
     }
+
+    // Allow RAG Lambda to call Bedrock Converse for answer generation + embeddings.
+    ragSearchFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock:InvokeModel"],
+        resources: ["*"],
+      }),
+    );
 
     if (ragSearchDomain) {
       new cdk.CfnOutput(this, "RagOpenSearchEndpoint", {

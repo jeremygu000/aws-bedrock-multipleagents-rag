@@ -72,7 +72,7 @@ class Settings(BaseSettings):
         default="amazon.titan-embed-text-v2:0",
         validation_alias="BEDROCK_EMBEDDING_MODEL_ID",
     )
-    sparse_backend: Literal["opensearch", "postgres"] = Field(
+    sparse_backend: Literal["opensearch", "postgres", "none"] = Field(
         default="opensearch",
         validation_alias="RAG_SPARSE_BACKEND",
     )
