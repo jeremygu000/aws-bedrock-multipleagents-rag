@@ -91,6 +91,7 @@ Options:
   --trace-summary            Include trace summary in terminal progress output.
   --fail-fast                Stop on the first failing row.
   --shared-session           Reuse one session ID for all rows.
+  --delay <ms>               Delay between rows in milliseconds. Helps avoid Bedrock rate limits.
   --help                     Show this help message.
 `;
 
@@ -188,6 +189,7 @@ const main = async (): Promise<void> => {
       "trace-summary": { type: "boolean", default: false },
       "fail-fast": { type: "boolean", default: false },
       "shared-session": { type: "boolean", default: false },
+      delay: { type: "string" },
       help: { type: "boolean", default: false },
     },
   });
@@ -219,6 +221,7 @@ const main = async (): Promise<void> => {
   const target = resolveTarget(values);
   const rows = await parseInput(inputPath);
   const sharedSessionId = values["shared-session"] ? randomUUID() : undefined;
+  const delayMs = values.delay ? Number(values.delay) : 0;
   const results: EvalOutputRow[] = [];
 
   for (const [index, row] of rows.entries()) {
@@ -273,6 +276,10 @@ const main = async (): Promise<void> => {
       if (values["fail-fast"]) {
         throw error;
       }
+    }
+
+    if (delayMs > 0 && index < rows.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 
