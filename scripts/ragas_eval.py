@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -166,24 +167,37 @@ def _build_ollama_models(llm_model: str, embedding_model: str) -> tuple[Any, Any
 def _build_bedrock_models(
     llm_model: str, embedding_model: str, region: str, timeout: int = 300
 ) -> tuple[Any, Any, str]:
-    from langchain_aws import BedrockEmbeddings, ChatBedrockConverse
-    from ragas.embeddings import LangchainEmbeddingsWrapper
-    from ragas.llms import LangchainLLMWrapper
+    import instructor
+    import litellm
+    from ragas.embeddings.base import embedding_factory
+    from ragas.llms.litellm_llm import LiteLLMStructuredLLM
 
-    llm = LangchainLLMWrapper(
-        ChatBedrockConverse(
-            model=llm_model,
-            region_name=region,
-            max_tokens=2048,
-        )
+    # LiteLLM uses "bedrock/<model-id>" format and reads AWS credentials from
+    # environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME).
+    os.environ.setdefault("AWS_REGION_NAME", region)
+    litellm.drop_params = True
+
+    litellm_model = f"bedrock/{llm_model}"
+    litellm_embed = f"bedrock/{embedding_model}"
+
+    # FactualCorrectness and other claim-based metrics call `await llm.agenerate()`
+    # which requires is_async=True. We create an AsyncInstructor client via
+    # instructor.from_litellm(litellm.acompletion) — the class name "AsyncInstructor"
+    # is detected by LiteLLMStructuredLLM._check_client_async() to set is_async=True.
+    async_client = instructor.from_litellm(litellm.acompletion)
+    llm = LiteLLMStructuredLLM(
+        client=async_client,
+        model=litellm_model,
+        provider="litellm",
+        temperature=0.1,
+        max_tokens=2048,
     )
-    embeddings = LangchainEmbeddingsWrapper(
-        BedrockEmbeddings(
-            model_id=embedding_model,
-            region_name=region,
-        )
+
+    embeddings = embedding_factory(
+        "litellm", model=litellm_embed, timeout=timeout
     )
-    return llm, embeddings, "langchain-aws"
+    _patch_embed_query(embeddings)
+    return llm, embeddings, "litellm-bedrock"
 
 
 def import_metrics() -> dict[str, Any]:
@@ -291,13 +305,28 @@ def build_metrics(metric_names: list[str], llm: Any, embeddings: Any) -> list[An
     return metrics
 
 
+def _resolve_metric_column(rows: list[dict[str, Any]], metric_name: str) -> str | None:
+    """RAGAS may suffix column names with mode info, e.g. 'factual_correctness(mode=f1)'.
+    Find the actual column key that starts with metric_name.
+    """
+    if not rows:
+        return metric_name
+    first = rows[0]
+    if metric_name in first:
+        return metric_name
+    for key in first:
+        if key.startswith(metric_name):
+            return key
+    return None
+
+
 def score_metric(
     rows: list[dict[str, Any]], metric: Any, timeout: int = 300
 ) -> tuple[list[dict[str, Any]], float | None]:
     from ragas import EvaluationDataset, evaluate
     from ragas.run_config import RunConfig
 
-    run_config = RunConfig(timeout=timeout, max_retries=10, max_workers=16)
+    run_config = RunConfig(timeout=timeout, max_retries=10, max_workers=4)
     dataset = EvaluationDataset.from_list(rows)
     result = evaluate(
         dataset=dataset,
@@ -308,10 +337,17 @@ def score_metric(
     metric_name = str(getattr(metric, "name", metric.__class__.__name__))
     scored_rows = [normalize_json_value(row) for row in result.to_pandas().to_dict(orient="records")]
 
+    resolved_key = _resolve_metric_column(scored_rows, metric_name)
+    if resolved_key and resolved_key != metric_name:
+        for row in scored_rows:
+            if resolved_key in row:
+                row[metric_name] = row.pop(resolved_key)
+
     values = [
         float(row[metric_name])
         for row in scored_rows
         if isinstance(row.get(metric_name), (int, float))
+        and not math.isnan(float(row[metric_name]))
     ]
     return scored_rows, (fmean(values) if values else None)
 
