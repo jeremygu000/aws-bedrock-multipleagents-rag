@@ -14,6 +14,7 @@ interface EvalInputRow {
   id?: string | number;
   prompt?: string;
   question?: string;
+  user_input?: string;
   reference?: string;
   groundTruth?: string;
   ground_truth?: string;
@@ -70,6 +71,7 @@ Supported input fields:
   - id
   - prompt
   - question
+  - user_input
   - reference
   - groundTruth
   - ground_truth
@@ -119,9 +121,9 @@ const parseInput = async (inputPath: string): Promise<EvalInputRow[]> => {
 };
 
 const getPrompt = (row: EvalInputRow): string => {
-  const prompt = row.prompt ?? row.question;
+  const prompt = row.prompt ?? row.question ?? row.user_input;
   if (!prompt || prompt.trim().length === 0) {
-    throw new Error("Each input row must include prompt or question.");
+    throw new Error("Each input row must include prompt, question, or user_input.");
   }
 
   return prompt;

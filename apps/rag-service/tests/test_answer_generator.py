@@ -53,7 +53,7 @@ def test_bedrock_generator_uses_client(monkeypatch) -> None:
 
     class FakeClient:
         def converse(self, **kwargs):
-            assert kwargs["modelId"] == "amazon.nova-lite-v1:0"
+            assert kwargs["modelId"] == "amazon.nova-pro-v1:0"
             return {"output": {"message": {"content": [{"text": "bedrock-answer"}]}}}
 
     monkeypatch.setattr(generator, "_get_client", lambda: FakeClient())
