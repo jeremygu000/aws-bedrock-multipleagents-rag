@@ -311,6 +311,56 @@ class Settings(BaseSettings):
     )
     ingestion_queue_url: str = Field(default="", validation_alias="RAG_INGESTION_QUEUE_URL")
 
+    # --- CRAG (Corrective RAG) settings ---
+    enable_crag: bool = Field(
+        default=False,
+        validation_alias="RAG_ENABLE_CRAG",
+        description="Feature flag to enable Corrective RAG: grade retrieval quality and fallback when poor",
+    )
+    crag_upper_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_CRAG_UPPER_THRESHOLD",
+        description="Relevance ratio >= this → CORRECT verdict (use retrieved docs as-is)",
+    )
+    crag_lower_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        validation_alias="RAG_CRAG_LOWER_THRESHOLD",
+        description="Relevance ratio <= this → INCORRECT verdict (trigger web search)",
+    )
+    crag_min_relevant_docs: int = Field(
+        default=1,
+        ge=0,
+        le=20,
+        validation_alias="RAG_CRAG_MIN_RELEVANT_DOCS",
+        description="Minimum number of relevant docs required for CORRECT verdict",
+    )
+    crag_enable_web_search: bool = Field(
+        default=False,
+        validation_alias="RAG_CRAG_ENABLE_WEB_SEARCH",
+        description="Enable web search fallback for INCORRECT/AMBIGUOUS verdicts (requires Tavily API key)",
+    )
+    crag_web_search_k: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        validation_alias="RAG_CRAG_WEB_SEARCH_K",
+        description="Number of web search results to fetch on fallback",
+    )
+    crag_grader_model: str = Field(
+        default="",
+        validation_alias="RAG_CRAG_GRADER_MODEL",
+        description="LLM model for retrieval grading (empty = use Qwen client)",
+    )
+    tavily_api_key: str = Field(
+        default="",
+        validation_alias="TAVILY_API_KEY",
+        description="Tavily API key for web search fallback (required when crag_enable_web_search=true)",
+    )
+
     # --- Evaluation framework settings (Phase 4) ---
     enable_eval_tracing: bool = Field(
         default=False,

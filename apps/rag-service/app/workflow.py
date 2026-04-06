@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 
 from .answer_generator import ModelRoute, RoutedAnswerGenerator
 from .config import Settings
+from .crag import CragQueryRewriter, CragWebSearcher, RetrievalGrader
 from .graph_retriever import GraphRetriever
 from .hybrid_fusion import fuse_graph_and_traditional
 from .models import GraphContext, RetrievalMode, RetrieveRequest
@@ -49,6 +50,11 @@ class RagWorkflowState(TypedDict, total=False):
     answer_model: ModelRoute
     answer: str
     cache_hit: bool
+    # --- CRAG (Corrective RAG) fields ---
+    retrieval_verdict: str  # "correct" | "incorrect" | "ambiguous"
+    crag_retry_count: int
+    web_search_results: list[dict[str, Any]]
+    crag_rewritten_query: str
 
 
 class RagWorkflow:
@@ -63,6 +69,9 @@ class RagWorkflow:
         reranker: LLMReranker,
         graph_retriever: GraphRetriever | None = None,
         query_cache: QueryCache | None = None,
+        retrieval_grader: RetrievalGrader | None = None,
+        crag_query_rewriter: CragQueryRewriter | None = None,
+        crag_web_searcher: CragWebSearcher | None = None,
     ) -> None:
         """Create and compile graph with injected services."""
 
@@ -73,6 +82,9 @@ class RagWorkflow:
         self._reranker = reranker
         self._graph_retriever = graph_retriever
         self._query_cache = query_cache
+        self._retrieval_grader = retrieval_grader
+        self._crag_query_rewriter = crag_query_rewriter
+        self._crag_web_searcher = crag_web_searcher
 
         graph = StateGraph(RagWorkflowState)
 
@@ -86,6 +98,9 @@ class RagWorkflow:
         graph.add_node("graph_retrieve", self._node_graph_retrieve)
         graph.add_node("fuse", self._node_fuse)
         graph.add_node("rerank", self._node_rerank)
+        graph.add_node("grade_retrieval", self._node_grade_retrieval)
+        graph.add_node("crag_rewrite_query", self._node_crag_rewrite_query)
+        graph.add_node("crag_web_search", self._node_crag_web_search)
         graph.add_node("build_citations", self._node_build_citations)
         graph.add_node("choose_model", self._node_choose_model)
         graph.add_node("generate_answer", self._node_generate_answer)
@@ -105,7 +120,14 @@ class RagWorkflow:
         graph.add_edge("retrieve", "graph_retrieve")
         graph.add_edge("graph_retrieve", "fuse")
         graph.add_edge("fuse", "rerank")
-        graph.add_edge("rerank", "build_citations")
+        graph.add_edge("rerank", "grade_retrieval")
+        graph.add_conditional_edges(
+            "grade_retrieval",
+            self._route_after_grade_retrieval,
+            {"correct": "build_citations", "needs_web_search": "crag_rewrite_query"},
+        )
+        graph.add_edge("crag_rewrite_query", "crag_web_search")
+        graph.add_edge("crag_web_search", "build_citations")
         graph.add_edge("build_citations", "choose_model")
         graph.add_edge("choose_model", "generate_answer")
         graph.add_edge("generate_answer", "store_cache")
@@ -126,6 +148,9 @@ class RagWorkflow:
             "graph_retrieve",
             "fuse",
             "rerank",
+            "grade_retrieval",
+            "crag_rewrite_query",
+            "crag_web_search",
             "build_citations",
             "choose_model",
         ]:
@@ -145,7 +170,14 @@ class RagWorkflow:
         pre_gen_graph.add_edge("retrieve", "graph_retrieve")
         pre_gen_graph.add_edge("graph_retrieve", "fuse")
         pre_gen_graph.add_edge("fuse", "rerank")
-        pre_gen_graph.add_edge("rerank", "build_citations")
+        pre_gen_graph.add_edge("rerank", "grade_retrieval")
+        pre_gen_graph.add_conditional_edges(
+            "grade_retrieval",
+            self._route_after_grade_retrieval,
+            {"correct": "build_citations", "needs_web_search": "crag_rewrite_query"},
+        )
+        pre_gen_graph.add_edge("crag_rewrite_query", "crag_web_search")
+        pre_gen_graph.add_edge("crag_web_search", "build_citations")
         pre_gen_graph.add_edge("build_citations", "choose_model")
         pre_gen_graph.add_edge("choose_model", END)
 
@@ -331,6 +363,64 @@ class RagWorkflow:
             top_k=top_k,
         )
         return {"reranked_hits": reranked}
+
+    def _node_grade_retrieval(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("grade_retrieval", self._impl_grade_retrieval, state)
+
+    def _impl_grade_retrieval(self, state: RagWorkflowState) -> RagWorkflowState:
+        if not self._settings.enable_crag or not self._retrieval_grader:
+            return {"retrieval_verdict": "correct"}
+
+        query = state.get("rewritten_query") or state.get("query", "")
+        hits = state.get("reranked_hits") or state.get("fused_hits") or []
+        if not hits:
+            return {"retrieval_verdict": "incorrect", "reranked_hits": []}
+
+        relevant, verdict = self._retrieval_grader.grade_hits(query, hits)
+        return {
+            "retrieval_verdict": verdict,
+            "reranked_hits": relevant if relevant else hits,
+        }
+
+    def _node_crag_rewrite_query(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("crag_rewrite_query", self._impl_crag_rewrite_query, state)
+
+    def _impl_crag_rewrite_query(self, state: RagWorkflowState) -> RagWorkflowState:
+        query = state.get("query", "")
+        if self._crag_query_rewriter:
+            rewritten = self._crag_query_rewriter.rewrite(query)
+        else:
+            rewritten = query
+        return {"crag_rewritten_query": rewritten}
+
+    def _node_crag_web_search(self, state: RagWorkflowState) -> RagWorkflowState:
+        return self._traced_node("crag_web_search", self._impl_crag_web_search, state)
+
+    def _impl_crag_web_search(self, state: RagWorkflowState) -> RagWorkflowState:
+        if not self._crag_web_searcher:
+            return {}
+
+        query = state.get("crag_rewritten_query") or state.get("query", "")
+        web_hits = self._crag_web_searcher.search(query)
+        if not web_hits:
+            return {"web_search_results": []}
+
+        verdict = state.get("retrieval_verdict", "incorrect")
+        existing_hits = state.get("reranked_hits") or []
+
+        if verdict == "ambiguous":
+            merged = existing_hits + web_hits
+        else:
+            merged = web_hits if web_hits else existing_hits
+
+        return {"reranked_hits": merged, "web_search_results": web_hits}
+
+    @staticmethod
+    def _route_after_grade_retrieval(state: RagWorkflowState) -> str:
+        verdict = state.get("retrieval_verdict", "correct")
+        if verdict == "correct":
+            return "correct"
+        return "needs_web_search"
 
     def _node_build_citations(self, state: RagWorkflowState) -> RagWorkflowState:
         return self._traced_node("build_citations", self._impl_build_citations, state)
