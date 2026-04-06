@@ -81,12 +81,12 @@ Passage:"""
 
         # Entity detection: queries with named entities often better served by BM25
         if self._has_entities(query):
-            logger.debug(f"Skipping HyDE: query contains named entities")
+            logger.debug("Skipping HyDE: query contains named entities")
             return False
 
         # Reasoning intent: favor HyDE for complex reasoning
         if self._is_reasoning_query(query):
-            logger.debug(f"Using HyDE: detected reasoning query")
+            logger.debug("Using HyDE: detected reasoning query")
             return True
 
         # Default: enable for other queries
@@ -222,7 +222,7 @@ Passage:"""
             Dict with 'embeddings', 'sources', and 'strategy'
         """
         if not self._should_use_hyde(query, use_query_router=True):
-            logger.debug(f"HyDE disabled for query, using original embedding")
+            logger.debug("HyDE disabled for query, using original embedding")
             return {
                 "embeddings": [self.embeddings.embed_query(query)],
                 "sources": ["original_query"],
@@ -262,7 +262,7 @@ Passage:"""
                 orig_emb = self.embeddings.embed_query(query)
                 embeddings_list.append(orig_emb)
                 sources.append("original_query")
-                logger.debug(f"Using dual strategy: hypothesis + original")
+                logger.debug("Using dual strategy: hypothesis + original")
             except Exception as e:
                 logger.warning(f"Failed to embed original query: {e}")
 

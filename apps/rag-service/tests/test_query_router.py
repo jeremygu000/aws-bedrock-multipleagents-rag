@@ -1,7 +1,8 @@
 """Unit tests for query router."""
 
 import pytest
-from app.query_router import QueryRouter, RetrievalStrategy, QueryAnalysis
+
+from app.query_router import QueryAnalysis, QueryRouter, RetrievalStrategy
 
 
 class TestQueryRouter:

@@ -1,7 +1,8 @@
 """Unit tests for HyDE retriever."""
 
+from unittest.mock import Mock
+
 import pytest
-from unittest.mock import Mock, MagicMock
 
 from app.hyde_retriever import HyDEConfig, HyDERetriever
 

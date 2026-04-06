@@ -202,7 +202,6 @@ class QueryRouter:
 
             # If query has many rare/specific terms, gap is high (HyDE helps)
             # This is a heuristic: long queries with specific terms benefit from HyDE
-            avg_token_length = sum(len(t) for t in tokens) / len(tokens) if tokens else 0
             specific_term_ratio = len([t for t in tokens if len(t) > 5]) / len(tokens) if tokens else 0
 
             # Gap increases with specificity and query length
