@@ -3,7 +3,7 @@ import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedroc
 import { captureAsync, type IntentType } from "@aws-bedrock-multiagents/shared";
 
 const client = new BedrockRuntimeClient({});
-const MODEL_ID = "amazon.nova-lite-v1:0";
+const MODEL_ID = "amazon.nova-pro-v1:0";
 
 const SYSTEM_PROMPTS: Record<string, string> = {
   WORK_SEARCH: [

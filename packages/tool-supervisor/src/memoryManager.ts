@@ -11,7 +11,7 @@ const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 const bedrockClient = new BedrockRuntimeClient({});
-const MODEL_ID = "amazon.nova-lite-v1:0";
+const MODEL_ID = "amazon.nova-pro-v1:0";
 
 export interface ChatMessage {
   role: "user" | "assistant";

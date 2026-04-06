@@ -3,7 +3,7 @@ import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedroc
 import { captureAsync } from "@aws-bedrock-multiagents/shared";
 
 const client = new BedrockRuntimeClient({});
-const MODEL_ID = "amazon.nova-lite-v1:0";
+const MODEL_ID = "amazon.nova-pro-v1:0";
 
 const SYSTEM_PROMPT = `You are an AI assistant for APRA AMCOS. The user asked a question that is ambiguous or too vague. Your job is to generate a short, friendly clarifying question (1-2 sentences maximum) to ask the user what they meant.
 

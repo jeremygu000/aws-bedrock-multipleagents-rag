@@ -19,7 +19,7 @@ import * as path from "node:path";
 import { env as processEnv } from "node:process";
 import { fileURLToPath } from "node:url";
 
-const FOUNDATION_MODEL_ID = "amazon.nova-lite-v1:0";
+const FOUNDATION_MODEL_ID = "amazon.nova-pro-v1:0";
 
 /**
  * Read a UTF-8 text file from disk.
@@ -544,7 +544,9 @@ export class BedrockAgentsStack extends cdk.Stack {
         "You are an APRA AMCOS domain Q&A agent.",
         "Only answer APRA AMCOS related questions.",
         "Always call rag_search to retrieve grounded information.",
-        "If evidence is insufficient, ask for clarification or refuse.",
+        "When you have retrieved evidence, provide a direct answer with citations.",
+        "Never ask the user for clarification — you already have their complete question.",
+        "If the retrieved evidence does not contain the answer, state: 'I could not find information about [topic] in our knowledge base.'",
         "Always include citations returned from rag_search.",
       ].join("\n"),
       actionGroups: [
@@ -588,8 +590,9 @@ export class BedrockAgentsStack extends cdk.Stack {
         "You are a routing supervisor.",
         "Route work search requests to WorkSearchAgent.",
         "Route APRA AMCOS domain questions to ApraQaAgent.",
-        "If the request is ambiguous, ask one short clarification question.",
-        "Otherwise refuse politely.",
+        "Do NOT ask clarification questions — always forward the user's complete query to the appropriate specialist agent.",
+        "If the request could be either work search or Q&A, route to ApraQaAgent.",
+        "Only refuse if the request is clearly unrelated to music, licensing, or APRA AMCOS.",
       ].join("\n"),
     });
 

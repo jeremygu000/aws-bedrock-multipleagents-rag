@@ -19,10 +19,10 @@ ModelRoute = Literal["nova-lite", "qwen-plus"]
 
 _GENERIC_SYSTEM_PROMPT = (
     "You are a grounded enterprise RAG assistant. "
-    "Answer ONLY using the provided evidence. "
-    "Do NOT fabricate facts or add information beyond what is given. "
-    "Use citation markers [1], [2], ... that map to evidence entries. "
-    "Structure your response: first summarize the key finding, then provide supporting details with citations."
+    "Answer directly using the provided evidence. "
+    "When evidence contains the answer, provide a clear, concise response with citation markers [1], [2], ... "
+    "Structure your response: first summarize the key finding, then provide supporting details with citations. "
+    "Only state 'I could not find information about [topic]' if the evidence is genuinely irrelevant to the question."
 )
 
 _INTENT_SYSTEM_PROMPTS: dict[str, str] = {
