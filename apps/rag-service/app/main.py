@@ -98,6 +98,15 @@ def _build_workflow() -> RagWorkflow:
         QueryCache(settings, repository._get_engine()) if settings.enable_query_cache else None
     )
 
+    # Query Decomposition components — only instantiate when feature flag is on.
+    decomposition_retriever = None
+    if settings.enable_query_decomposition:
+        from .decomposition_retriever import DecompositionRetriever
+        from .query_decomposer import QueryDecomposer
+        
+        query_decomposer = QueryDecomposer(settings)
+        decomposition_retriever = DecompositionRetriever(repository, query_decomposer, settings)
+
     # CRAG components — only instantiate when feature flag is on.
     retrieval_grader = None
     crag_query_rewriter = None
@@ -118,6 +127,7 @@ def _build_workflow() -> RagWorkflow:
         retrieval_grader=retrieval_grader,
         crag_query_rewriter=crag_query_rewriter,
         crag_web_searcher=crag_web_searcher,
+        decomposition_retriever=decomposition_retriever,
     )
 
 
