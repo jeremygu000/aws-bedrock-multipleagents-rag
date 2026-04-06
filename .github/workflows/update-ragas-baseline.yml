@@ -1,0 +1,158 @@
+name: Update RAGAS Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: "Eval dataset path"
+        required: false
+        default: "eval/golden-set.jsonl"
+      version_bump:
+        description: "Bump baseline version number"
+        required: false
+        type: boolean
+        default: true
+      commit_message:
+        description: "Custom commit message"
+        required: false
+        default: "chore: update RAGAS baseline metrics"
+
+permissions:
+  contents: write
+
+env:
+  AWS_REGION: ap-southeast-2
+
+jobs:
+  update-baseline:
+    name: Update RAGAS Baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements-ragas.txt
+          uv sync --project apps/rag-service
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run full evaluation
+        run: |
+          pnpm eval:agent -- \
+            --agent supervisor \
+            --input "${{ github.event.inputs.dataset }}" \
+            --output tmp/evals/supervisor-ragas.jsonl \
+            --output-format ragas
+
+          pnpm eval:ragas -- \
+            --input tmp/evals/supervisor-ragas.jsonl \
+            --output tmp/evals/supervisor-ragas-results.json
+        env:
+          BEDROCK_SUPERVISOR_ALIAS_ARN: ${{ secrets.BEDROCK_SUPERVISOR_ALIAS_ARN }}
+          RAGAS_EVAL_LLM_MODEL: "amazon.nova-lite-v1:0"
+          RAGAS_EVAL_EMBEDDING_MODEL: "amazon.titan-embed-text-v2:0"
+
+      - name: Generate new baseline
+        run: |
+          python3 -c "
+          import json, sys
+          from datetime import datetime, timezone
+
+          results_path = 'tmp/evals/supervisor-ragas-results.json'
+          baseline_path = 'eval/baselines/metrics-v1.json'
+
+          with open(results_path) as f:
+              results = json.load(f)
+
+          # Try loading existing baseline for version bump
+          version = 1
+          try:
+              with open(baseline_path) as f:
+                  existing = json.load(f)
+                  if '${{ github.event.inputs.version_bump }}' == 'true':
+                      version = existing.get('version', 0) + 1
+                  else:
+                      version = existing.get('version', 1)
+          except (FileNotFoundError, json.JSONDecodeError):
+              pass
+
+          summary = results.get('summary_by_group', {})
+          groups = {}
+          default_tolerance = 0.05
+
+          for group, metrics in summary.items():
+              groups[group] = {}
+              for metric, value in metrics.items():
+                  if value is not None:
+                      try:
+                          fval = float(value)
+                          import math
+                          if not math.isnan(fval):
+                              groups[group][metric] = {
+                                  'mean': round(fval, 4),
+                                  'tolerance': default_tolerance,
+                              }
+                      except (TypeError, ValueError):
+                          pass
+
+          baseline = {
+              'version': version,
+              'created': datetime.now(timezone.utc).isoformat(),
+              'updated_by': 'github-actions',
+              'dataset': '${{ github.event.inputs.dataset }}',
+              'groups': groups,
+          }
+
+          with open(baseline_path, 'w') as f:
+              json.dump(baseline, f, indent=2, ensure_ascii=False)
+              f.write('\n')
+
+          print(f'Baseline v{version} written with {len(groups)} groups')
+          for g, m in groups.items():
+              print(f'  {g}: {list(m.keys())}')
+          "
+
+      - name: Verify gate passes with new baseline
+        run: |
+          python3 scripts/ragas_ci_gate.py \
+            --results tmp/evals/supervisor-ragas-results.json \
+            --thresholds eval/thresholds.json \
+            --baseline eval/baselines/metrics-v1.json
+
+      - name: Commit updated baseline
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add eval/baselines/metrics-v1.json
+          git diff --staged --quiet && echo "No changes to commit" && exit 0
+          git commit -m "${{ github.event.inputs.commit_message }}"
+          git push

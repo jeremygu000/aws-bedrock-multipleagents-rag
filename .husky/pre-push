@@ -1,2 +1,51 @@
 #!/usr/bin/env sh
 pnpm check
+
+# ── Offline RAGAS quality gate ─────────────────────────────────────────────
+# If rag-service files changed since upstream, check latest RAGAS results
+# against thresholds. Skips gracefully if result file does not exist.
+RAGAS_RESULTS="tmp/evals/supervisor-ragas-results.json"
+THRESHOLDS="eval/thresholds.json"
+BASELINE="eval/baselines/metrics-v1.json"
+
+# Detect which branch we are pushing against
+UPSTREAM=$(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || echo "origin/main")
+
+# Check if any rag-service or eval config files changed
+RAG_CHANGED=$(git diff --name-only "$UPSTREAM"...HEAD -- \
+  apps/rag-service/ \
+  scripts/ragas_eval.py \
+  scripts/ragas_ci_gate.py \
+  eval/ \
+  2>/dev/null)
+
+if [ -n "$RAG_CHANGED" ]; then
+  if [ ! -f "$RAGAS_RESULTS" ]; then
+    echo ""
+    echo "⚠️  RAG files changed but no RAGAS results found at $RAGAS_RESULTS"
+    echo "   Run 'pnpm eval:smoke' or 'pnpm eval:ci' to generate results before pushing."
+    echo "   Skipping offline gate check."
+    echo ""
+  elif [ ! -f "$THRESHOLDS" ]; then
+    echo ""
+    echo "⚠️  Thresholds config not found at $THRESHOLDS — skipping RAGAS gate check."
+    echo ""
+  else
+    echo ""
+    echo "🔍 RAG files changed — running offline RAGAS gate check..."
+    echo ""
+    GATE_ARGS="--results $RAGAS_RESULTS --thresholds $THRESHOLDS"
+    if [ -f "$BASELINE" ]; then
+      GATE_ARGS="$GATE_ARGS --baseline $BASELINE"
+    fi
+    python3 scripts/ragas_ci_gate.py $GATE_ARGS
+    GATE_EXIT=$?
+    if [ $GATE_EXIT -ne 0 ]; then
+      echo ""
+      echo "❌ RAGAS quality gate FAILED. Fix quality issues or update baselines before pushing."
+      echo "   To bypass: git push --no-verify"
+      echo ""
+      exit $GATE_EXIT
+    fi
+  fi
+fi
