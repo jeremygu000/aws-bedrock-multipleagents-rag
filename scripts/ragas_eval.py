@@ -127,11 +127,15 @@ def resolve_region(explicit_region: str | None, provider: str = "bedrock") -> st
 
 
 def build_evaluator_models(
-    llm_model: str, embedding_model: str, region: str, provider: str = "bedrock"
+    llm_model: str,
+    embedding_model: str,
+    region: str,
+    provider: str = "bedrock",
+    timeout: int = 300,
 ) -> tuple[Any, Any, str]:
     if provider == "ollama":
         return _build_ollama_models(llm_model, embedding_model)
-    return _build_bedrock_models(llm_model, embedding_model, region)
+    return _build_bedrock_models(llm_model, embedding_model, region, timeout=timeout)
 
 
 def _patch_embed_query(embeddings: Any) -> None:
@@ -159,16 +163,29 @@ def _build_ollama_models(llm_model: str, embedding_model: str) -> tuple[Any, Any
     return llm, embeddings, "ollama"
 
 
-def _build_bedrock_models(llm_model: str, embedding_model: str, region: str) -> tuple[Any, Any, str]:
+def _build_bedrock_models(
+    llm_model: str, embedding_model: str, region: str, timeout: int = 300
+) -> tuple[Any, Any, str]:
     from langchain_aws import BedrockEmbeddings, ChatBedrockConverse
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
 
     llm = LangchainLLMWrapper(
-        ChatBedrockConverse(model=llm_model, region_name=region, max_tokens=2048)
+        ChatBedrockConverse(
+            model=llm_model,
+            region_name=region,
+            max_tokens=2048,
+            timeout=timeout,
+            max_retries=3,
+        )
     )
     embeddings = LangchainEmbeddingsWrapper(
-        BedrockEmbeddings(model_id=embedding_model, region_name=region)
+        BedrockEmbeddings(
+            model_id=embedding_model,
+            region_name=region,
+            timeout=timeout,
+            max_retries=3,
+        )
     )
     return llm, embeddings, "langchain-aws"
 
@@ -279,12 +296,19 @@ def build_metrics(metric_names: list[str], llm: Any, embeddings: Any) -> list[An
 
 
 def score_metric(
-    rows: list[dict[str, Any]], metric: Any
+    rows: list[dict[str, Any]], metric: Any, timeout: int = 300
 ) -> tuple[list[dict[str, Any]], float | None]:
     from ragas import EvaluationDataset, evaluate
+    from ragas.run_config import RunConfig
 
+    run_config = RunConfig(timeout=timeout, max_retries=10, max_workers=16)
     dataset = EvaluationDataset.from_list(rows)
-    result = evaluate(dataset=dataset, metrics=[metric], raise_exceptions=False)
+    result = evaluate(
+        dataset=dataset,
+        metrics=[metric],
+        run_config=run_config,
+        raise_exceptions=False,
+    )
     metric_name = str(getattr(metric, "name", metric.__class__.__name__))
     scored_rows = [normalize_json_value(row) for row in result.to_pandas().to_dict(orient="records")]
 
@@ -297,7 +321,7 @@ def score_metric(
 
 
 def score_rows(
-    rows: list[dict[str, Any]], metrics: list[Any]
+    rows: list[dict[str, Any]], metrics: list[Any], timeout: int = 300
 ) -> tuple[list[dict[str, Any]], dict[str, float], dict[str, str]]:
     scored_rows = [normalize_json_value(row) for row in rows]
     summary: dict[str, float] = {}
@@ -307,7 +331,7 @@ def score_rows(
         metric_name = str(getattr(metric, "name", metric.__class__.__name__))
 
         try:
-            metric_rows, average = score_metric(rows, metric)
+            metric_rows, average = score_metric(rows, metric, timeout=timeout)
         except Exception as error:
             failures[metric_name] = str(error)
             for row in scored_rows:
@@ -371,6 +395,12 @@ def main() -> None:
         choices=["bedrock", "ollama"],
         help="Evaluator provider: bedrock (default) or ollama for local models.",
     )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=int(os.environ.get("RAGAS_EVAL_TIMEOUT", "300")),
+        help="Timeout in seconds for each RAGAS metric evaluation job and Bedrock API calls. Defaults to 300.",
+    )
     raw_args = sys.argv[1:]
     args = parser.parse_args(raw_args[1:] if raw_args and raw_args[0] == "--" else raw_args)
 
@@ -399,7 +429,7 @@ def main() -> None:
 
     region = resolve_region(args.region, args.provider)
     llm, embeddings, provider = build_evaluator_models(
-        args.llm_model, args.embedding_model, region, args.provider
+        args.llm_model, args.embedding_model, region, args.provider, timeout=args.timeout
     )
     requested_metrics = parse_metric_list(args.metrics)
     grouped = group_rows(rows, args.group_by)
@@ -433,7 +463,7 @@ def main() -> None:
             continue
 
         metrics = build_metrics(metric_names, llm, embeddings)
-        scored_rows, summary, failures = score_rows(group_rows_list, metrics)
+        scored_rows, summary, failures = score_rows(group_rows_list, metrics, timeout=args.timeout)
         for row in scored_rows:
             row["evaluation_group"] = group_name
             flattened_rows.append(row)
