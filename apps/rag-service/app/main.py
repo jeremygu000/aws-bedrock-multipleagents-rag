@@ -103,8 +103,8 @@ def _build_workflow() -> RagWorkflow:
     crag_query_rewriter = None
     crag_web_searcher = None
     if settings.enable_crag:
-        retrieval_grader = RetrievalGrader(settings, qwen_client)
-        crag_query_rewriter = CragQueryRewriter(settings, qwen_client)
+        retrieval_grader = RetrievalGrader(settings)
+        crag_query_rewriter = CragQueryRewriter(settings)
         crag_web_searcher = CragWebSearcher(settings)
 
     return RagWorkflow(

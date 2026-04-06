@@ -726,7 +726,111 @@ MIN_RELEVANT_DOCS = 1   # 至少 1 篇相关文档
 
 ---
 
-## 11. 参考文献
+## 11. 真实案例：CRAG 如何修正检索失败
+
+以下是 CRAG 上线后的真实 CloudWatch 日志（2026-04-06），展示了完整的纠错流程。
+
+### 场景
+
+**用户查询**：`what are APRA AMCOS membership fees`
+
+**问题**：pgvector 知识库中没有关于会员费用的文档，检索到的 5 篇文档全部不相关。在没有 CRAG 的传统 RAG 中，系统会基于这些不相关文档强行生成一个答案——通常是幻觉。
+
+### 完整 CloudWatch 日志
+
+```
+[INFO] CRAG grading 5 hits for query='what are APRA AMCOS membership fees'
+[INFO] CRAG grade: chunk=45748cb2 relevant=False score=0.0164
+[INFO] CRAG grade: chunk=59eccda1 relevant=False score=0.0164
+[INFO] CRAG grade: chunk=1d077204 relevant=False score=0.0161
+[INFO] CRAG grade: chunk=a7dde064 relevant=False score=0.0159
+[INFO] CRAG grade: chunk=88ffcd22 relevant=False score=0.0156
+
+[INFO] CRAG verdict=incorrect relevant=0/5 ratio=0.00 thresholds=[0.30, 0.70]
+[INFO] CRAG routing: verdict=incorrect → needs_web_search
+
+[INFO] CRAG rewrite: original='what are APRA AMCOS membership fees'
+       → rewritten='What are the current membership fees for the Australasian
+         Performing Right Association (APRA) and Australasian Mechanic...'
+
+[INFO] CRAG web search: query='...' results=3
+[INFO] CRAG replace (incorrect): 5 existing → 3 web hits
+```
+
+### 流程分解
+
+| 步骤       | 动作                           | 说明                                                  |
+| ---------- | ------------------------------ | ----------------------------------------------------- |
+| ❶ 检索     | pgvector dense 返回 5 篇文档   | 全部是 APRA AMCOS 的通用介绍，无费用信息              |
+| ❷ 逐篇评估 | Nova Pro LLM-as-Judge          | 5 篇文档全部评为 `relevant=False`，得分 0.015–0.016   |
+| ❸ 三级判定 | `relevant=0/5, ratio=0.00`     | ratio < lower_threshold(0.30) → **verdict=incorrect** |
+| ❹ 路由决策 | `incorrect → needs_web_search` | 进入 Web 搜索回退路径                                 |
+| ❺ 查询改写 | CragQueryRewriter (Nova Pro)   | 将口语化查询优化为适合搜索引擎的完整表述              |
+| ❻ Web 搜索 | Tavily Search API              | 返回 3 篇包含实际费用信息的网页                       |
+| ❼ 替换文档 | `5 existing → 3 web hits`      | incorrect 判定 = 完全替换（非合并）                   |
+| ❽ 生成答案 | Nova Pro + web 证据            | **"APRA AMCOS membership is free. [2][3]"**           |
+
+### 关键观察
+
+1. **评估器的精确性**：5 篇文档的得分都在 0.015–0.016 之间，远低于 lower_threshold=0.30，说明评估器正确识别了"通用介绍 ≠ 费用信息"。
+
+2. **查询改写的价值**：原始查询 `what are APRA AMCOS membership fees` 被改写为包含完整组织名称的搜索引擎友好表述，提高了 Tavily 搜索的命中率。
+
+3. **incorrect vs ambiguous 的区别**：ratio=0.00（所有文档都不相关），触发的是 `incorrect` 判定，意味着完全替换检索结果而非合并。如果部分文档相关（0.30 < ratio < 0.70），则是 `ambiguous` 判定，会合并内部文档与 Web 结果。
+
+4. **端到端效果**：传统 RAG 会生成"The provided evidence does not contain specific information about..."（无法回答）。CRAG 通过 Web 搜索自动补救，给出了正确答案并附带引文。
+
+---
+
+## 12. 为什么使用 Tavily 作为 Web 搜索引擎
+
+### 选型背景
+
+CRAG 的 Web 搜索回退需要一个可靠的搜索 API。经过评估，我们选择 Tavily 作为搜索引擎。
+
+### Tavily 的优势
+
+| 优势               | 说明                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| **LLM 优化**       | Tavily 专为 AI/LLM 工作流设计，返回结构化的 `content` + `url` + `title`，无需额外解析 HTML |
+| **内容提取**       | 自动提取网页正文内容，省去了爬虫 + 清洗的复杂度                                            |
+| **低延迟**         | 平均 100–200ms 响应时间，适合实时 RAG 管道                                                 |
+| **LangChain 生态** | 官方 CRAG 教程使用 Tavily（`TavilySearchResults`），社区验证充分                           |
+| **简单集成**       | 单一 API key，无需复杂的 OAuth 或配额管理                                                  |
+| **成本可控**       | 按查询计费（~$0.01/查询），无月费绑定                                                      |
+
+### 与替代方案的对比
+
+| 方案                 | 优点                   | 缺点                        | 适合场景      |
+| -------------------- | ---------------------- | --------------------------- | ------------- |
+| **Tavily** ✅        | LLM 优化、低延迟、简单 | 付费 API                    | CRAG 生产环境 |
+| Google Custom Search | 覆盖面广               | 需要解析 HTML、配额限制复杂 | 通用搜索      |
+| Bing Search API      | Azure 生态集成         | 需要解析 snippet、延迟较高  | Azure 用户    |
+| DuckDuckGo           | 免费                   | 无结构化内容、不稳定        | 原型验证      |
+| SerpAPI              | 多引擎支持             | 贵、过度复杂                | 多引擎聚合    |
+
+### 在 CRAG 中的集成方式
+
+```python
+from tavily import TavilyClient
+
+client = TavilyClient(api_key=settings.tavily_api_key)
+results = client.search(query=rewritten_query, max_results=3)
+
+for r in results["results"]:
+    web_hits.append({
+        "chunk_text": r["content"],       # 已提取的正文
+        "citation_url": r["url"],
+        "citation_title": r["title"],
+        "source_id": f"web_{hash(r['url'])[:8]}",
+    })
+```
+
+Tavily 返回的 `content` 字段是已经清洗过的网页正文，可以直接作为 RAG 上下文传给 LLM，无需额外的 HTML 解析或内容提取步骤。
+
+---
+
+## 13. 参考文献
 
 ### 核心论文
 

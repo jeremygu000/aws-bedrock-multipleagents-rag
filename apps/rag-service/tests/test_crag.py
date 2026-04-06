@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 from app.config import Settings
 from app.crag import CragQueryRewriter, CragWebSearcher, RetrievalGrader
@@ -59,24 +60,6 @@ class FakeReranker:
         return hits[:top_k]
 
 
-class FakeQwenClient:
-    def __init__(self, responses: list[str] | None = None) -> None:
-        self._responses = list(responses) if responses else []
-        self._call_index = 0
-        self.chat_calls: list[tuple[str, str]] = []
-
-    def is_configured(self) -> bool:
-        return True
-
-    def chat(self, system_prompt: str, user_prompt: str, *, max_tokens: int | None = None) -> str:
-        self.chat_calls.append((system_prompt, user_prompt))
-        if self._call_index < len(self._responses):
-            resp = self._responses[self._call_index]
-            self._call_index += 1
-            return resp
-        return '{"relevant": true}'
-
-
 def _sample_hits(score: float = 0.2, count: int = 1) -> list[dict]:
     hits = []
     for i in range(count):
@@ -115,86 +98,104 @@ def _build_workflow(
     )
 
 
+def _mock_bedrock_chat_factory(responses: list[str]) -> Any:
+    call_index = 0
+
+    def _mock_bedrock_chat(_client: Any, _model_id: str, _sys: str, _user: str, max_tokens: int = 200) -> str:
+        nonlocal call_index
+        if call_index < len(responses):
+            resp = responses[call_index]
+            call_index += 1
+            return resp
+        return '{"relevant": true}'
+
+    return _mock_bedrock_chat
+
+
 class TestRetrievalGrader:
-    def test_grade_relevant_document(self) -> None:
-        qwen = FakeQwenClient(responses=['{"relevant": true}'])
-        grader = RetrievalGrader(Settings(), qwen)
+    @patch("app.crag._bedrock_chat", return_value='{"relevant": true}')
+    @patch("app.crag.boto3")
+    def test_grade_relevant_document(self, _mock_boto, mock_chat: Any) -> None:
+        grader = RetrievalGrader(Settings())
         assert grader.grade("What is APRA?", "APRA is a music rights organization.") is True
 
-    def test_grade_irrelevant_document(self) -> None:
-        qwen = FakeQwenClient(responses=['{"relevant": false}'])
-        grader = RetrievalGrader(Settings(), qwen)
+    @patch("app.crag._bedrock_chat", return_value='{"relevant": false}')
+    @patch("app.crag.boto3")
+    def test_grade_irrelevant_document(self, _mock_boto, mock_chat: Any) -> None:
+        grader = RetrievalGrader(Settings())
         assert grader.grade("What is APRA?", "The weather today is sunny.") is False
 
-    def test_grade_fallback_on_malformed_json(self) -> None:
-        qwen = FakeQwenClient(responses=["yes this is relevant true"])
-        grader = RetrievalGrader(Settings(), qwen)
+    @patch("app.crag._bedrock_chat", return_value="yes this is relevant true")
+    @patch("app.crag.boto3")
+    def test_grade_fallback_on_malformed_json(self, _mock_boto, mock_chat: Any) -> None:
+        grader = RetrievalGrader(Settings())
         assert grader.grade("query", "doc") is True
 
     def test_grade_hits_all_relevant_returns_correct(self) -> None:
-        qwen = FakeQwenClient(responses=['{"relevant": true}', '{"relevant": true}'])
-        grader = RetrievalGrader(
-            Settings(
-                RAG_CRAG_UPPER_THRESHOLD="0.7",
-                RAG_CRAG_LOWER_THRESHOLD="0.3",
-                RAG_CRAG_MIN_RELEVANT_DOCS="1",
-            ),
-            qwen,
-        )
-        hits = _sample_hits(count=2)
-        relevant, verdict = grader.grade_hits("query", hits)
-        assert verdict == "correct"
-        assert len(relevant) == 2
+        mock_chat = _mock_bedrock_chat_factory(['{"relevant": true}', '{"relevant": true}'])
+        with patch("app.crag._bedrock_chat", side_effect=mock_chat), patch("app.crag.boto3"):
+            grader = RetrievalGrader(
+                Settings(
+                    RAG_CRAG_UPPER_THRESHOLD="0.7",
+                    RAG_CRAG_LOWER_THRESHOLD="0.3",
+                    RAG_CRAG_MIN_RELEVANT_DOCS="1",
+                ),
+            )
+            hits = _sample_hits(count=2)
+            relevant, verdict = grader.grade_hits("query", hits)
+            assert verdict == "correct"
+            assert len(relevant) == 2
 
     def test_grade_hits_none_relevant_returns_incorrect(self) -> None:
-        qwen = FakeQwenClient(responses=['{"relevant": false}', '{"relevant": false}'])
-        grader = RetrievalGrader(
-            Settings(
-                RAG_CRAG_UPPER_THRESHOLD="0.7",
-                RAG_CRAG_LOWER_THRESHOLD="0.3",
-            ),
-            qwen,
-        )
-        hits = _sample_hits(count=2)
-        relevant, verdict = grader.grade_hits("query", hits)
-        assert verdict == "incorrect"
-        assert len(relevant) == 0
+        mock_chat = _mock_bedrock_chat_factory(['{"relevant": false}', '{"relevant": false}'])
+        with patch("app.crag._bedrock_chat", side_effect=mock_chat), patch("app.crag.boto3"):
+            grader = RetrievalGrader(
+                Settings(
+                    RAG_CRAG_UPPER_THRESHOLD="0.7",
+                    RAG_CRAG_LOWER_THRESHOLD="0.3",
+                ),
+            )
+            hits = _sample_hits(count=2)
+            relevant, verdict = grader.grade_hits("query", hits)
+            assert verdict == "incorrect"
+            assert len(relevant) == 0
 
     def test_grade_hits_partial_returns_ambiguous(self) -> None:
-        qwen = FakeQwenClient(
-            responses=['{"relevant": true}', '{"relevant": false}', '{"relevant": false}']
-        )
-        grader = RetrievalGrader(
-            Settings(
-                RAG_CRAG_UPPER_THRESHOLD="0.7",
-                RAG_CRAG_LOWER_THRESHOLD="0.3",
-                RAG_CRAG_MIN_RELEVANT_DOCS="1",
-            ),
-            qwen,
-        )
-        hits = _sample_hits(count=3)
-        relevant, verdict = grader.grade_hits("query", hits)
-        assert verdict == "ambiguous"
-        assert len(relevant) == 1
+        responses = ['{"relevant": true}', '{"relevant": false}', '{"relevant": false}']
+        mock_chat = _mock_bedrock_chat_factory(responses)
+        with patch("app.crag._bedrock_chat", side_effect=mock_chat), patch("app.crag.boto3"):
+            grader = RetrievalGrader(
+                Settings(
+                    RAG_CRAG_UPPER_THRESHOLD="0.7",
+                    RAG_CRAG_LOWER_THRESHOLD="0.3",
+                    RAG_CRAG_MIN_RELEVANT_DOCS="1",
+                ),
+            )
+            hits = _sample_hits(count=3)
+            relevant, verdict = grader.grade_hits("query", hits)
+            assert verdict == "ambiguous"
+            assert len(relevant) == 1
 
-    def test_grade_hits_empty_returns_incorrect(self) -> None:
-        qwen = FakeQwenClient()
-        grader = RetrievalGrader(Settings(), qwen)
+    @patch("app.crag.boto3")
+    def test_grade_hits_empty_returns_incorrect(self, _mock_boto: Any) -> None:
+        grader = RetrievalGrader(Settings())
         relevant, verdict = grader.grade_hits("query", [])
         assert verdict == "incorrect"
         assert relevant == []
 
 
 class TestCragQueryRewriter:
-    def test_rewrite_returns_llm_output(self) -> None:
-        qwen = FakeQwenClient(responses=["optimized web search query"])
-        rewriter = CragQueryRewriter(Settings(), qwen)
+    @patch("app.crag._bedrock_chat", return_value="optimized web search query")
+    @patch("app.crag.boto3")
+    def test_rewrite_returns_llm_output(self, _mock_boto, mock_chat: Any) -> None:
+        rewriter = CragQueryRewriter(Settings())
         result = rewriter.rewrite("original query")
         assert result == "optimized web search query"
 
-    def test_rewrite_fallback_on_empty_response(self) -> None:
-        qwen = FakeQwenClient(responses=[""])
-        rewriter = CragQueryRewriter(Settings(), qwen)
+    @patch("app.crag._bedrock_chat", return_value="")
+    @patch("app.crag.boto3")
+    def test_rewrite_fallback_on_empty_response(self, _mock_boto, mock_chat: Any) -> None:
+        rewriter = CragQueryRewriter(Settings())
         result = rewriter.rewrite("original query")
         assert result == "original query"
 
@@ -227,71 +228,92 @@ class TestWorkflowCragDisabled:
 
 class TestWorkflowCragEnabled:
     def test_correct_verdict_skips_web_search(self) -> None:
-        qwen = FakeQwenClient(responses=['{"relevant": true}'])
-        grader = RetrievalGrader(
-            Settings(
-                RAG_CRAG_UPPER_THRESHOLD="0.7",
-                RAG_CRAG_LOWER_THRESHOLD="0.3",
-                RAG_CRAG_MIN_RELEVANT_DOCS="1",
-            ),
-            qwen,
-        )
-        workflow = _build_workflow(enable_crag=True, grader=grader)
-        state = workflow.run(query="query", top_k=5, filters={})
-        assert state["retrieval_verdict"] == "correct"
-        assert state["answer"] == "final-answer"
-        assert state.get("crag_rewritten_query") is None
+        mock_chat = _mock_bedrock_chat_factory(['{"relevant": true}'])
+        with patch("app.crag._bedrock_chat", side_effect=mock_chat), patch("app.crag.boto3"):
+            grader = RetrievalGrader(
+                Settings(
+                    RAG_CRAG_UPPER_THRESHOLD="0.7",
+                    RAG_CRAG_LOWER_THRESHOLD="0.3",
+                    RAG_CRAG_MIN_RELEVANT_DOCS="1",
+                ),
+            )
+            workflow = _build_workflow(enable_crag=True, grader=grader)
+            state = workflow.run(query="query", top_k=5, filters={})
+            assert state["retrieval_verdict"] == "correct"
+            assert state["answer"] == "final-answer"
+            assert state.get("crag_rewritten_query") is None
 
     def test_incorrect_verdict_triggers_web_search_path(self) -> None:
-        qwen = FakeQwenClient(responses=['{"relevant": false}', "rewritten query for web"])
-        grader = RetrievalGrader(
-            Settings(
-                RAG_CRAG_UPPER_THRESHOLD="0.7",
-                RAG_CRAG_LOWER_THRESHOLD="0.3",
-            ),
-            qwen,
-        )
-        rewriter_qwen = FakeQwenClient(responses=["web optimized query"])
-        rewriter = CragQueryRewriter(Settings(), rewriter_qwen)
+        grader_mock = _mock_bedrock_chat_factory(['{"relevant": false}'])
+        rewriter_mock = _mock_bedrock_chat_factory(["web optimized query"])
+        with (
+            patch("app.crag._bedrock_chat", side_effect=grader_mock),
+            patch("app.crag.boto3"),
+        ):
+            grader = RetrievalGrader(
+                Settings(
+                    RAG_CRAG_UPPER_THRESHOLD="0.7",
+                    RAG_CRAG_LOWER_THRESHOLD="0.3",
+                ),
+            )
+        with (
+            patch("app.crag._bedrock_chat", side_effect=rewriter_mock),
+            patch("app.crag.boto3"),
+        ):
+            rewriter = CragQueryRewriter(Settings())
         web_searcher = CragWebSearcher(Settings(RAG_CRAG_ENABLE_WEB_SEARCH="false"))
 
-        workflow = _build_workflow(
-            enable_crag=True,
-            grader=grader,
-            rewriter=rewriter,
-            web_searcher=web_searcher,
-        )
-        state = workflow.run(query="query", top_k=5, filters={})
-        assert state["retrieval_verdict"] == "incorrect"
-        assert state["crag_rewritten_query"] == "web optimized query"
-        assert state["answer"] == "final-answer"
+        call_index = [0]
+        responses = ['{"relevant": false}', "web optimized query"]
+
+        def combined_mock(_c: Any, _m: str, _s: str, _u: str, max_tokens: int = 200) -> str:
+            idx = call_index[0]
+            call_index[0] += 1
+            return responses[idx] if idx < len(responses) else ""
+
+        with patch("app.crag._bedrock_chat", side_effect=combined_mock), patch("app.crag.boto3"):
+            grader = RetrievalGrader(
+                Settings(RAG_CRAG_UPPER_THRESHOLD="0.7", RAG_CRAG_LOWER_THRESHOLD="0.3"),
+            )
+            rewriter = CragQueryRewriter(Settings())
+            workflow = _build_workflow(
+                enable_crag=True, grader=grader, rewriter=rewriter, web_searcher=web_searcher,
+            )
+            state = workflow.run(query="query", top_k=5, filters={})
+            assert state["retrieval_verdict"] == "incorrect"
+            assert state["crag_rewritten_query"] == "web optimized query"
+            assert state["answer"] == "final-answer"
 
     def test_ambiguous_verdict_triggers_web_search_path(self) -> None:
-        responses = ['{"relevant": true}', '{"relevant": false}', '{"relevant": false}']
-        qwen = FakeQwenClient(responses=responses)
-        grader = RetrievalGrader(
-            Settings(
-                RAG_CRAG_UPPER_THRESHOLD="0.7",
-                RAG_CRAG_LOWER_THRESHOLD="0.3",
-                RAG_CRAG_MIN_RELEVANT_DOCS="1",
-            ),
-            qwen,
-        )
-        rewriter_qwen = FakeQwenClient(responses=["better query"])
-        rewriter = CragQueryRewriter(Settings(), rewriter_qwen)
-        web_searcher = CragWebSearcher(Settings(RAG_CRAG_ENABLE_WEB_SEARCH="false"))
+        call_index = [0]
+        responses = ['{"relevant": true}', '{"relevant": false}', '{"relevant": false}', "better query"]
 
-        workflow = _build_workflow(
-            hits=_sample_hits(count=3),
-            enable_crag=True,
-            grader=grader,
-            rewriter=rewriter,
-            web_searcher=web_searcher,
-        )
-        state = workflow.run(query="query", top_k=5, filters={})
-        assert state["retrieval_verdict"] == "ambiguous"
-        assert state["crag_rewritten_query"] == "better query"
-        assert state["answer"] == "final-answer"
+        def combined_mock(_c: Any, _m: str, _s: str, _u: str, max_tokens: int = 200) -> str:
+            idx = call_index[0]
+            call_index[0] += 1
+            return responses[idx] if idx < len(responses) else ""
+
+        with patch("app.crag._bedrock_chat", side_effect=combined_mock), patch("app.crag.boto3"):
+            grader = RetrievalGrader(
+                Settings(
+                    RAG_CRAG_UPPER_THRESHOLD="0.7",
+                    RAG_CRAG_LOWER_THRESHOLD="0.3",
+                    RAG_CRAG_MIN_RELEVANT_DOCS="1",
+                ),
+            )
+            rewriter = CragQueryRewriter(Settings())
+            web_searcher = CragWebSearcher(Settings(RAG_CRAG_ENABLE_WEB_SEARCH="false"))
+            workflow = _build_workflow(
+                hits=_sample_hits(count=3),
+                enable_crag=True,
+                grader=grader,
+                rewriter=rewriter,
+                web_searcher=web_searcher,
+            )
+            state = workflow.run(query="query", top_k=5, filters={})
+            assert state["retrieval_verdict"] == "ambiguous"
+            assert state["crag_rewritten_query"] == "better query"
+            assert state["answer"] == "final-answer"
 
     def test_existing_tests_unaffected_when_crag_disabled(self) -> None:
         workflow = _build_workflow(

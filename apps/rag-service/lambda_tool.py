@@ -24,6 +24,8 @@ from app.workflow import RagWorkflow
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+# Ensure all app.* loggers emit INFO+ in Lambda (root default is WARNING)
+logging.getLogger("app").setLevel(logging.INFO)
 
 settings = get_settings()
 repository = PostgresRepository(settings)
@@ -75,8 +77,8 @@ retrieval_grader = None
 crag_query_rewriter = None
 crag_web_searcher = None
 if settings.enable_crag:
-    retrieval_grader = RetrievalGrader(settings, qwen_client)
-    crag_query_rewriter = CragQueryRewriter(settings, qwen_client)
+    retrieval_grader = RetrievalGrader(settings)
+    crag_query_rewriter = CragQueryRewriter(settings)
     crag_web_searcher = CragWebSearcher(settings)
 
 workflow = RagWorkflow(

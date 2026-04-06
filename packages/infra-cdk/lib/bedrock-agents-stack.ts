@@ -117,26 +117,6 @@ export class BedrockAgentsStack extends cdk.Stack {
           { type: "PROMPT_ATTACK", inputStrength: "LOW", outputStrength: "NONE" },
         ],
       },
-      topicPolicyConfig: {
-        topicsConfig: [
-          {
-            name: "Copyright evasion",
-            type: "DENY",
-            definition: "Requests about bypassing licensing or avoiding royalty payments.",
-            examples: [
-              "How do I avoid music licence fees?",
-              "How can I play music without paying APRA?",
-            ],
-          },
-        ],
-      },
-      sensitiveInformationPolicyConfig: {
-        piiEntitiesConfig: [
-          { type: "EMAIL", action: "BLOCK" },
-          { type: "PHONE", action: "BLOCK" },
-          { type: "CREDIT_DEBIT_CARD_NUMBER", action: "BLOCK" },
-        ],
-      },
     });
 
     const qaGuardrailV1 = new bedrock.CfnGuardrailVersion(this, "QaGuardrailStrictV1", {

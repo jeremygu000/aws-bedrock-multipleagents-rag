@@ -6,10 +6,27 @@ import json
 import logging
 from typing import Any
 
+import boto3
+
 from .config import Settings
-from .qwen_client import QwenClient
 
 logger = logging.getLogger(__name__)
+
+
+def _bedrock_chat(client: Any, model_id: str, system_prompt: str, user_prompt: str, max_tokens: int = 200) -> str:
+    """Call Bedrock converse API and return the text response."""
+    response = client.converse(
+        modelId=model_id,
+        system=[{"text": system_prompt}],
+        messages=[{"role": "user", "content": [{"text": user_prompt}]}],
+        inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0},
+    )
+    output = response.get("output", {})
+    message = output.get("message", {})
+    for block in message.get("content", []):
+        if "text" in block:
+            return block["text"]
+    return ""
 
 _GRADER_SYSTEM_PROMPT = (
     "You are a relevance grader. Given a user question and a retrieved document, "
@@ -29,17 +46,25 @@ _REWRITER_SYSTEM_PROMPT = (
 
 
 class RetrievalGrader:
-    def __init__(self, settings: Settings, qwen_client: QwenClient) -> None:
+    def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._qwen = qwen_client
+        self._client: Any | None = None
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            self._client = boto3.client("bedrock-runtime", region_name=self._settings.aws_region)
+        return self._client
 
     def grade(self, question: str, document_text: str) -> bool:
-        if not self._qwen.is_configured():
-            return True
-
         user_prompt = f"Question: {question}\n\nDocument:\n{document_text[:2000]}"
         try:
-            raw = self._qwen.chat(_GRADER_SYSTEM_PROMPT, user_prompt, max_tokens=50)
+            raw = _bedrock_chat(
+                self._get_client(),
+                self._settings.answer_model_id,
+                _GRADER_SYSTEM_PROMPT,
+                user_prompt,
+                max_tokens=50,
+            )
             return self._parse_relevance(raw)
         except Exception:
             logger.exception("Retrieval grading failed, assuming relevant")
@@ -103,16 +128,24 @@ class RetrievalGrader:
 
 
 class CragQueryRewriter:
-    def __init__(self, settings: Settings, qwen_client: QwenClient) -> None:
+    def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._qwen = qwen_client
+        self._client: Any | None = None
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            self._client = boto3.client("bedrock-runtime", region_name=self._settings.aws_region)
+        return self._client
 
     def rewrite(self, query: str) -> str:
-        if not self._qwen.is_configured():
-            return query
-
         try:
-            rewritten = self._qwen.chat(_REWRITER_SYSTEM_PROMPT, query, max_tokens=200)
+            rewritten = _bedrock_chat(
+                self._get_client(),
+                self._settings.answer_model_id,
+                _REWRITER_SYSTEM_PROMPT,
+                query,
+                max_tokens=200,
+            )
             result = rewritten.strip() or query
             logger.info("CRAG rewrite: original=%r → rewritten=%r", query[:120], result[:120])
             return result
