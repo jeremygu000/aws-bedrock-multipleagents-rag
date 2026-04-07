@@ -17,11 +17,23 @@ logger = logging.getLogger(__name__)
 
 ModelRoute = Literal["nova-lite", "qwen-plus"]
 
+
+def _short_model_label(model_id: str) -> str:
+    parts = model_id.rsplit("/", 1)
+    name = parts[-1] if parts else model_id
+    for prefix in ("au.", "us.", "eu.", "global."):
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+            break
+    return name.split(":")[0] if ":" in name else name
+
 _GENERIC_SYSTEM_PROMPT = (
     "You are a grounded enterprise RAG assistant. "
     "Answer directly using the provided evidence. "
-    "When evidence contains the answer, provide a clear, concise response with citation markers [1], [2], ... "
-    "Structure your response: first summarize the key finding, then provide supporting details with citations. "
+    "IMPORTANT: Quote specific facts, names, numbers, and dates from the evidence verbatim. "
+    "Do not paraphrase or generalize when the evidence contains exact information. "
+    "Use citation markers [1], [2], ... to reference evidence sources. "
+    "Structure your response: first state the key answer with specific details, then provide supporting context with citations. "
     "Only state 'I could not find information about [topic]' if the evidence is genuinely irrelevant to the question."
 )
 
@@ -29,29 +41,33 @@ _INTENT_SYSTEM_PROMPTS: dict[str, str] = {
     "factual": (
         "You are a grounded enterprise RAG assistant. "
         "Answer ONLY using the provided evidence. "
-        "Be precise and concise. "
-        "Cite specific facts with [N] markers. "
+        "Be precise: quote exact names, numbers, dates, and terminology from the evidence. "
+        "Never generalize when specific facts are available. "
+        "Cite every factual claim with [N] markers. "
         "If the evidence doesn't contain the answer, say so."
     ),
     "analytical": (
         "You are a grounded enterprise RAG assistant. "
         "Analyze the evidence to answer this question. "
+        "Include specific data points, names, and figures from the evidence. "
         "Structure your response: "
-        "1) Key finding, "
-        "2) Supporting analysis with citations [N], "
+        "1) Key finding with specific details, "
+        "2) Supporting analysis with citations [N] and quoted evidence, "
         "3) Caveats or limitations based on available evidence."
     ),
     "procedural": (
         "You are a grounded enterprise RAG assistant. "
         "Provide step-by-step instructions based on the evidence. "
+        "Include specific names, URLs, and requirements mentioned in the evidence. "
         "Number each step clearly. "
         "Cite the source for each step with [N] markers."
     ),
     "comparison": (
         "You are a grounded enterprise RAG assistant. "
         "Compare the items using evidence provided. "
+        "Use specific facts, figures, and terminology from the evidence — do not paraphrase. "
         "Structure as: "
-        "1) Summary of key differences, "
+        "1) Summary of key differences with specific details, "
         "2) Detailed comparison with citations [N], "
         "3) Recommendation if evidence supports one."
     ),
@@ -175,7 +191,8 @@ class BedrockConverseAnswerGenerator:
             f"User query:\n{query}\n\n"
             f"{keyword_line}"
             f"Evidence:\n{evidence_section}\n\n"
-            "Write a concise answer with clear citation markers."
+            "Write a detailed answer quoting specific facts, names, numbers, and dates from the evidence. "
+            "Use [N] citation markers for every claim."
         )
 
         client = self._get_client()
@@ -196,10 +213,11 @@ class BedrockConverseAnswerGenerator:
         usage = response.get("usage", {})
         input_tokens = usage.get("inputTokens", 0)
         output_tokens = usage.get("outputTokens", 0)
+        model_label = _short_model_label(self._settings.answer_model_id)
         if input_tokens:
-            LLM_TOKEN_USAGE.labels(model="nova-lite", direction="input").inc(input_tokens)
+            LLM_TOKEN_USAGE.labels(model=model_label, direction="input").inc(input_tokens)
         if output_tokens:
-            LLM_TOKEN_USAGE.labels(model="nova-lite", direction="output").inc(output_tokens)
+            LLM_TOKEN_USAGE.labels(model=model_label, direction="output").inc(output_tokens)
         answer = _extract_bedrock_text(response)
         if not answer:
             return "I could not produce a grounded answer from the current evidence."
@@ -260,7 +278,8 @@ class BedrockConverseAnswerGenerator:
             f"User query:\n{query}\n\n"
             f"{keyword_line}"
             f"Evidence:\n{evidence_section}\n\n"
-            "Write a concise answer with clear citation markers."
+            "Write a detailed answer quoting specific facts, names, numbers, and dates from the evidence. "
+            "Use [N] citation markers for every claim."
         )
 
         client = self._get_client()
@@ -343,7 +362,8 @@ class QwenAnswerGenerator:
             f"User query:\n{query}\n\n"
             f"{keyword_line}"
             f"Evidence:\n{evidence_section}\n\n"
-            "Write a concise answer with clear citation markers."
+            "Write a detailed answer quoting specific facts, names, numbers, and dates from the evidence. "
+            "Use [N] citation markers for every claim."
         )
         answer = self._qwen.chat(system_prompt, user_prompt).strip()
         input_tokens = int(len(user_prompt.split()) * 1.3)
@@ -399,7 +419,8 @@ class QwenAnswerGenerator:
             f"User query:\n{query}\n\n"
             f"{keyword_line}"
             f"Evidence:\n{evidence_section}\n\n"
-            "Write a concise answer with clear citation markers."
+            "Write a detailed answer quoting specific facts, names, numbers, and dates from the evidence. "
+            "Use [N] citation markers for every claim."
         )
         yield from self._qwen.stream_chat(system_prompt, user_prompt)
 
