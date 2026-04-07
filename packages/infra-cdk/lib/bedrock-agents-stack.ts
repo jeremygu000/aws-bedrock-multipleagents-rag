@@ -20,7 +20,20 @@ import { env as processEnv } from "node:process";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 
-const FOUNDATION_MODEL_ID = "amazon.nova-pro-v1:0";
+/**
+ * Base model ID for Bedrock Agent reasoning (CfnAgent.foundationModel).
+ * Nova 2 Lite cannot be used here — it requires an inference profile but
+ * Agents call models via on-demand throughput internally.  Keep Nova Pro
+ * until Nova 2 Lite supports on-demand in ap-southeast-2.
+ */
+const AGENT_FOUNDATION_MODEL_ID = "amazon.nova-pro-v1:0";
+
+/**
+ * Inference-profile model ID for RAG pipeline calls (Lambda → Bedrock Runtime
+ * Converse API).  Nova 2 Lite requires the global inference profile in
+ * ap-southeast-2 because on-demand invocation of the base ID is not supported.
+ */
+const RAG_MODEL_ID = "global.amazon.nova-2-lite-v1:0";
 
 /**
  * Build a short hash from a Bedrock agent's mutable properties so that the
@@ -201,8 +214,8 @@ export class BedrockAgentsStack extends cdk.Stack {
       RAG_OPENSEARCH_TIMEOUT_S: processEnv.RAG_OPENSEARCH_TIMEOUT_S ?? "10",
       RAG_OPENSEARCH_USE_SIGV4:
         processEnv.RAG_OPENSEARCH_USE_SIGV4 ?? (ragSearchDomain ? "true" : "false"),
-      RAG_ANSWER_MODEL_ID: processEnv.RAG_ANSWER_MODEL_ID ?? FOUNDATION_MODEL_ID,
-      RAG_ANSWER_MAX_TOKENS: processEnv.RAG_ANSWER_MAX_TOKENS ?? "500",
+      RAG_ANSWER_MODEL_ID: processEnv.RAG_ANSWER_MODEL_ID ?? RAG_MODEL_ID,
+      RAG_ANSWER_MAX_TOKENS: processEnv.RAG_ANSWER_MAX_TOKENS ?? "2000",
       RAG_ANSWER_TEMPERATURE: processEnv.RAG_ANSWER_TEMPERATURE ?? "0.05",
       QWEN_API_KEY: processEnv.QWEN_API_KEY ?? processEnv.DASHSCOPE_API_KEY ?? "",
       QWEN_API_KEY_SECRET_ARN: processEnv.QWEN_API_KEY_SECRET_ARN ?? "",
@@ -235,7 +248,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       RAG_COMMUNITY_RESOLUTION: processEnv.RAG_COMMUNITY_RESOLUTION ?? "1.0",
       RAG_COMMUNITY_MAX_LEVELS: processEnv.RAG_COMMUNITY_MAX_LEVELS ?? "3",
       RAG_COMMUNITY_MIN_SIZE: processEnv.RAG_COMMUNITY_MIN_SIZE ?? "3",
-      RAG_COMMUNITY_SUMMARY_MODEL: processEnv.RAG_COMMUNITY_SUMMARY_MODEL ?? "amazon.nova-pro-v1:0",
+      RAG_COMMUNITY_SUMMARY_MODEL: processEnv.RAG_COMMUNITY_SUMMARY_MODEL ?? RAG_MODEL_ID,
       RAG_COMMUNITY_SUMMARY_MAX_TOKENS: processEnv.RAG_COMMUNITY_SUMMARY_MAX_TOKENS ?? "1000",
       RAG_COMMUNITY_TOP_K: processEnv.RAG_COMMUNITY_TOP_K ?? "5",
       // Query cache — off by default, opt-in via env.
@@ -261,7 +274,7 @@ export class BedrockAgentsStack extends cdk.Stack {
       TAVILY_API_KEY: processEnv.TAVILY_API_KEY ?? "",
       // HyDE (Hypothetical Document Embeddings) — off by default, opt-in via env.
       RAG_ENABLE_HYDE: processEnv.RAG_ENABLE_HYDE ?? "false",
-      RAG_HYDE_MODEL_ID: processEnv.RAG_HYDE_MODEL_ID ?? FOUNDATION_MODEL_ID,
+      RAG_HYDE_MODEL_ID: processEnv.RAG_HYDE_MODEL_ID ?? RAG_MODEL_ID,
       RAG_HYDE_NUM_HYPOTHESES: processEnv.RAG_HYDE_NUM_HYPOTHESES ?? "1",
       RAG_HYDE_TEMPERATURE: processEnv.RAG_HYDE_TEMPERATURE ?? "0.65",
       RAG_HYDE_MAX_TOKENS: processEnv.RAG_HYDE_MAX_TOKENS ?? "500",
@@ -551,7 +564,7 @@ export class BedrockAgentsStack extends cdk.Stack {
     // Specialist agent for work search use cases.
     const workAgent = new bedrock.CfnAgent(this, "WorkAgent", {
       agentName: "work-search-agent",
-      foundationModel: FOUNDATION_MODEL_ID,
+      foundationModel: AGENT_FOUNDATION_MODEL_ID,
       agentResourceRoleArn: workAgentRole.roleArn,
       autoPrepare: true,
       // guardrailConfiguration: {
@@ -589,7 +602,7 @@ export class BedrockAgentsStack extends cdk.Stack {
     // Specialist agent for APRA grounded Q&A via rag_search.
     const qaAgent = new bedrock.CfnAgent(this, "QaAgent", {
       agentName: "apra-qa-agent",
-      foundationModel: FOUNDATION_MODEL_ID,
+      foundationModel: AGENT_FOUNDATION_MODEL_ID,
       agentResourceRoleArn: qaAgentRole.roleArn,
       autoPrepare: true,
       // guardrailConfiguration: {
@@ -637,7 +650,7 @@ export class BedrockAgentsStack extends cdk.Stack {
     // Supervisor router orchestrates collaborator agents.
     const supervisor = new bedrock.CfnAgent(this, "SupervisorAgent", {
       agentName: "supervisor-agent",
-      foundationModel: FOUNDATION_MODEL_ID,
+      foundationModel: AGENT_FOUNDATION_MODEL_ID,
       agentResourceRoleArn: supervisorRole.roleArn,
       agentCollaboration: "SUPERVISOR_ROUTER",
       skipResourceInUseCheckOnDelete: true,

@@ -82,10 +82,10 @@ class Settings(BaseSettings):
     opensearch_use_sigv4: bool = Field(default=True, validation_alias="RAG_OPENSEARCH_USE_SIGV4")
     default_rrf_k: int = Field(default=60, validation_alias="RAG_RRF_K")
     answer_model_id: str = Field(
-        default="amazon.nova-pro-v1:0",
+        default="global.amazon.nova-2-lite-v1:0",
         validation_alias=AliasChoices("RAG_ANSWER_MODEL_ID", "FOUNDATION_MODEL_ID"),
     )
-    answer_max_tokens: int = Field(default=500, validation_alias="RAG_ANSWER_MAX_TOKENS")
+    answer_max_tokens: int = Field(default=2000, validation_alias="RAG_ANSWER_MAX_TOKENS")
     answer_temperature: float = Field(default=0.05, validation_alias="RAG_ANSWER_TEMPERATURE")
 
     qwen_api_key: str = Field(
