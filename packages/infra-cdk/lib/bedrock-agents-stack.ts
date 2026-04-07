@@ -268,6 +268,9 @@ export class BedrockAgentsStack extends cdk.Stack {
       RAG_HYDE_INCLUDE_ORIGINAL: processEnv.RAG_HYDE_INCLUDE_ORIGINAL ?? "true",
       RAG_HYDE_AGGREGATION: processEnv.RAG_HYDE_AGGREGATION ?? "mean",
       RAG_HYDE_SIMILARITY_THRESHOLD: processEnv.RAG_HYDE_SIMILARITY_THRESHOLD ?? "0.2",
+      // Self-Reflection (post-generation quality grading) — off by default.
+      RAG_ENABLE_REFLECTION: processEnv.RAG_ENABLE_REFLECTION ?? "false",
+      RAG_REFLECTION_MAX_RETRIES: processEnv.RAG_REFLECTION_MAX_RETRIES ?? "1",
     };
 
     // Explicit local override only. Avoid injecting plaintext password by default.

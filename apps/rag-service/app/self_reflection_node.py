@@ -148,46 +148,38 @@ class SelfReflectionNode:
         r_result,
         hits_count: int,
     ) -> RetryAction:
-        """Decide what action to take based on grading results.
-
-        Rules:
-        - Both scores >= 0.7: ACCEPT (answer is good)
-        - Faithfulness < 0.5: RETRY_RETRIEVAL (hallucinating)
-        - Relevance < 0.5 & hits >= 3: REFINE_ANSWER (need better generation)
-        - Either score < 0.4 & few hits: RETRY_RETRIEVAL (low quality evidence)
-        - Else: FALLBACK_MODEL (need stronger model)
-        """
         f_score = f_result.score
         r_score = r_result.score
+        f_threshold = self._settings.reflection_faithfulness_threshold
+        r_threshold = self._settings.reflection_relevance_threshold
 
-        # Accept good answers
-        if f_score >= 0.7 and r_score >= 0.7:
+        if f_score >= f_threshold and r_score >= r_threshold:
             return RetryAction.ACCEPT
 
-        # Strong hallucination indicators
-        if f_score < 0.5:
+        if f_score < (f_threshold - 0.1):
             logger.warning(
-                f"Low faithfulness ({f_score:.2f}), retrying retrieval"
+                "Low faithfulness (%.2f < %.2f), retrying retrieval",
+                f_score, f_threshold,
             )
             return RetryAction.RETRY_RETRIEVAL
 
-        # Irrelevant answers with good evidence
-        if r_score < 0.5 and hits_count >= 3:
+        if r_score < (r_threshold - 0.0) and hits_count >= 3:
             logger.warning(
-                f"Low relevance ({r_score:.2f}) despite good evidence, refining answer"
+                "Low relevance (%.2f < %.2f) despite good evidence, refining answer",
+                r_score, r_threshold,
             )
             return RetryAction.REFINE_ANSWER
 
-        # Low quality overall + few hits
-        if (f_score < 0.6 or r_score < 0.6) and hits_count < 3:
+        if (f_score < f_threshold or r_score < r_threshold) and hits_count < 3:
             logger.warning(
-                f"Low scores (f={f_score:.2f}, r={r_score:.2f}) with few hits, retrying retrieval"
+                "Low scores (f=%.2f, r=%.2f) with few hits, retrying retrieval",
+                f_score, r_score,
             )
             return RetryAction.RETRY_RETRIEVAL
 
-        # Default: use stronger model
         logger.warning(
-            f"Intermediate scores (f={f_score:.2f}, r={r_score:.2f}), using stronger model"
+            "Intermediate scores (f=%.2f, r=%.2f), using stronger model",
+            f_score, r_score,
         )
         return RetryAction.FALLBACK_MODEL
 

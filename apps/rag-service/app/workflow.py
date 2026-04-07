@@ -76,6 +76,9 @@ class RagWorkflowState(TypedDict, total=False):
     reflection_result: dict[str, Any] | None
     reflection_used: bool
     reflection_retry_count: int
+    original_answer: str
+    original_answer_model: str
+    original_reflection_scores: dict[str, float]
 
 
 class RagWorkflow:
@@ -893,16 +896,23 @@ class RagWorkflow:
         retry_count = state.get("reflection_retry_count", 0)
         max_retries = getattr(self._settings, "reflection_max_retries", 1)
 
+        # Fix #1: Save original answer BEFORE first reflection attempt
+        original_answer = state.get("original_answer", "")
+        original_model = state.get("original_answer_model", "")
+        if retry_count == 0:
+            original_answer = answer
+            original_model = state.get("answer_model", "")
+
         if retry_count >= max_retries:
+            # Exhausted retries — restore original if current is worse
             logger.warning(
-                "Reflection: retry limit reached (%d/%d), accepting answer",
+                "Reflection: retry limit reached (%d/%d), comparing original vs retried",
                 retry_count, max_retries,
             )
-            return {
-                "reflection_skipped": True,
-                "reflection_used": True,
-                "reflection_result": {"retry_action": RetryAction.ACCEPT.value, "explanation": "Max retries reached"},
-            }
+            return self._finalize_reflection(
+                state, original_answer, original_model,
+                accept_reason="Max retries reached",
+            )
 
         logger.info(
             "Reflection: grading answer (len=%d, hits=%d, retry=%d/%d) for query=%r",
@@ -918,24 +928,125 @@ class RagWorkflow:
                 )
             )
         except Exception as exc:
-            logger.error("Reflection: failed (%s), accepting answer as-is", exc, exc_info=True)
-            return {"reflection_skipped": True, "reflection_used": False}
+            logger.error("Reflection: failed (%s), keeping original answer", exc, exc_info=True)
+            return {
+                "reflection_skipped": True,
+                "reflection_used": False,
+                "original_answer": original_answer,
+                "original_answer_model": original_model,
+            }
 
         result_dict = result.model_dump()
+
+        # Fix #5: Observability — structured log for every reflection decision
         logger.info(
-            "Reflection: verdict=%s, confidence=%.2f, action=%s, latency=%.0fms | %s",
-            "retry" if result.should_retry else "accept",
-            result.overall_confidence,
+            "REFLECTION_VERDICT query=%r retry=%d/%d action=%s "
+            "faithfulness=%.2f relevance=%.2f confidence=%.2f latency_ms=%.0f "
+            "answer_model=%s explanation=%s",
+            question[:60], retry_count, max_retries,
             result.retry_action.value,
+            result.faithfulness.score if result.faithfulness else 0.0,
+            result.relevance.score if result.relevance else 0.0,
+            result.overall_confidence,
             result.latency_ms,
+            state.get("answer_model", "unknown"),
             result.explanation,
         )
+
+        new_retry_count = retry_count + (1 if result.should_retry else 0)
+
+        # Fix #4: FALLBACK_MODEL forces Amazon model (no qwen)
+        if result.retry_action == RetryAction.FALLBACK_MODEL:
+            logger.info(
+                "Reflection: FALLBACK_MODEL — forcing nova-lite (no qwen)"
+            )
+            return {
+                "reflection_result": result_dict,
+                "reflection_skipped": False,
+                "reflection_used": True,
+                "reflection_retry_count": new_retry_count,
+                "original_answer": original_answer,
+                "original_answer_model": original_model,
+                "original_reflection_scores": {
+                    "faithfulness": result.faithfulness.score if result.faithfulness else 0.0,
+                    "relevance": result.relevance.score if result.relevance else 0.0,
+                },
+                "preferred_model": "nova-lite",
+            }
 
         return {
             "reflection_result": result_dict,
             "reflection_skipped": not result.should_retry and result.retry_action == RetryAction.ACCEPT,
             "reflection_used": True,
-            "reflection_retry_count": retry_count + (1 if result.should_retry else 0),
+            "reflection_retry_count": new_retry_count,
+            "original_answer": original_answer,
+            "original_answer_model": original_model,
+            "original_reflection_scores": {
+                "faithfulness": result.faithfulness.score if result.faithfulness else 0.0,
+                "relevance": result.relevance.score if result.relevance else 0.0,
+            },
+        }
+
+    def _finalize_reflection(
+        self,
+        state: RagWorkflowState,
+        original_answer: str,
+        original_model: str,
+        accept_reason: str,
+    ) -> RagWorkflowState:
+        """Fix #1: Compare retried answer with original — only keep if better.
+
+        If no second reflection score exists (max retries reached without
+        re-grading), keep the original answer as a safety default.
+        """
+        current_answer = state.get("answer", "")
+        prev_scores = state.get("original_reflection_scores", {})
+        prev_f = prev_scores.get("faithfulness", 0.0)
+        prev_r = prev_scores.get("relevance", 0.0)
+        prev_combined = prev_f + prev_r
+
+        result = state.get("reflection_result", {})
+        curr_f = 0.0
+        curr_r = 0.0
+        if result:
+            faith = result.get("faithfulness", {})
+            relev = result.get("relevance", {})
+            curr_f = faith.get("score", 0.0) if isinstance(faith, dict) else 0.0
+            curr_r = relev.get("score", 0.0) if isinstance(relev, dict) else 0.0
+        curr_combined = curr_f + curr_r
+
+        if curr_combined > prev_combined and current_answer:
+            logger.info(
+                "REFLECTION_KEEP_RETRIED prev_score=%.2f curr_score=%.2f "
+                "original_len=%d retried_len=%d "
+                "original_preview=%r retried_preview=%r",
+                prev_combined, curr_combined,
+                len(original_answer), len(current_answer),
+                original_answer[:100], current_answer[:100],
+            )
+            final_answer = current_answer
+            final_model = state.get("answer_model", original_model)
+        else:
+            logger.info(
+                "REFLECTION_RESTORE_ORIGINAL prev_score=%.2f curr_score=%.2f "
+                "original_len=%d retried_len=%d "
+                "original_preview=%r retried_preview=%r",
+                prev_combined, curr_combined,
+                len(original_answer), len(current_answer),
+                original_answer[:100], current_answer[:100],
+            )
+            final_answer = original_answer
+            final_model = original_model
+
+        return {
+            "answer": final_answer,
+            "answer_model": final_model,
+            "reflection_skipped": True,
+            "reflection_used": True,
+            "reflection_result": {
+                "retry_action": RetryAction.ACCEPT.value,
+                "explanation": accept_reason,
+            },
         }
 
     def _route_after_generation(self, state: RagWorkflowState) -> str:

@@ -2,6 +2,8 @@
 
 Uses claim decomposition (from RAGAS) + entailment verification to score
 whether an answer is grounded in retrieved documents.
+
+All LLM calls use Bedrock Nova Pro via the converse API.
 """
 
 from __future__ import annotations
@@ -9,10 +11,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+from typing import Any
 
-from .bedrock_embedding_client import BedrockEmbeddingClient
+import boto3
+
 from .config import Settings
-from .qwen_client import QwenClient
 from .self_reflection_models import Claim, FaithfulnessResult, FaithfulnessVerdict
 
 logger = logging.getLogger(__name__)
@@ -52,24 +56,43 @@ Instructions:
 1. Read the claim and evidence carefully.
 2. Determine if the evidence directly supports the claim (full/partial support).
 3. Output in JSON format:
-{
-  "supported": true|false,  // true if evidence supports the claim
-  "confidence": 0.0-1.0,    // your confidence in this judgment
+{{
+  "supported": true|false,
+  "confidence": 0.0-1.0,
   "explanation": "brief explanation"
-}
+}}
 
 JSON response only (no markdown, no extra text):"""
+
+    # Bedrock model for grading
+    GRADER_MODEL_ID = "amazon.nova-pro-v1:0"
 
     def __init__(
         self,
         settings: Settings,
-        bedrock_client: BedrockEmbeddingClient,
-        qwen_client: QwenClient | None = None,
     ):
-        """Initialize grader with Bedrock + Qwen clients."""
+        """Initialize grader with Bedrock converse API."""
         self._settings = settings
-        self._bedrock_client = bedrock_client
-        self._qwen_client = qwen_client
+        self._bedrock_client: Any = None
+
+    def _get_bedrock_client(self) -> Any:
+        """Lazy-init Bedrock Runtime client."""
+        if self._bedrock_client is None:
+            self._bedrock_client = boto3.client(
+                "bedrock-runtime", region_name=self._settings.aws_region
+            )
+        return self._bedrock_client
+
+    def _converse(self, system_prompt: str, user_prompt: str, max_tokens: int = 500) -> str:
+        """Call Bedrock converse API with Nova Pro."""
+        client = self._get_bedrock_client()
+        response = client.converse(
+            modelId=self.GRADER_MODEL_ID,
+            system=[{"text": system_prompt}],
+            messages=[{"role": "user", "content": [{"text": user_prompt}]}],
+            inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0},
+        )
+        return response["output"]["message"]["content"][0]["text"]
 
     async def grade_faithfulness(
         self,
@@ -132,6 +155,21 @@ JSON response only (no markdown, no extra text):"""
             else:
                 verdict = FaithfulnessVerdict.UNFAITHFUL
 
+            logger.info(
+                "FAITHFULNESS_GRADE verdict=%s score=%.2f "
+                "claims_total=%d supported=%d unsupported=%d "
+                "claims_detail=[%s]",
+                verdict.value,
+                score,
+                total,
+                supported,
+                unsupported,
+                "; ".join(
+                    f"{c.text[:60]}={'Y' if c.supported else 'N'}({c.confidence:.1f})"
+                    for c in verified_claims[:5]
+                ),
+            )
+
             return FaithfulnessResult(
                 verdict=verdict,
                 score=score,
@@ -156,22 +194,16 @@ JSON response only (no markdown, no extra text):"""
             )
 
     async def _extract_claims(self, answer: str) -> list[str]:
-        """Extract atomic claims from answer using LLM."""
+        """Extract atomic claims from answer using Bedrock Nova Pro."""
         try:
             prompt = self.CLAIM_EXTRACTION_PROMPT.format(answer=answer[:2000])
 
-            if self._qwen_client and self._qwen_client.is_configured():
-                # Use Qwen for fast claim extraction (sync chat wrapped for async)
-                text = await asyncio.to_thread(
-                    self._qwen_client.chat,
-                    "You extract atomic claims from text.",
-                    prompt,
-                    max_tokens=500,
-                )
-            else:
-                # Fallback: use answer itself as a single claim
-                logger.debug("Qwen not configured, using answer as single claim")
-                text = "CLAIM: " + answer[:200]
+            text = await asyncio.to_thread(
+                self._converse,
+                "You extract atomic claims from text.",
+                prompt,
+                500,
+            )
 
             # Parse claims from response
             claims = []
@@ -191,25 +223,27 @@ JSON response only (no markdown, no extra text):"""
     async def _verify_claim(
         self, claim: str, evidence: str, question: str = ""
     ) -> Claim:
-        """Verify if a claim is supported by evidence."""
+        """Verify if a claim is supported by evidence using Bedrock Nova Pro."""
         try:
             prompt = self.CLAIM_VERIFICATION_PROMPT.format(
                 claim=claim[:500],
                 evidence=evidence[:3000],
             )
 
-            if self._qwen_client and self._qwen_client.is_configured():
-                response = await asyncio.to_thread(
-                    self._qwen_client.chat,
-                    "You are a strict fact-checker. Output JSON only.",
-                    prompt,
-                    max_tokens=200,
-                )
-            else:
-                response = '{"supported": false, "confidence": 0.5, "explanation": "Unable to verify"}'
+            response = await asyncio.to_thread(
+                self._converse,
+                "You are a strict fact-checker. Output JSON only.",
+                prompt,
+                200,
+            )
+
+            # Strip markdown code fences if present
+            cleaned = response.strip()
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
 
             # Parse JSON response
-            result = json.loads(response)
+            result = json.loads(cleaned)
             return Claim(
                 text=claim,
                 supported=result.get("supported", False),
@@ -217,8 +251,13 @@ JSON response only (no markdown, no extra text):"""
             )
 
         except json.JSONDecodeError:
-            logger.warning(f"Failed to parse verification response for claim: {claim}")
-            return Claim(text=claim, supported=False, confidence=0.0)
+            # Fail OPEN: assume supported on parse error (do no harm)
+            logger.warning(
+                "Failed to parse verification response for claim: %s — failing OPEN (supported=True)",
+                claim[:80],
+            )
+            return Claim(text=claim, supported=True, confidence=0.3)
         except Exception as e:
-            logger.warning(f"Claim verification failed: {e}")
-            return Claim(text=claim, supported=False, confidence=0.0)
+            # Fail OPEN: assume supported on any error
+            logger.warning("Claim verification failed: %s — failing OPEN", e)
+            return Claim(text=claim, supported=True, confidence=0.3)

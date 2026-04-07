@@ -118,6 +118,27 @@ class AdaptiveReflectionRouter:
         Returns:
             Decision with reasoning
         """
+        decision = self._decide_reflect(
+            question, hits_count, model_confidence, request, force_reflect,
+        )
+        logger.info(
+            "ADAPTIVE_ROUTER_DECISION reflect=%s hits=%d confidence=%.2f reason=%s query=%r",
+            decision.should_reflect,
+            hits_count,
+            model_confidence,
+            decision.reason,
+            question[:80],
+        )
+        return decision
+
+    def _decide_reflect(
+        self,
+        question: str,
+        hits_count: int,
+        model_confidence: float,
+        request: RetrieveRequest | None,
+        force_reflect: bool,
+    ) -> AdaptiveReflectionDecision:
         if force_reflect:
             return AdaptiveReflectionDecision(
                 should_reflect=True,

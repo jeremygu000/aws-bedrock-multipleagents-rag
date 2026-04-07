@@ -131,8 +131,8 @@ def _build_workflow() -> RagWorkflow:
         from .relevance_grader import RelevanceGrader
         from .self_reflection_node import SelfReflectionNode
 
-        faithfulness_grader = FaithfulnessGrader(settings, embedding_client, qwen_client)
-        relevance_grader = RelevanceGrader(settings, embedding_client, qwen_client)
+        faithfulness_grader = FaithfulnessGrader(settings)
+        relevance_grader = RelevanceGrader(settings)
         adaptive_router = AdaptiveReflectionRouter(enable_reflection=True)
         self_reflection_node = SelfReflectionNode(
             settings, faithfulness_grader, relevance_grader, adaptive_router
