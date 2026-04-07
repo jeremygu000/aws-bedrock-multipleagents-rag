@@ -326,7 +326,7 @@ def score_metric(
     from ragas import EvaluationDataset, evaluate
     from ragas.run_config import RunConfig
 
-    run_config = RunConfig(timeout=timeout, max_retries=10, max_workers=4)
+    run_config = RunConfig(timeout=timeout, max_retries=10, max_workers=2, max_wait=90)
     dataset = EvaluationDataset.from_list(rows)
     result = evaluate(
         dataset=dataset,
