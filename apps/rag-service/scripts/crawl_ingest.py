@@ -293,7 +293,7 @@ def _url_to_slug(url: str) -> str:
 
 def ingest_page(
     url: str,
-    html: str,
+    content: str,
     category: str,
     published_year: int,
     published_month: int,
@@ -309,7 +309,7 @@ def ingest_page(
 
     Args:
         url: Page URL (used as source_uri and citation_url).
-        html: Raw HTML string from crawl4ai.
+        content: Markdown (preferred) or HTML string from crawl4ai.
         category: Sitemap-derived category label.
         published_year: Year extracted from lastmod or current year.
         published_month: Month extracted from lastmod or current month.
@@ -322,11 +322,11 @@ def ingest_page(
     Returns:
         (chunks_created, entity_count, relation_count)
     """
-    html_bytes = html.encode("utf-8")
-    content_hash = hashlib.sha256(html_bytes).hexdigest()
+    content_bytes = content.encode("utf-8")
+    content_hash = hashlib.sha256(content_bytes).hexdigest()
     url_slug = _url_to_slug(url)
 
-    parsed = parse_document(html_bytes, f"{url_slug}.html")
+    parsed = parse_document(content_bytes, f"{url_slug}.md")
 
     chunks = chunk_document(
         parsed,
@@ -365,7 +365,7 @@ def ingest_page(
             title=parsed.title or url_slug,
             lang="en",
             category=category,
-            mime_type="text/html",
+            mime_type="text/markdown",
             content_hash=content_hash,
             doc_version="1.0",
             published_year=published_year,
@@ -544,7 +544,7 @@ async def crawl_and_ingest(
     def _do_ingest(url: str, html: str, entry: SitemapEntry) -> tuple[int, int, int]:
         return ingest_page(
             url=url,
-            html=html,
+            content=html,
             category=entry.category,
             published_year=entry.published_year,
             published_month=entry.published_month,
@@ -574,9 +574,9 @@ async def crawl_and_ingest(
                 failed += 1
                 continue
 
-            html = getattr(result, "html", None) or ""
+            html = getattr(result, "markdown", None) or getattr(result, "html", None) or ""
             if not html.strip():
-                logger.warning("%s ⚠️  Empty HTML: %s — skipping", prefix, result.url)
+                logger.warning("%s ⚠️  Empty content: %s — skipping", prefix, result.url)
                 failed_urls.append(result.url)
                 failed += 1
                 continue
@@ -642,9 +642,9 @@ async def crawl_and_ingest(
                     logger.error("  ❌ Retry crawl failed: %s", result.url)
                     continue
 
-                html = getattr(result, "html", None) or ""
+                html = getattr(result, "markdown", None) or getattr(result, "html", None) or ""
                 if not html.strip():
-                    logger.warning("  ⚠️  Retry empty HTML: %s", result.url)
+                    logger.warning("  ⚠️  Retry empty content: %s", result.url)
                     continue
 
                 try:

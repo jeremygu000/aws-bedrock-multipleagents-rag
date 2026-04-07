@@ -190,7 +190,10 @@ class IngestionRepository:
                     metadata = EXCLUDED.metadata,
                     run_id = EXCLUDED.run_id,
                     category = EXCLUDED.category,
-                    lang = EXCLUDED.lang
+                    lang = EXCLUDED.lang,
+                    mime_type = EXCLUDED.mime_type,
+                    published_year = EXCLUDED.published_year,
+                    published_month = EXCLUDED.published_month
             RETURNING doc_id
             """
         )
