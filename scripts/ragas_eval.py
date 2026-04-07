@@ -190,7 +190,7 @@ def _build_bedrock_models(
         model=litellm_model,
         provider="litellm",
         temperature=0.1,
-        max_tokens=2048,
+        max_tokens=8192,
     )
 
     embeddings = embedding_factory(
