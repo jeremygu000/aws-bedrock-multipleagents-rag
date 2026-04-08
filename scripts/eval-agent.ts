@@ -8,7 +8,73 @@ import {
   renderTraceAggregateSummary,
   renderTraceTimeline,
   resolveTarget,
+  type InvokeAgentOptions,
+  type InvokeResult,
 } from "./lib/bedrock-agent-client";
+
+/* ---------------------------------------------------------------------------
+ * Retry wrapper – exponential backoff with jitter for transient Bedrock errors
+ * -------------------------------------------------------------------------*/
+
+const RETRYABLE_ERROR_PATTERNS = [
+  "ThrottlingException",
+  "InternalServerException",
+  "BadGatewayException",
+  "DependencyFailedException",
+  "ModelNotReadyException",
+  "TimeoutError",
+  "ECONNRESET",
+  "socket hang up",
+  "AbortError",
+  "model timeout",
+  "Dependency resource",
+];
+
+const MAX_RETRIES = 4; // 5 total attempts (1 initial + 4 retries)
+const BASE_DELAY_MS = 1_000;
+
+const extractErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
+};
+
+const isRetryable = (error: unknown): boolean => {
+  const text = extractErrorMessage(error);
+  return RETRYABLE_ERROR_PATTERNS.some((p) => text.includes(p));
+};
+
+const invokeAgentWithRetry = async (
+  options: InvokeAgentOptions,
+  rowId: string,
+): Promise<InvokeResult> => {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await invokeAgent(options);
+    } catch (error: unknown) {
+      lastError = error;
+
+      if (attempt >= MAX_RETRIES || !isRetryable(error)) {
+        throw error;
+      }
+
+      const delay = BASE_DELAY_MS * 2 ** attempt * (0.9 + Math.random() * 0.2);
+      process.stderr.write(
+        `[retry] id=${rowId} attempt=${attempt + 1}/${MAX_RETRIES + 1} ` +
+          `error=${extractErrorMessage(error)} retrying in ${Math.round(delay)}ms\n`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+};
 
 interface EvalInputRow {
   id?: string | number;
@@ -231,12 +297,15 @@ const main = async (): Promise<void> => {
     const id = String(row.id ?? index + 1);
 
     try {
-      const result = await invokeAgent({
-        target,
-        prompt,
-        sessionId: sharedSessionId,
-        enableTrace: true,
-      });
+      const result = await invokeAgentWithRetry(
+        {
+          target,
+          prompt,
+          sessionId: sharedSessionId,
+          enableTrace: true,
+        },
+        id,
+      );
 
       results.push({
         id,

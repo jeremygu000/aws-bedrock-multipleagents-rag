@@ -574,6 +574,8 @@ export const invokeAgent = async (options: InvokeAgentOptions): Promise<InvokeRe
 
   const client = new BedrockAgentRuntimeClient({
     region: options.target.region,
+    maxAttempts: 5,
+    retryMode: "adaptive",
   });
 
   const command = new InvokeAgentCommand({
@@ -595,7 +597,16 @@ export const invokeAgent = async (options: InvokeAgentOptions): Promise<InvokeRe
       : {}),
   });
 
-  const response = await client.send(command);
+  const abortController = new AbortController();
+  const sendTimeout = setTimeout(() => abortController.abort(), 180_000);
+
+  let response;
+  try {
+    response = await client.send(command, { abortSignal: abortController.signal });
+  } catch (error) {
+    clearTimeout(sendTimeout);
+    throw error;
+  }
 
   const traces: unknown[] = [];
   const attributions: unknown[] = [];
@@ -630,6 +641,8 @@ export const invokeAgent = async (options: InvokeAgentOptions): Promise<InvokeRe
       fileEvents.push(record.files);
     }
   }
+
+  clearTimeout(sendTimeout);
 
   const traceTimeline = buildTraceTimeline(traces);
   const completion = completionParts.join("");
