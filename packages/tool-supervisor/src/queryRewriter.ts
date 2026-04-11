@@ -52,20 +52,25 @@ export const rewriteQuery = async (
       },
     });
 
-    const response = await client.send(
-      new InvokeModelCommand({
-        modelId: MODEL_ID,
-        contentType: "application/json",
-        accept: "application/json",
-        body: Buffer.from(body),
-      }),
-    );
+    try {
+      const response = await client.send(
+        new InvokeModelCommand({
+          modelId: MODEL_ID,
+          contentType: "application/json",
+          accept: "application/json",
+          body: Buffer.from(body),
+        }),
+      );
 
-    const result = JSON.parse(new TextDecoder().decode(response.body)) as {
-      output?: { message?: { content?: Array<{ text?: string }> } };
-    };
+      const result = JSON.parse(new TextDecoder().decode(response.body)) as {
+        output?: { message?: { content?: Array<{ text?: string }> } };
+      };
 
-    const rewritten = result.output?.message?.content?.[0]?.text?.trim() ?? query;
+      const rewritten = result.output?.message?.content?.[0]?.text?.trim() ?? query;
 
-    return { original: query, rewritten, intent };
+      return { original: query, rewritten, intent };
+    } catch (error) {
+      tracer.addErrorAsMetadata(error as Error);
+      return { original: query, rewritten: query, intent };
+    }
   });

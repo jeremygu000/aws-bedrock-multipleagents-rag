@@ -65,6 +65,14 @@ export const handler = async (
     tracer.addServiceNameAnnotation();
 
     const prompt = event.prompt;
+    if (!prompt?.trim()) {
+      logger.warn("empty or missing prompt received");
+      return {
+        sessionId: event.sessionId ?? randomUUID(),
+        intent: { type: "INVALID", confidence: 1, reasoning: "Empty or missing prompt" },
+        completion: "A prompt is required. Please provide a question or request.",
+      };
+    }
     const sessionId = event.sessionId ?? randomUUID();
     const enableRerank = event.enableRerank ?? true;
     const rerankTopK = event.rerankTopK ?? 5;

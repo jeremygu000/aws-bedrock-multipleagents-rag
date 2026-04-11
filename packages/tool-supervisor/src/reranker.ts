@@ -83,33 +83,61 @@ export interface InvokeAgentOutput {
   sessionId: string;
 }
 
+const MAX_RETRIES = 3;
+const RETRYABLE_ERRORS = new Set([
+  "ThrottlingException",
+  "InternalServerException",
+  "BadGatewayException",
+  "DependencyFailedException",
+  "ModelNotReadyException",
+]);
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const invokeBedrockAgent = async (
   tracer: Tracer,
   input: InvokeAgentInput,
 ): Promise<InvokeAgentOutput> =>
   captureAsync(tracer, "action.gateway.invoke_supervisor", async () => {
-    const command = new InvokeAgentCommand({
-      agentId: input.agentId,
-      agentAliasId: input.agentAliasId,
-      sessionId: input.sessionId,
-      inputText: input.prompt,
-      enableTrace: true,
-    });
+    let lastError: Error | undefined;
 
-    const response = await agentClient.send(command);
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const command = new InvokeAgentCommand({
+          agentId: input.agentId,
+          agentAliasId: input.agentAliasId,
+          sessionId: input.sessionId,
+          inputText: input.prompt,
+          enableTrace: true,
+        });
 
-    const parts: string[] = [];
-    for await (const event of response.completion ?? []) {
-      const chunk = event as unknown as Record<string, unknown>;
-      const chunkData = chunk.chunk as Record<string, unknown> | undefined;
-      const bytes = chunkData?.bytes;
-      if (bytes instanceof Uint8Array) {
-        parts.push(new TextDecoder("utf-8").decode(bytes));
+        const response = await agentClient.send(command);
+
+        const parts: string[] = [];
+        for await (const event of response.completion ?? []) {
+          const chunk = event as unknown as Record<string, unknown>;
+          const chunkData = chunk.chunk as Record<string, unknown> | undefined;
+          const bytes = chunkData?.bytes;
+          if (bytes instanceof Uint8Array) {
+            parts.push(new TextDecoder("utf-8").decode(bytes));
+          }
+        }
+
+        return {
+          completion: parts.join(""),
+          sessionId: input.sessionId,
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const errorName = (error as { name?: string }).name ?? "";
+        if (attempt < MAX_RETRIES && RETRYABLE_ERRORS.has(errorName)) {
+          const delay = Math.min(1000 * 2 ** attempt, 8000) + Math.random() * 200;
+          await sleep(delay);
+          continue;
+        }
+        throw lastError;
       }
     }
 
-    return {
-      completion: parts.join(""),
-      sessionId: input.sessionId,
-    };
+    throw lastError ?? new Error("invokeBedrockAgent: max retries exceeded");
   });
