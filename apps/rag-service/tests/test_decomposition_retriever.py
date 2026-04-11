@@ -10,7 +10,6 @@ import pytest
 from app.decomposition_retriever import DecompositionRetriever
 from app.models import RetrieveRequest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

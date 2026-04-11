@@ -9,11 +9,82 @@ Based on: Gao et al. "Precise Zero-Shot Dense Retrieval without Relevance Labels
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Optional
 
+import boto3
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _LLMResponse:
+    """Minimal response object matching ``response.content`` convention."""
+
+    content: str
+
+
+class BedrockLLMAdapter:
+    """Wrap ``boto3 bedrock-runtime converse()`` so it exposes ``.invoke(messages)``."""
+
+    def __init__(
+        self,
+        model_id: str,
+        region_name: str,
+        temperature: float = 0.65,
+        max_tokens: int = 500,
+    ) -> None:
+        self._client = boto3.client("bedrock-runtime", region_name=region_name)
+        self._model_id = model_id
+        self._temperature = temperature
+        self._max_tokens = max_tokens
+
+    def _convert_messages(self, messages: list) -> tuple[str | None, list[dict]]:
+        """Convert LangChain message objects to Bedrock Converse format.
+
+        Returns (system_text | None, converse_messages).
+        """
+        system_text: str | None = None
+        converse_msgs: list[dict] = []
+
+        for msg in messages:
+            role = getattr(msg, "type", None) or (msg.get("role") if isinstance(msg, dict) else None)
+            text = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "")
+
+            if role == "system":
+                system_text = text
+            elif role in ("human", "user"):
+                converse_msgs.append({"role": "user", "content": [{"text": text}]})
+            elif role in ("ai", "assistant"):
+                converse_msgs.append({"role": "assistant", "content": [{"text": text}]})
+            else:
+                converse_msgs.append({"role": "user", "content": [{"text": str(text)}]})
+
+        return system_text, converse_msgs
+
+    def invoke(self, messages: list) -> _LLMResponse:
+        """Call Bedrock ``converse()`` and return a response with ``.content``."""
+        system_text, converse_msgs = self._convert_messages(messages)
+
+        kwargs: dict = {
+            "modelId": self._model_id,
+            "messages": converse_msgs,
+            "inferenceConfig": {
+                "temperature": self._temperature,
+                "maxTokens": self._max_tokens,
+            },
+        }
+        if system_text:
+            kwargs["system"] = [{"text": system_text}]
+
+        try:
+            resp = self._client.converse(**kwargs)
+            text = resp["output"]["message"]["content"][0]["text"]
+            return _LLMResponse(content=text)
+        except Exception:
+            logger.exception("BedrockLLMAdapter.invoke failed (model=%s)", self._model_id)
+            raise
 
 
 class HyDEConfig(BaseModel):

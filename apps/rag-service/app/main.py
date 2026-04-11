@@ -107,13 +107,37 @@ def _build_workflow() -> RagWorkflow:
     )
 
     # Query Decomposition components — only instantiate when feature flag is on.
+    query_decomposer = None
     decomposition_retriever = None
     if settings.enable_query_decomposition:
         from .decomposition_retriever import DecompositionRetriever
         from .query_decomposer import QueryDecomposer
         
         query_decomposer = QueryDecomposer(settings)
-        decomposition_retriever = DecompositionRetriever(repository, query_decomposer, settings)
+        decomposition_retriever = DecompositionRetriever(repository)
+
+    hyde_retriever = None
+    if settings.enable_hyde:
+        from .hyde_retriever import BedrockLLMAdapter, HyDEConfig, HyDERetriever
+
+        hyde_llm = BedrockLLMAdapter(
+            model_id=settings.hyde_model_id,
+            region_name=settings.aws_region or "ap-southeast-2",
+            temperature=settings.hyde_temperature,
+            max_tokens=settings.hyde_max_tokens,
+        )
+        hyde_retriever = HyDERetriever(
+            llm_client=hyde_llm,
+            embedding_model=embedding_client,
+            config=HyDEConfig(
+                enabled=True,
+                temperature=settings.hyde_temperature,
+                max_hypothesis_tokens=settings.hyde_max_tokens,
+                include_original=settings.hyde_include_original,
+                num_hypotheses=settings.hyde_num_hypotheses,
+            ),
+        )
+        logger.info("HyDERetriever initialized (model=%s)", settings.hyde_model_id)
 
     # CRAG components — only instantiate when feature flag is on.
     retrieval_grader = None
@@ -150,6 +174,8 @@ def _build_workflow() -> RagWorkflow:
         retrieval_grader=retrieval_grader,
         crag_query_rewriter=crag_query_rewriter,
         crag_web_searcher=crag_web_searcher,
+        hyde_retriever=hyde_retriever,
+        query_decomposer=query_decomposer,
         decomposition_retriever=decomposition_retriever,
         community_store=community_store,
         self_reflection_node=self_reflection_node,
