@@ -300,3 +300,99 @@ class TestEdgeCases:
     def test_fallback_subquestions_min_count(self, decomposer):
         result = decomposer._create_fallback_subquestions("test query", 1)
         assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage: semantic_gap boundaries, parse edge cases, clamping
+# ---------------------------------------------------------------------------
+
+class TestSemanticGapBoundaries:
+
+    def test_semantic_gap_exactly_at_threshold(self, decomposer):
+        query = "explain how copyright policy changes affect digital platforms across multiple regions and what this means for creators globally"
+        decision = decomposer.should_decompose(query, semantic_gap=0.3)
+        assert decision.should_decompose is False
+
+    def test_semantic_gap_just_above_threshold(self, decomposer):
+        query = "explain how copyright policy changes affect digital platforms across multiple regions and what this means for creators globally"
+        decision = decomposer.should_decompose(query, semantic_gap=0.31)
+        assert decision.should_decompose is True
+
+    def test_semantic_gap_none_treated_as_above(self, decomposer):
+        query = "explain how copyright policy changes affect digital platforms across multiple regions and what this means for creators globally"
+        decision = decomposer.should_decompose(query, semantic_gap=None)
+        assert decision.should_decompose is True
+
+    def test_semantic_gap_zero_reasoning_query(self, decomposer):
+        query = "explain why music licensing fees have increased significantly over the past decade"
+        decision = decomposer.should_decompose(query, semantic_gap=0.0)
+        assert decision.should_decompose is False
+
+
+class TestParseSubQuestionsExtended:
+
+    def test_parse_markdown_fenced_json(self, decomposer):
+        text = '```json\n[{"id": 1, "question": "What is the role of APRA in licensing?", "focus": "role", "retrieve_strategy": "dense"}]\n```'
+        result = decomposer._parse_sub_questions(text, "test query", 2)
+        assert len(result) == 1
+        assert result[0].id == 1
+
+    def test_parse_empty_array_falls_back(self, decomposer):
+        result = decomposer._parse_sub_questions("[]", "test query", 2)
+        assert len(result) >= 2
+
+    def test_parse_invalid_subquestion_fields_falls_back(self, decomposer):
+        text = '[{"id": 1, "wrong_field": "bad data"}]'
+        result = decomposer._parse_sub_questions(text, "test query", 2)
+        assert len(result) >= 2
+
+    def test_parse_mixed_valid_invalid(self, decomposer):
+        text = json.dumps([
+            {"id": 1, "question": "What is the context of copyright law reform?", "focus": "context", "retrieve_strategy": "dense"},
+            {"id": 2, "bad": "data"},
+        ])
+        result = decomposer._parse_sub_questions(text, "test query", 2)
+        assert len(result) >= 1
+
+
+class TestGenerateSubQuestionsClamping:
+
+    def test_num_subquestions_clamped_to_min_2(self, decomposer, mock_bedrock):
+        mock_bedrock.converse.return_value = {
+            "output": {"message": {"content": [{"text": json.dumps([
+                {"id": 1, "question": "What is the background of this topic?", "focus": "context", "retrieve_strategy": "dense"},
+                {"id": 2, "question": "What are the implications of this topic?", "focus": "impact", "retrieve_strategy": "hybrid"},
+            ])}]}},
+            "usage": {},
+        }
+        result = decomposer._generate_sub_questions_bedrock("test query", 1)
+        call_args = mock_bedrock.converse.call_args
+        system_text = call_args.kwargs["system"][0]["text"]
+        assert "2" in system_text
+
+    def test_num_subquestions_clamped_to_max(self, decomposer, mock_settings, mock_bedrock):
+        mock_settings.decomposition_max_subquestions = 3
+        mock_bedrock.converse.return_value = {
+            "output": {"message": {"content": [{"text": "[]"}]}},
+            "usage": {},
+        }
+        decomposer._generate_sub_questions_bedrock("test query", 10)
+        call_args = mock_bedrock.converse.call_args
+        system_text = call_args.kwargs["system"][0]["text"]
+        assert "3" in system_text
+
+
+class TestDecomposeQueryTopLevelFailure:
+
+    def test_decompose_query_returns_false_on_unexpected_error(self, mock_settings, mock_bedrock):
+        decomposer = QueryDecomposer(mock_settings, mock_bedrock)
+
+        def broken_converse(**kwargs):
+            raise TypeError("Unexpected internal error")
+
+        mock_bedrock.converse.side_effect = broken_converse
+
+        query = "explain the detailed relationship between international copyright law frameworks and digital content distribution across multiple different jurisdictions around the world"
+        result = decomposer.decompose_query(query)
+        # Top-level fallback: _generate_sub_questions_bedrock catches and returns fallback subquestions
+        assert isinstance(result, DecompositionResult)
