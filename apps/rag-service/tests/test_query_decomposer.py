@@ -365,7 +365,7 @@ class TestGenerateSubQuestionsClamping:
             ])}]}},
             "usage": {},
         }
-        result = decomposer._generate_sub_questions_bedrock("test query", 1)
+        decomposer._generate_sub_questions_bedrock("test query", 1)
         call_args = mock_bedrock.converse.call_args
         system_text = call_args.kwargs["system"][0]["text"]
         assert "2" in system_text
