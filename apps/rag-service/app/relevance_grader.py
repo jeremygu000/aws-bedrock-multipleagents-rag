@@ -64,7 +64,7 @@ Respond in JSON format only:
     def _converse(self, system_prompt: str, user_prompt: str, max_tokens: int = 300) -> str:
         client = self._get_bedrock_client()
         response = client.converse(
-            modelId=self.GRADER_MODEL_ID,
+            modelId=self._settings.grader_model_id,
             system=[{"text": system_prompt}],
             messages=[{"role": "user", "content": [{"text": user_prompt}]}],
             inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0},

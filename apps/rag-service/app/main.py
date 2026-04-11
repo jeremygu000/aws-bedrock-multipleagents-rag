@@ -114,7 +114,7 @@ def _build_workflow() -> RagWorkflow:
         from .query_decomposer import QueryDecomposer
         
         query_decomposer = QueryDecomposer(settings)
-        decomposition_retriever = DecompositionRetriever(repository)
+        decomposition_retriever = DecompositionRetriever(repository, settings)
 
     hyde_retriever = None
     if settings.enable_hyde:

@@ -87,7 +87,7 @@ JSON response only (no markdown, no extra text):"""
         """Call Bedrock converse API with Nova Pro."""
         client = self._get_bedrock_client()
         response = client.converse(
-            modelId=self.GRADER_MODEL_ID,
+            modelId=self._settings.grader_model_id,
             system=[{"text": system_prompt}],
             messages=[{"role": "user", "content": [{"text": user_prompt}]}],
             inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0},
@@ -196,7 +196,7 @@ JSON response only (no markdown, no extra text):"""
     async def _extract_claims(self, answer: str) -> list[str]:
         """Extract atomic claims from answer using Bedrock Nova Pro."""
         try:
-            prompt = self.CLAIM_EXTRACTION_PROMPT.format(answer=answer[:2000])
+            prompt = self.CLAIM_EXTRACTION_PROMPT.format(answer=answer[:self._settings.faithfulness_max_answer_chars])
 
             text = await asyncio.to_thread(
                 self._converse,

@@ -476,8 +476,7 @@ class CommunityDetector:
                         evidence = rel.get("evidence") or ""
                         desc = f"{src} --[{rel_type}]--> {tgt}"
                         if evidence:
-                            # Truncate evidence to keep prompts manageable
-                            short_evidence = evidence[:120].replace("\n", " ")
+                            short_evidence = evidence[:self._settings.community_evidence_max_chars].replace("\n", " ")
                             desc = f"{desc} ({short_evidence})"
                         rel_descriptions.append(desc)
 

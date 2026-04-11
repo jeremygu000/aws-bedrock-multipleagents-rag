@@ -532,11 +532,6 @@ class Settings(BaseSettings):
     )
 
     # --- Evaluation framework settings (Phase 4) ---
-    enable_eval_tracing: bool = Field(
-        default=False,
-        validation_alias="RAG_ENABLE_EVAL_TRACING",
-        description="Enable evaluation tracing for production monitoring",
-    )
     eval_faithfulness_threshold: float = Field(
         default=0.85,
         ge=0.0,
@@ -574,6 +569,59 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="RAG_ENABLE_STREAMING",
         description="Feature flag to enable GET /retrieve/stream SSE endpoint",
+    )
+
+    # --- Grading & reflection model configuration ---
+    grader_model_id: str = Field(
+        default="amazon.nova-pro-v1:0",
+        validation_alias="RAG_GRADER_MODEL_ID",
+        description="Bedrock model ID for faithfulness/relevance grading",
+    )
+
+    # --- Timeout configuration (seconds) ---
+    qwen_http_timeout_s: int = Field(
+        default=120,
+        ge=10,
+        le=600,
+        validation_alias="RAG_QWEN_HTTP_TIMEOUT_S",
+        description="HTTP timeout for Qwen API calls",
+    )
+    qwen_embedding_timeout_s: int = Field(
+        default=60,
+        ge=10,
+        le=300,
+        validation_alias="RAG_QWEN_EMBEDDING_TIMEOUT_S",
+        description="HTTP timeout for Qwen embedding calls",
+    )
+    decomposition_timeout_s: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        validation_alias="RAG_DECOMPOSITION_TIMEOUT_S",
+        description="Timeout for parallel sub-question retrieval",
+    )
+
+    # --- Text truncation limits (characters) ---
+    grading_max_document_chars: int = Field(
+        default=2000,
+        ge=500,
+        le=10000,
+        validation_alias="RAG_GRADING_MAX_DOCUMENT_CHARS",
+        description="Max document chars for CRAG grading",
+    )
+    faithfulness_max_answer_chars: int = Field(
+        default=2000,
+        ge=500,
+        le=10000,
+        validation_alias="RAG_FAITHFULNESS_MAX_ANSWER_CHARS",
+        description="Max answer chars for faithfulness claim extraction",
+    )
+    community_evidence_max_chars: int = Field(
+        default=120,
+        ge=50,
+        le=500,
+        validation_alias="RAG_COMMUNITY_EVIDENCE_MAX_CHARS",
+        description="Max evidence chars for community summaries",
     )
 
     # --- Observability / Tracing settings (Phase 8) ---

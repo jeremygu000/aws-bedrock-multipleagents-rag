@@ -56,7 +56,7 @@ class RetrievalGrader:
         return self._client
 
     def grade(self, question: str, document_text: str) -> bool:
-        user_prompt = f"Question: {question}\n\nDocument:\n{document_text[:2000]}"
+        user_prompt = f"Question: {question}\n\nDocument:\n{document_text[:self._settings.grading_max_document_chars]}"
         try:
             raw = _bedrock_chat(
                 self._get_client(),
