@@ -112,6 +112,49 @@ if settings.enable_hyde:
 else:
     logger.info("HyDE disabled (RAG_ENABLE_HYDE=%s)", settings.enable_hyde)
 
+# Query Decomposition — only instantiate when feature flag is on.
+query_decomposer = None
+decomposition_retriever = None
+if settings.enable_query_decomposition:
+    from app.decomposition_retriever import DecompositionRetriever
+    from app.query_decomposer import QueryDecomposer
+
+    query_decomposer = QueryDecomposer(settings)
+    decomposition_retriever = DecompositionRetriever(repository, settings)
+    logger.info("QueryDecomposer + DecompositionRetriever initialized")
+
+# Community Detection — requires Neo4j to be available.
+community_store = None
+if settings.enable_community_detection and settings.enable_neo4j:
+    from app.community_detection import CommunityStore
+    from app.graph_repository import Neo4jRepository
+
+    neo4j_password = resolve_neo4j_password(settings)
+    _neo4j_repo = Neo4jRepository(
+        uri=settings.neo4j_uri,
+        username=settings.neo4j_username,
+        password=neo4j_password,
+        database=settings.neo4j_database,
+    )
+    community_store = CommunityStore(neo4j_repo=_neo4j_repo, settings=settings)
+    logger.info("CommunityStore initialized for community-enhanced retrieval")
+
+# Self-Reflection — LLM-as-judge for faithfulness + relevance grading.
+self_reflection_node = None
+if settings.enable_reflection:
+    from app.adaptive_reflection_router import AdaptiveReflectionRouter
+    from app.faithfulness_grader import FaithfulnessGrader
+    from app.relevance_grader import RelevanceGrader
+    from app.self_reflection_node import SelfReflectionNode
+
+    faithfulness_grader = FaithfulnessGrader(settings)
+    relevance_grader = RelevanceGrader(settings)
+    adaptive_router = AdaptiveReflectionRouter(enable_reflection=True)
+    self_reflection_node = SelfReflectionNode(
+        settings, faithfulness_grader, relevance_grader, adaptive_router
+    )
+    logger.info("SelfReflectionNode initialized for post-generation quality grading")
+
 workflow = RagWorkflow(
     settings=settings,
     repository=repository,
@@ -123,6 +166,10 @@ workflow = RagWorkflow(
     crag_query_rewriter=crag_query_rewriter,
     crag_web_searcher=crag_web_searcher,
     hyde_retriever=hyde_retriever,
+    query_decomposer=query_decomposer,
+    decomposition_retriever=decomposition_retriever,
+    community_store=community_store,
+    self_reflection_node=self_reflection_node,
 )
 
 
