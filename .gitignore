@@ -16,6 +16,7 @@ __pycache__/
 
 # Next.js
 .next/
+.open-next/
 out/
 next-env.d.ts
 

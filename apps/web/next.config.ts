@@ -6,6 +6,7 @@ const uploadUrl = process.env.UPLOAD_URL ?? "http://localhost:3002";
 /* eslint-enable n/no-process-env */
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   async rewrites() {
     return [
       {

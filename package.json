@@ -74,13 +74,22 @@
     "build:web": "pnpm --filter @aws-bedrock-multiagents/web build",
     "build:chat": "pnpm --filter @aws-bedrock-multiagents/chat build",
     "build:upload": "pnpm --filter @aws-bedrock-multiagents/upload build",
-    "build:frontend": "pnpm --filter @aws-bedrock-multiagents/web build && pnpm --filter @aws-bedrock-multiagents/chat build && pnpm --filter @aws-bedrock-multiagents/upload build"
+    "build:frontend": "pnpm --filter @aws-bedrock-multiagents/web build && pnpm --filter @aws-bedrock-multiagents/chat build && pnpm --filter @aws-bedrock-multiagents/upload build",
+    "opennext:web": "pnpm --filter @aws-bedrock-multiagents/web exec open-next build",
+    "opennext:chat": "pnpm --filter @aws-bedrock-multiagents/chat exec open-next build",
+    "opennext:upload": "pnpm --filter @aws-bedrock-multiagents/upload exec open-next build",
+    "opennext:all": "pnpm opennext:web && pnpm opennext:chat && pnpm opennext:upload",
+    "build:frontend:deploy": "pnpm build:frontend && pnpm opennext:all",
+    "deploy:frontend": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk deploy --progress events FrontendStack",
+    "destroy:frontend": "pnpm --filter @aws-bedrock-multiagents/infra-cdk exec cdk destroy FrontendStack --force"
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock-agent-runtime": "^3.884.0",
     "@aws-sdk/client-lambda": "^3.884.0",
+    "@opennextjs/aws": "^3.10.1",
     "@types/node": "^22.13.10",
     "chalk": "^5.4.1",
+    "esbuild": "^0.25.12",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.6",
     "oxlint": "^1.14.0",

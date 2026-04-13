@@ -6,6 +6,7 @@ import { BedrockAgentsStack } from "../lib/bedrock-agents-stack.js";
 import { MonitoringEc2Stack } from "../lib/monitoring-ec2-stack.js";
 import { Neo4jDataStack } from "../lib/neo4j-data-stack.js";
 import { PhoenixEc2Stack } from "../lib/phoenix-ec2-stack.js";
+import { FrontendStack } from "../lib/frontend-stack.js";
 
 /**
  * CDK entrypoint for all deployable stacks in this repository.
@@ -132,6 +133,14 @@ new PhoenixEc2Stack(app, "PhoenixEc2Stack", {
       ? phoenixRootVolumeSizeGiB
       : undefined,
   retainDataOnDelete: phoenixRetainDataOnDelete,
+});
+
+// Create frontend stack (Multi Zones with CloudFront)
+new FrontendStack(app, "FrontendStack", {
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION,
+  },
 });
 
 // Create application layer resources (Bedrock agents + action Lambdas).
