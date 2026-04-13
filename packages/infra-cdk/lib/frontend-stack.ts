@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as cdk from "aws-cdk-lib";
-import { Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
+import { Duration, Stack, type StackProps } from "aws-cdk-lib";
 import {
   Distribution,
   ViewerProtocolPolicy,
@@ -10,7 +10,7 @@ import {
   AllowedMethods,
 } from "aws-cdk-lib/aws-cloudfront";
 import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
-import { type Construct } from "constructs";
+import type { Construct } from "constructs";
 import { NextjsSite } from "cdk-opennext";
 
 /**
