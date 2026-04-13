@@ -9,6 +9,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Optional
+from statistics import mean
 
 # Add apps/rag-service to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "apps" / "rag-service"))
@@ -28,6 +29,7 @@ from ragas.metrics import (
 from datasets import Dataset
 from botocore.config import Config
 import warnings
+import math
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -54,28 +56,35 @@ def get_metrics_for_category(category: str):
         return [SemanticSimilarity()]
 
 
-def evaluation_result_to_dict(result):
+def evaluation_result_to_dict(result, category: str):
     """Convert RAGAS EvaluationResult to JSON-serializable dict."""
     output = {}
     
-    # Top-level scores by metric
-    if hasattr(result, 'scores'):
-        for key, value in result.scores.items():
-            if isinstance(value, float):
-                output[f"overall_{key}"] = round(value, 4)
-    
-    # Per-row detailed scores
-    if hasattr(result, 'dataset'):
-        output['rows_count'] = len(result.dataset)
-    
-    # Add per-metric scores if available
-    for metric_name in ['semantic_similarity', 'factual_correctness']:
-        if hasattr(result, metric_name):
-            val = getattr(result, metric_name)
-            if isinstance(val, (int, float)):
-                output[metric_name] = round(val, 4)
-    
-    return output if output else {"status": "evaluation_completed"}
+    try:
+        # Convert to pandas DataFrame and then to records
+        df = result.to_pandas()
+        rows_data = df.to_dict(orient="records")
+        
+        # Calculate per-metric averages
+        metrics = get_metrics_for_category(category)
+        metric_names = [getattr(m, "name", m.__class__.__name__) for m in metrics]
+        
+        for metric_name in metric_names:
+            values = []
+            for row in rows_data:
+                val = row.get(metric_name)
+                if isinstance(val, (int, float)) and not math.isnan(float(val)):
+                    values.append(float(val))
+            
+            if values:
+                avg = mean(values)
+                output[f"overall_{metric_name}"] = round(avg, 4)
+        
+        output['rows_count'] = len(rows_data)
+        return output
+    except Exception as e:
+        print(f"    ⚠️ Warning converting results: {e}")
+        return {"status": "evaluation_completed_with_error", "error": str(e)}
 
 
 def run_ragas_evaluation(
@@ -127,9 +136,10 @@ def run_ragas_evaluation(
             metrics=metrics,
             llm=ragas_llm,
             embeddings=ragas_embeddings,
+            raise_exceptions=False,
         )
         # Convert to JSON-serializable format
-        return evaluation_result_to_dict(results)
+        return evaluation_result_to_dict(results, category)
     except Exception as e:
         print(f"    ❌ Error during evaluation: {e}")
         raise

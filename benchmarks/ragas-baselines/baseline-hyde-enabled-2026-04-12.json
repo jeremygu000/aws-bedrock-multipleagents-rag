@@ -1,0 +1,15 @@
+{
+  "feature_configuration": "hyde-enabled",
+  "llm_model": "amazon.nova-pro-v1:0",
+  "embedding_model": "amazon.titan-embed-text-v2:0",
+  "results_by_category": {
+    "qa": {
+      "overall_semantic_similarity": 0.2615,
+      "rows_count": 22
+    },
+    "work-search": {
+      "overall_semantic_similarity": 0.1993,
+      "rows_count": 8
+    }
+  }
+}

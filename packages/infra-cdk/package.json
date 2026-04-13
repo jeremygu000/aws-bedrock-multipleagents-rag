@@ -15,6 +15,7 @@
   "dependencies": {
     "@aws-cdk/aws-lambda-python-alpha": "^2.180.0-alpha.0",
     "aws-cdk-lib": "^2.180.0",
+    "cdk-opennext": "0.5.3",
     "constructs": "^10.4.2"
   },
   "devDependencies": {
