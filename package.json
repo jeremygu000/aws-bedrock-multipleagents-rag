@@ -66,7 +66,15 @@
     "instance:stop:phoenix": "scripts/power-instances.sh stop phoenix --wait",
     "instance:start:phoenix": "scripts/power-instances.sh start phoenix --wait",
     "instance:stop:all": "scripts/power-instances.sh stop all --wait",
-    "instance:start:all": "scripts/power-instances.sh start all --wait"
+    "instance:start:all": "scripts/power-instances.sh start all --wait",
+    "dev:web": "pnpm --filter @aws-bedrock-multiagents/web dev",
+    "dev:chat": "pnpm --filter @aws-bedrock-multiagents/chat dev",
+    "dev:upload": "pnpm --filter @aws-bedrock-multiagents/upload dev",
+    "dev:frontend": "pnpm --filter @aws-bedrock-multiagents/web dev & pnpm --filter @aws-bedrock-multiagents/chat dev & pnpm --filter @aws-bedrock-multiagents/upload dev",
+    "build:web": "pnpm --filter @aws-bedrock-multiagents/web build",
+    "build:chat": "pnpm --filter @aws-bedrock-multiagents/chat build",
+    "build:upload": "pnpm --filter @aws-bedrock-multiagents/upload build",
+    "build:frontend": "pnpm --filter @aws-bedrock-multiagents/web build && pnpm --filter @aws-bedrock-multiagents/chat build && pnpm --filter @aws-bedrock-multiagents/upload build"
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock-agent-runtime": "^3.884.0",
